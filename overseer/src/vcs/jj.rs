@@ -2,9 +2,12 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use chrono::{DateTime, TimeZone, Utc};
+use jj_lib::backend::CommitId;
 use jj_lib::config::{ConfigLayer, ConfigSource, StackedConfig};
 use jj_lib::hex_util::encode_reverse_hex;
 use jj_lib::object_id::ObjectId;
+use jj_lib::op_store::RefTarget;
+use jj_lib::ref_name::RefNameBuf;
 use jj_lib::repo::{ReadonlyRepo, Repo, StoreFactories};
 use jj_lib::settings::UserSettings;
 use jj_lib::workspace::{default_working_copy_factories, Workspace};
@@ -271,6 +274,252 @@ impl VcsBackend for JjBackend {
 
         let change_id_full = encode_reverse_hex(commit.change_id().as_bytes());
         Ok(change_id_full[..12.min(change_id_full.len())].to_string())
+    }
+
+    fn create_bookmark(&self, name: &str, target: Option<&str>) -> VcsResult<()> {
+        let (workspace, repo) = self.load_repo()?;
+        let view = repo.view();
+
+        let ref_name: RefNameBuf = name.into();
+        if view
+            .local_bookmarks()
+            .any(|(n, _)| n.as_str() == ref_name.as_str())
+        {
+            return Err(VcsError::BookmarkExists(name.to_string()));
+        }
+
+        let target_id = if let Some(target_str) = target {
+            self.resolve_to_commit_id(&repo, target_str)?
+        } else {
+            view.wc_commit_ids()
+                .get(workspace.workspace_name())
+                .ok_or(VcsError::NoWorkingCopy)?
+                .clone()
+        };
+
+        let mut tx = repo.start_transaction();
+        tx.repo_mut()
+            .set_local_bookmark_target(&ref_name, RefTarget::normal(target_id));
+
+        tx.commit(format!("create bookmark: {name}"))
+            .map_err(|e| VcsError::Jj(format!("commit transaction: {e}")))?;
+
+        Ok(())
+    }
+
+    fn delete_bookmark(&self, name: &str) -> VcsResult<()> {
+        let (_workspace, repo) = self.load_repo()?;
+        let view = repo.view();
+
+        let ref_name: RefNameBuf = name.into();
+        if !view
+            .local_bookmarks()
+            .any(|(n, _)| n.as_str() == ref_name.as_str())
+        {
+            return Err(VcsError::BookmarkNotFound(name.to_string()));
+        }
+
+        let mut tx = repo.start_transaction();
+        tx.repo_mut()
+            .set_local_bookmark_target(&ref_name, RefTarget::absent());
+
+        tx.commit(format!("delete bookmark: {name}"))
+            .map_err(|e| VcsError::Jj(format!("commit transaction: {e}")))?;
+
+        Ok(())
+    }
+
+    fn list_bookmarks(&self, prefix: Option<&str>) -> VcsResult<Vec<String>> {
+        let (_workspace, repo) = self.load_repo()?;
+        let view = repo.view();
+
+        let bookmarks: Vec<String> = view
+            .local_bookmarks()
+            .filter_map(|(name, _target)| {
+                let name_str = name.as_str();
+                if let Some(p) = prefix {
+                    if name_str.starts_with(p) {
+                        Some(name_str.to_string())
+                    } else {
+                        None
+                    }
+                } else {
+                    Some(name_str.to_string())
+                }
+            })
+            .collect();
+
+        Ok(bookmarks)
+    }
+
+    fn checkout(&self, target: &str) -> VcsResult<()> {
+        let (workspace, repo) = self.load_repo()?;
+
+        let target_id = self.resolve_to_commit_id(&repo, target)?;
+
+        let commit = repo
+            .store()
+            .get_commit(&target_id)
+            .map_err(|e| VcsError::Jj(format!("get commit: {e}")))?;
+
+        let mut tx = repo.start_transaction();
+
+        tx.repo_mut()
+            .set_wc_commit(workspace.workspace_name().into(), commit.id().clone())
+            .map_err(|e| VcsError::Jj(format!("set wc commit: {e}")))?;
+
+        tx.commit(format!("checkout: {target}"))
+            .map_err(|e| VcsError::Jj(format!("commit transaction: {e}")))?;
+
+        Ok(())
+    }
+
+    fn squash(&self, message: &str) -> VcsResult<CommitResult> {
+        let (workspace, repo) = self.load_repo()?;
+        let view = repo.view();
+
+        let wc_id = view
+            .wc_commit_ids()
+            .get(workspace.workspace_name())
+            .ok_or(VcsError::NoWorkingCopy)?;
+
+        let wc_commit = repo
+            .store()
+            .get_commit(wc_id)
+            .map_err(|e| VcsError::Jj(format!("get wc commit: {e}")))?;
+
+        let parent_ids = wc_commit.parent_ids();
+        if parent_ids.is_empty() {
+            return Err(VcsError::Jj("working copy has no parent".to_string()));
+        }
+
+        let parent_id = &parent_ids[0];
+        let parent_commit = repo
+            .store()
+            .get_commit(parent_id)
+            .map_err(|e| VcsError::Jj(format!("get parent commit: {e}")))?;
+
+        let mut tx = repo.start_transaction();
+        let mut_repo = tx.repo_mut();
+
+        let new_commit = mut_repo
+            .rewrite_commit(&parent_commit)
+            .set_tree(wc_commit.tree())
+            .set_description(message)
+            .write()
+            .map_err(|e| VcsError::Jj(format!("rewrite commit: {e}")))?;
+
+        let change_id_full = encode_reverse_hex(new_commit.change_id().as_bytes());
+        let id = change_id_full[..12.min(change_id_full.len())].to_string();
+
+        mut_repo
+            .rebase_descendants()
+            .map_err(|e| VcsError::Jj(format!("rebase descendants: {e}")))?;
+
+        let new_wc = mut_repo
+            .new_commit(vec![new_commit.id().clone()], new_commit.tree())
+            .write()
+            .map_err(|e| VcsError::Jj(format!("create new wc: {e}")))?;
+
+        mut_repo
+            .set_wc_commit(workspace.workspace_name().into(), new_wc.id().clone())
+            .map_err(|e| VcsError::Jj(format!("set wc commit: {e}")))?;
+
+        tx.commit(format!("squash: {}", message.lines().next().unwrap_or("")))
+            .map_err(|e| VcsError::Jj(format!("commit transaction: {e}")))?;
+
+        Ok(CommitResult {
+            id,
+            message: message.to_string(),
+        })
+    }
+
+    fn rebase_onto(&self, target: &str) -> VcsResult<()> {
+        let (workspace, repo) = self.load_repo()?;
+        let view = repo.view();
+
+        let target_id = self.resolve_to_commit_id(&repo, target)?;
+
+        let wc_id = view
+            .wc_commit_ids()
+            .get(workspace.workspace_name())
+            .ok_or(VcsError::NoWorkingCopy)?;
+
+        let wc_commit = repo
+            .store()
+            .get_commit(wc_id)
+            .map_err(|e| VcsError::Jj(format!("get wc commit: {e}")))?;
+
+        let target_commit = repo
+            .store()
+            .get_commit(&target_id)
+            .map_err(|e| VcsError::Jj(format!("get target commit: {e}")))?;
+
+        let mut tx = repo.start_transaction();
+        let mut_repo = tx.repo_mut();
+
+        let rebased = mut_repo
+            .rewrite_commit(&wc_commit)
+            .set_parents(vec![target_commit.id().clone()])
+            .write()
+            .map_err(|e| VcsError::Jj(format!("rewrite commit: {e}")))?;
+
+        if rebased.has_conflict() {
+            return Err(VcsError::RebaseConflict);
+        }
+
+        mut_repo
+            .rebase_descendants()
+            .map_err(|e| VcsError::Jj(format!("rebase descendants: {e}")))?;
+
+        mut_repo
+            .set_wc_commit(workspace.workspace_name().into(), rebased.id().clone())
+            .map_err(|e| VcsError::Jj(format!("set wc commit: {e}")))?;
+
+        tx.commit(format!("rebase onto: {target}"))
+            .map_err(|e| VcsError::Jj(format!("commit transaction: {e}")))?;
+
+        Ok(())
+    }
+}
+
+impl JjBackend {
+    fn resolve_to_commit_id(&self, repo: &Arc<ReadonlyRepo>, target: &str) -> VcsResult<CommitId> {
+        use jj_lib::object_id::{HexPrefix, PrefixResolution};
+        use jj_lib::repo::Repo;
+
+        let view = repo.view();
+
+        // Try bookmark first
+        for (name, bookmark_target) in view.local_bookmarks() {
+            if name.as_str() == target {
+                if let Some(id) = bookmark_target.as_normal() {
+                    return Ok(id.clone());
+                }
+            }
+        }
+
+        // Try change ID prefix (reverse hex format used by jj)
+        if let Some(prefix) = HexPrefix::try_from_reverse_hex(target) {
+            if let Ok(resolution) = repo.resolve_change_id_prefix(&prefix) {
+                match resolution {
+                    PrefixResolution::SingleMatch(entries) => {
+                        if let Some((commit_id, _)) = entries.targets.first() {
+                            return Ok(commit_id.clone());
+                        }
+                    }
+                    PrefixResolution::AmbiguousMatch => {
+                        // Could return first match, but for safety return error
+                        return Err(VcsError::Jj(format!(
+                            "ambiguous change ID prefix: {target}"
+                        )));
+                    }
+                    PrefixResolution::NoMatch => {}
+                }
+            }
+        }
+
+        Err(VcsError::TargetNotFound(target.to_string()))
     }
 }
 

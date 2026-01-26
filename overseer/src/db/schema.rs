@@ -2,7 +2,7 @@ use rusqlite::Connection;
 
 use crate::error::Result;
 
-const SCHEMA_VERSION: i32 = 1;
+const SCHEMA_VERSION: i32 = 2;
 
 pub fn init_schema(conn: &Connection) -> Result<()> {
     let current_version: i32 = conn.pragma_query_value(None, "user_version", |row| row.get(0))?;
@@ -22,7 +22,9 @@ pub fn init_schema(conn: &Connection) -> Result<()> {
                 created_at TEXT NOT NULL,
                 updated_at TEXT NOT NULL,
                 commit_sha TEXT,
-                started_at TEXT
+                started_at TEXT,
+                bookmark TEXT,
+                start_commit TEXT
             );
 
             CREATE TABLE IF NOT EXISTS learnings (
@@ -53,7 +55,21 @@ pub fn init_schema(conn: &Connection) -> Result<()> {
             "#,
         )?;
 
+        // Fresh database gets the latest schema version
         conn.pragma_update(None, "user_version", SCHEMA_VERSION)?;
+    }
+
+    // Migration for existing databases at version 1
+    if current_version == 1 {
+        conn.execute_batch(
+            r#"
+            BEGIN;
+            ALTER TABLE tasks ADD COLUMN bookmark TEXT;
+            ALTER TABLE tasks ADD COLUMN start_commit TEXT;
+            COMMIT;
+            "#,
+        )?;
+        conn.pragma_update(None, "user_version", 2)?;
     }
 
     Ok(())

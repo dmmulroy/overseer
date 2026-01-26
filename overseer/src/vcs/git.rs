@@ -304,6 +304,271 @@ impl VcsBackend for GixBackend {
 
         Ok(head_commit.id.to_string()[..12].to_string())
     }
+
+    fn create_bookmark(&self, name: &str, target: Option<&str>) -> VcsResult<()> {
+        // Check if branch already exists using gix
+        let repo = self.open_repo()?;
+        let references = repo
+            .references()
+            .map_err(|e| VcsError::Git(e.to_string()))?;
+
+        let branch_ref = format!("refs/heads/{}", name);
+        for reference in references.all().map_err(|e| VcsError::Git(e.to_string()))? {
+            let reference = reference.map_err(|e| VcsError::Git(e.to_string()))?;
+            if reference.name().as_bstr().to_str_lossy() == branch_ref {
+                return Err(VcsError::BookmarkExists(name.to_string()));
+            }
+        }
+
+        // Use git CLI to create branch
+        let mut args = vec!["branch".to_string(), name.to_string()];
+        if let Some(t) = target {
+            args.push(t.to_string());
+        }
+
+        let output = Command::new("git")
+            .args(&args)
+            .current_dir(&self.root)
+            .output()
+            .map_err(|e| VcsError::Git(format!("failed to run git branch: {e}")))?;
+
+        if !output.status.success() {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            if stderr.contains("not a valid object name") || stderr.contains("unknown revision") {
+                return Err(VcsError::TargetNotFound(
+                    target.unwrap_or("HEAD").to_string(),
+                ));
+            }
+            return Err(VcsError::Git(format!("git branch failed: {stderr}")));
+        }
+
+        Ok(())
+    }
+
+    fn delete_bookmark(&self, name: &str) -> VcsResult<()> {
+        // Check if branch exists using gix
+        let repo = self.open_repo()?;
+        let references = repo
+            .references()
+            .map_err(|e| VcsError::Git(e.to_string()))?;
+
+        let branch_ref = format!("refs/heads/{}", name);
+        let mut found = false;
+        for reference in references.all().map_err(|e| VcsError::Git(e.to_string()))? {
+            let reference = reference.map_err(|e| VcsError::Git(e.to_string()))?;
+            if reference.name().as_bstr().to_str_lossy() == branch_ref {
+                found = true;
+                break;
+            }
+        }
+
+        if !found {
+            return Err(VcsError::BookmarkNotFound(name.to_string()));
+        }
+
+        // Use git CLI to delete branch
+        let output = Command::new("git")
+            .args(["branch", "-d", name])
+            .current_dir(&self.root)
+            .output()
+            .map_err(|e| VcsError::Git(format!("failed to run git branch -d: {e}")))?;
+
+        if !output.status.success() {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            // Try force delete if branch is not fully merged
+            if stderr.contains("not fully merged") {
+                let output = Command::new("git")
+                    .args(["branch", "-D", name])
+                    .current_dir(&self.root)
+                    .output()
+                    .map_err(|e| VcsError::Git(format!("failed to run git branch -D: {e}")))?;
+
+                if !output.status.success() {
+                    let stderr = String::from_utf8_lossy(&output.stderr);
+                    return Err(VcsError::Git(format!("git branch -D failed: {stderr}")));
+                }
+            } else {
+                return Err(VcsError::Git(format!("git branch -d failed: {stderr}")));
+            }
+        }
+
+        Ok(())
+    }
+
+    fn list_bookmarks(&self, prefix: Option<&str>) -> VcsResult<Vec<String>> {
+        let repo = self.open_repo()?;
+        let references = repo
+            .references()
+            .map_err(|e| VcsError::Git(e.to_string()))?;
+
+        let mut branches = Vec::new();
+
+        for reference in references.all().map_err(|e| VcsError::Git(e.to_string()))? {
+            let reference = reference.map_err(|e| VcsError::Git(e.to_string()))?;
+            let name = reference.name().as_bstr().to_str_lossy();
+
+            if name.starts_with("refs/heads/") {
+                let branch_name = name.strip_prefix("refs/heads/").unwrap_or(&name);
+                if prefix.is_none() || branch_name.starts_with(prefix.unwrap()) {
+                    branches.push(branch_name.to_string());
+                }
+            }
+        }
+
+        branches.sort();
+        Ok(branches)
+    }
+
+    fn checkout(&self, target: &str) -> VcsResult<()> {
+        // Check for dirty working copy
+        if !self.is_clean()? {
+            return Err(VcsError::DirtyWorkingCopy);
+        }
+
+        let output = Command::new("git")
+            .args(["checkout", target])
+            .current_dir(&self.root)
+            .output()
+            .map_err(|e| VcsError::Git(format!("failed to run git checkout: {e}")))?;
+
+        if !output.status.success() {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            if stderr.contains("did not match any")
+                || stderr.contains("pathspec")
+                || stderr.contains("not a valid object name")
+            {
+                return Err(VcsError::TargetNotFound(target.to_string()));
+            }
+            return Err(VcsError::Git(format!("git checkout failed: {stderr}")));
+        }
+
+        Ok(())
+    }
+
+    fn squash(&self, message: &str) -> VcsResult<CommitResult> {
+        // Count commits to squash (from HEAD to first parent branch point or root)
+        // For simplicity, we'll squash all commits on the current branch back to HEAD~N
+        // where N is determined by counting commits
+
+        let repo = self.open_repo()?;
+        let head_commit = repo
+            .head_commit()
+            .map_err(|e| VcsError::OperationFailed(format!("get head commit: {e}")))?;
+
+        // Guard: cannot squash merge commits
+        let parent_count = head_commit.parent_ids().count();
+        if parent_count > 1 {
+            return Err(VcsError::OperationFailed(
+                "Cannot squash merge commits".to_string(),
+            ));
+        }
+
+        // Count commits from HEAD to root (or merge base)
+        let mut count = 0;
+        let commits = repo
+            .rev_walk([head_commit.id])
+            .all()
+            .map_err(|e| VcsError::OperationFailed(format!("rev walk: {e}")))?;
+
+        for commit_result in commits {
+            let _ = commit_result.map_err(|e| VcsError::OperationFailed(format!("walk: {e}")))?;
+            count += 1;
+            if count > 1 {
+                break; // We only need to know if there's more than 1 commit
+            }
+        }
+
+        if count < 2 {
+            return Err(VcsError::OperationFailed(
+                "Not enough commits to squash".to_string(),
+            ));
+        }
+
+        // Soft reset to HEAD~1 to squash the last 2 commits
+        let output = Command::new("git")
+            .args(["reset", "--soft", "HEAD~1"])
+            .current_dir(&self.root)
+            .output()
+            .map_err(|e| VcsError::Git(format!("failed to run git reset: {e}")))?;
+
+        if !output.status.success() {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            return Err(VcsError::Git(format!("git reset --soft failed: {stderr}")));
+        }
+
+        // Commit with new message
+        let output = Command::new("git")
+            .args(["commit", "-m", message])
+            .current_dir(&self.root)
+            .output()
+            .map_err(|e| VcsError::Git(format!("failed to run git commit: {e}")))?;
+
+        if !output.status.success() {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            return Err(VcsError::Git(format!("git commit failed: {stderr}")));
+        }
+
+        // Get new commit id
+        let rev_output = Command::new("git")
+            .args(["rev-parse", "HEAD"])
+            .current_dir(&self.root)
+            .output()
+            .map_err(|e| VcsError::Git(format!("failed to run git rev-parse: {e}")))?;
+
+        if !rev_output.status.success() {
+            let stderr = String::from_utf8_lossy(&rev_output.stderr);
+            return Err(VcsError::Git(format!("git rev-parse failed: {stderr}")));
+        }
+
+        let full_id = String::from_utf8_lossy(&rev_output.stdout)
+            .trim()
+            .to_string();
+        let id = full_id[..12.min(full_id.len())].to_string();
+
+        Ok(CommitResult {
+            id,
+            message: message.to_string(),
+        })
+    }
+
+    fn rebase_onto(&self, target: &str) -> VcsResult<()> {
+        // Check for dirty working copy
+        if !self.is_clean()? {
+            return Err(VcsError::DirtyWorkingCopy);
+        }
+
+        // Verify target exists
+        let output = Command::new("git")
+            .args(["rev-parse", "--verify", target])
+            .current_dir(&self.root)
+            .output()
+            .map_err(|e| VcsError::Git(format!("failed to run git rev-parse: {e}")))?;
+
+        if !output.status.success() {
+            return Err(VcsError::TargetNotFound(target.to_string()));
+        }
+
+        let output = Command::new("git")
+            .args(["rebase", target])
+            .current_dir(&self.root)
+            .output()
+            .map_err(|e| VcsError::Git(format!("failed to run git rebase: {e}")))?;
+
+        if !output.status.success() {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            if stderr.contains("CONFLICT") || stderr.contains("could not apply") {
+                // Abort the rebase
+                let _ = Command::new("git")
+                    .args(["rebase", "--abort"])
+                    .current_dir(&self.root)
+                    .output();
+                return Err(VcsError::RebaseConflict);
+            }
+            return Err(VcsError::Git(format!("git rebase failed: {stderr}")));
+        }
+
+        Ok(())
+    }
 }
 
 #[cfg(test)]

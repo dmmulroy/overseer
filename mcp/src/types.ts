@@ -32,8 +32,6 @@ export function parseLearningId(s: string): LearningId {
   return s;
 }
 
-export type VcsType = "jj" | "git" | "none";
-
 export interface Task {
   id: TaskId;
   parentId: TaskId | null;
@@ -66,34 +64,6 @@ export interface Learning {
   content: string;
   sourceTaskId: TaskId | null;
   createdAt: string;
-}
-
-export interface VcsDetectResult {
-  type: VcsType;
-  root: string | null;
-}
-
-export interface VcsStatus {
-  files: string[];
-  commitId: string | null;
-}
-
-export interface LogEntry {
-  id: string;
-  description: string;
-  author: string | null;
-  timestamp: string;
-}
-
-export interface DiffEntry {
-  path: string;
-  changeType: "added" | "modified" | "deleted";
-}
-
-export interface CommitResult {
-  id: string;
-  description: string;
-  timestamp: string;
 }
 
 /**

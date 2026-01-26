@@ -16,8 +16,26 @@ pub enum VcsError {
     #[error("Nothing to commit")]
     NothingToCommit,
 
+    #[error("Bookmark not found: {0}")]
+    BookmarkNotFound(String),
+
+    #[error("Bookmark already exists: {0}")]
+    BookmarkExists(String),
+
+    #[error("Target not found: {0}")]
+    TargetNotFound(String),
+
+    #[error("Working copy has uncommitted changes")]
+    DirtyWorkingCopy,
+
+    #[error("Rebase conflict")]
+    RebaseConflict,
+
     #[error("JJ error: {0}")]
     Jj(String),
+
+    #[error("Git error: {0}")]
+    Git(String),
 
     #[error("IO error: {0}")]
     Io(#[from] std::io::Error),
@@ -106,4 +124,21 @@ pub trait VcsBackend: Send + Sync {
     fn diff(&self, base: Option<&str>) -> VcsResult<Vec<DiffEntry>>;
     fn commit(&self, message: &str) -> VcsResult<CommitResult>;
     fn current_commit_id(&self) -> VcsResult<String>;
+
+    // Bookmark/branch management
+    fn create_bookmark(&self, name: &str, target: Option<&str>) -> VcsResult<()>;
+    fn delete_bookmark(&self, name: &str) -> VcsResult<()>;
+    fn list_bookmarks(&self, prefix: Option<&str>) -> VcsResult<Vec<String>>;
+
+    // Navigation
+    fn checkout(&self, target: &str) -> VcsResult<()>;
+
+    // History rewriting (rebase-only, no merges)
+    fn squash(&self, message: &str) -> VcsResult<CommitResult>;
+    fn rebase_onto(&self, target: &str) -> VcsResult<()>;
+
+    // Working copy safety
+    fn is_clean(&self) -> VcsResult<bool> {
+        self.status().map(|s| s.files.is_empty())
+    }
 }

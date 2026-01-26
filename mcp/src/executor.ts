@@ -4,7 +4,6 @@
 import vm from "node:vm";
 import { tasks } from "./api/tasks.js";
 import { learnings } from "./api/learnings.js";
-import { vcs } from "./api/vcs.js";
 
 const MAX_OUTPUT_SIZE = 50_000; // chars
 
@@ -17,10 +16,10 @@ export async function execute(code: string): Promise<unknown> {
   const MAX_TIMERS = 100;
 
   // Create sandbox context with exposed APIs
+  // Note: VCS operations are now integrated into task start/complete, not exposed directly
   const sandbox = {
     tasks,
     learnings,
-    vcs,
     console: {
       log: (...args: unknown[]) => console.log("[sandbox]", ...args),
       error: (...args: unknown[]) => console.error("[sandbox]", ...args),

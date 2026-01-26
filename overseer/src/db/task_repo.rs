@@ -41,6 +41,8 @@ fn row_to_task(row: &Row) -> rusqlite::Result<Task> {
             .and_then(|s| DateTime::parse_from_rfc3339(&s).ok())
             .map(|dt| dt.with_timezone(&Utc)),
         commit_sha: row.get("commit_sha")?,
+        bookmark: row.get("bookmark")?,
+        start_commit: row.get("start_commit")?,
         depth: None,
         blocked_by: Vec::new(),
         blocks: Vec::new(),
@@ -296,4 +298,45 @@ pub fn has_pending_children(conn: &Connection, id: &TaskId) -> Result<bool> {
         |row| row.get(0),
     )?;
     Ok(count > 0)
+}
+
+pub fn set_bookmark(conn: &Connection, id: &TaskId, bookmark: &str) -> Result<()> {
+    let now_str = now().to_rfc3339();
+    conn.execute(
+        "UPDATE tasks SET bookmark = ?1, updated_at = ?2 WHERE id = ?3",
+        params![bookmark, now_str, id],
+    )?;
+    Ok(())
+}
+
+pub fn set_start_commit(conn: &Connection, id: &TaskId, start_commit: &str) -> Result<()> {
+    let now_str = now().to_rfc3339();
+    conn.execute(
+        "UPDATE tasks SET start_commit = ?1, updated_at = ?2 WHERE id = ?3",
+        params![start_commit, now_str, id],
+    )?;
+    Ok(())
+}
+
+pub fn clear_vcs_fields(conn: &Connection, id: &TaskId) -> Result<()> {
+    let now_str = now().to_rfc3339();
+    conn.execute(
+        "UPDATE tasks SET bookmark = NULL, start_commit = NULL, commit_sha = NULL, updated_at = ?1 WHERE id = ?2",
+        params![now_str, id],
+    )?;
+    Ok(())
+}
+
+pub fn get_children(conn: &Connection, parent_id: &TaskId) -> Result<Vec<Task>> {
+    let mut stmt = conn.prepare("SELECT * FROM tasks WHERE parent_id = ?1")?;
+    let mut tasks: Vec<Task> = stmt
+        .query_map(params![parent_id], row_to_task)?
+        .collect::<rusqlite::Result<Vec<Task>>>()?;
+
+    for task in &mut tasks {
+        task.blocked_by = get_blockers(conn, &task.id)?;
+        task.blocks = get_blocking(conn, &task.id)?;
+    }
+
+    Ok(tasks)
 }

@@ -315,59 +315,6 @@ describe("Integration Tests", () => {
     });
   });
 
-  describe("VCS API", () => {
-    it("should detect jj repository", async () => {
-      const result = await executeCode(`
-        return await vcs.detect();
-      `);
-
-      assert.ok(result);
-      const info = result as Record<string, unknown>;
-      assert.equal(info.type, "jj");
-      assert.ok(info.root);
-    });
-
-    it("should get status", async () => {
-      const result = await executeCode(`
-        return await vcs.status();
-      `);
-
-      assert.ok(result);
-      const status = result as Record<string, unknown>;
-      assert.ok(Array.isArray(status.files));
-      assert.ok(status.commitId);
-    });
-
-    it("should get log", async () => {
-      const result = await executeCode(`
-        return await vcs.log(5);
-      `);
-
-      assert.ok(Array.isArray(result));
-      assert.ok((result as unknown[]).length > 0);
-      const entry = (result as Record<string, unknown>[])[0];
-      assert.ok(entry.id);
-      assert.ok(entry.description);
-    });
-
-    it("should commit changes", async () => {
-      // Create a file to commit
-      await runCommand("sh", [
-        "-c",
-        `echo "test content" > test.txt`,
-      ]);
-
-      const result = await executeCode(`
-        return await vcs.commit("test: add test file");
-      `);
-
-      assert.ok(result);
-      const commit = result as Record<string, unknown>;
-      assert.ok(commit.id);
-      assert.equal(commit.description, "test: add test file");
-    });
-  });
-
   describe("Error Handling", () => {
     it("should handle nonexistent task ID", async () => {
       try {

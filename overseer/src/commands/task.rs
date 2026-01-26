@@ -1,10 +1,11 @@
 use clap::{Args, Subcommand};
 use rusqlite::Connection;
 
-use crate::core::{get_task_with_context, TaskService, TaskWithContext};
+use crate::core::{get_task_with_context, TaskService, TaskWithContext, TaskWorkflowService};
 use crate::error::Result;
 use crate::id::TaskId;
 use crate::types::{CreateTaskInput, ListTasksFilter, Task, UpdateTaskInput};
+use crate::vcs::backend::VcsBackend;
 
 /// Parse TaskId from CLI string (requires prefix)
 fn parse_task_id(s: &str) -> std::result::Result<TaskId, String> {
@@ -147,7 +148,16 @@ pub struct TaskTree {
 }
 
 pub fn handle(conn: &Connection, cmd: TaskCommand) -> Result<TaskResult> {
+    handle_with_vcs(conn, cmd, None)
+}
+
+pub fn handle_with_vcs(
+    conn: &Connection,
+    cmd: TaskCommand,
+    vcs: Option<Box<dyn VcsBackend>>,
+) -> Result<TaskResult> {
     let svc = TaskService::new(conn);
+    let workflow = TaskWorkflowService::new(conn, vcs);
 
     match cmd {
         TaskCommand::Create(args) => {
@@ -186,16 +196,20 @@ pub fn handle(conn: &Connection, cmd: TaskCommand) -> Result<TaskResult> {
             Ok(TaskResult::One(svc.update(&args.id, &input)?))
         }
 
-        TaskCommand::Start { id } => Ok(TaskResult::One(svc.start(&id)?)),
+        // VCS-integrated operations use workflow service
+        TaskCommand::Start { id } => Ok(TaskResult::One(workflow.start(&id)?)),
 
         TaskCommand::Complete(args) => Ok(TaskResult::One(
-            svc.complete(&args.id, args.result.as_deref())?,
+            workflow.complete(&args.id, args.result.as_deref())?,
         )),
 
         TaskCommand::Reopen { id } => Ok(TaskResult::One(svc.reopen(&id)?)),
 
         TaskCommand::Delete { id } => {
+            // DB first - validates constraints (cascade deletes children)
             svc.delete(&id)?;
+            // VCS cleanup after - best effort
+            workflow.cleanup_bookmark(&id)?;
             Ok(TaskResult::Deleted)
         }
 

@@ -38,6 +38,7 @@ interface Learning {
 }
 
 // Tasks API
+// Note: VCS operations (bookmarks, commits) are handled automatically by start/complete
 declare const tasks: {
   list(filter?: { parentId?: string; ready?: boolean; completed?: boolean }): Promise<Task[]>;
   get(id: string): Promise<Task>;
@@ -54,10 +55,10 @@ declare const tasks: {
     priority?: 1 | 2 | 3 | 4 | 5;
     parentId?: string;
   }): Promise<Task>;
-  start(id: string): Promise<Task>;
-  complete(id: string, result?: string): Promise<Task>;
+  start(id: string): Promise<Task>;  // Creates VCS bookmark, records start commit
+  complete(id: string, result?: string): Promise<Task>;  // Squashes commits, rebases if child task
   reopen(id: string): Promise<Task>;
-  delete(id: string): Promise<void>;
+  delete(id: string): Promise<void>;  // Cleans up VCS bookmark
   block(taskId: string, blockerId: string): Promise<void>;
   unblock(taskId: string, blockerId: string): Promise<void>;
   nextReady(milestoneId?: string): Promise<Task | null>;
@@ -68,15 +69,6 @@ declare const learnings: {
   add(taskId: string, content: string, sourceTaskId?: string): Promise<Learning>;
   list(taskId: string): Promise<Learning[]>;
   delete(id: string): Promise<void>;
-};
-
-// VCS API
-declare const vcs: {
-  detect(): Promise<{ type: "jj" | "git" | "none"; root: string | null }>;
-  status(): Promise<{ files: string[]; commitId: string | null }>;
-  log(limit?: number): Promise<Array<{ id: string; description: string; author: string | null; timestamp: string }>>;
-  diff(base?: string): Promise<Array<{ path: string; changeType: "added" | "modified" | "deleted" }>>;
-  commit(message: string): Promise<{ id: string; description: string; timestamp: string }>;
 };
 \`\`\`
 
@@ -100,19 +92,16 @@ const subtask = await tasks.create({
   priority: 2
 });
 
+// Start working on task (auto-creates VCS bookmark)
+await tasks.start(subtask.id);
+
 // Get task with full context
 const task = await tasks.get(subtask.id);
 console.log(task.context.milestone); // inherited from root
 
-// Complete task and add learning
+// Complete task (auto-squashes commits) and add learning
 await tasks.complete(task.id, "Implemented using jose library");
 await learnings.add(task.id, "Use jose instead of jsonwebtoken");
-
-// Commit work
-const vcsInfo = await vcs.detect();
-if (vcsInfo.type !== "none") {
-  await vcs.commit("feat: add token refresh");
-}
 \`\`\`
 `.trim();
 

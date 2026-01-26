@@ -96,7 +96,9 @@ fn run(command: &Command, db_path: &PathBuf) -> error::Result<String> {
         }
         Command::Task(cmd) => {
             let conn = db::open_db(db_path)?;
-            match task::handle(&conn, clone_task_cmd(cmd))? {
+            // Auto-detect VCS for start/complete operations
+            let vcs = vcs::get_backend(&std::env::current_dir().unwrap_or_default()).ok();
+            match task::handle_with_vcs(&conn, clone_task_cmd(cmd), vcs)? {
                 TaskResult::One(t) => Ok(serde_json::to_string_pretty(&t)?),
                 TaskResult::OneWithContext(t) => Ok(serde_json::to_string_pretty(&t)?),
                 TaskResult::Many(ts) => Ok(serde_json::to_string_pretty(&ts)?),
