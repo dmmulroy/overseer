@@ -88,6 +88,19 @@ Add to your MCP settings:
 {
   "mcpServers": {
     "overseer": {
+      "command": "npx",
+      "args": ["@dmmulroy/overseer", "mcp"]
+    }
+  }
+}
+```
+
+For development, use the local build:
+
+```json
+{
+  "mcpServers": {
+    "overseer": {
       "command": "node",
       "args": ["/path/to/overseer/mcp/build/index.js"]
     }

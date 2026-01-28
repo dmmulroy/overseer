@@ -11,6 +11,9 @@
     "bin/",
     "dist/"
   ],
+  "scripts": {
+    "postinstall": "node ./bin/postinstall.mjs"
+  },
   "optionalDependencies": {
     "@dmmulroy/overseer-darwin-arm64": "0.2.0",
     "@dmmulroy/overseer-darwin-x64": "0.2.0",

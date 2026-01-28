@@ -27,7 +27,7 @@ Add to your MCP client config:
   "mcpServers": {
     "overseer": {
       "command": "npx",
-      "args": ["@dmmulroy/overseer"]
+      "args": ["@dmmulroy/overseer", "mcp"]
     }
   }
 }

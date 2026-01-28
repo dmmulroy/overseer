@@ -60,7 +60,11 @@ function getBinaryPath() {
     return join(dirname(pkgPath), "os");
   } catch {
     console.error(`Platform package not installed: ${pkg}`);
-    console.error("Try: npm install -g @dmmulroy/overseer");
+    console.error(`\nTry one of:`);
+    console.error(`  npm install -g ${pkg}`);
+    console.error(`  npm install -g @dmmulroy/overseer --include=optional`);
+    console.error(`\nIf you have npm configured to omit optional deps, check:`);
+    console.error(`  npm config get omit`);
     process.exit(1);
   }
 }
