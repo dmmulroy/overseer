@@ -14,7 +14,7 @@ src/
 └── api/
     ├── index.ts      # Re-exports
     ├── tasks.ts      # tasks.* -> os task * (complete accepts { result?, learnings? })
-    └── learnings.ts  # learnings.list only (add/delete removed)
+    └── learnings.ts  # learnings.list only
 ```
 
 **Note:** VCS not exposed in sandbox - integrated into task start/complete automatically.
@@ -58,9 +58,16 @@ npm run watch          # tsc --watch for dev
 
 ```
 Agent code -> execute(code) -> vm.Script -> sandbox context
-                                              ├── tasks.list() -> callCli(["task","list"]) -> spawn os -> JSON
-                                              ├── tasks.start() -> callCli(["task","start"]) -> VCS bookmark auto
-                                              ├── tasks.complete({result,learnings}) -> callCli(["task","complete","--learning",...]) -> VCS squash + bubble learnings
-                                              └── learnings.list() -> callCli(["learning","list"]) -> spawn os -> JSON
+                                              |-- tasks.list() -> callCli(["task","list"]) -> spawn os -> JSON
+                                              |-- tasks.start() -> callCli(["task","start"]) -> VCS bookmark auto
+                                              |-- tasks.complete({result,learnings}) -> VCS squash + bubble learnings
+                                              +-- learnings.list() -> callCli(["learning","list"]) -> spawn os -> JSON
                             <- truncateOutput(result) <- Promise resolves
 ```
+
+## TYPE SYNC
+
+Types in `types.ts` must match Rust `overseer/src/types.rs`:
+- `TaskId`: Branded, `task_` prefix + 26-char ULID
+- `Task`, `Learning`, `TaskContext`, `InheritedLearnings`: Identical shapes
+- Runtime validators: `isTaskId()`, `parseTaskId()`, `isLearningId()`

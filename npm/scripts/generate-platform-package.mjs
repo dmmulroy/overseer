@@ -36,7 +36,10 @@ const pkg = {
   name: `@dmmulroy/overseer-${platform}`,
   version,
   description: `Overseer CLI binary for ${platform}`,
-  files: ["os"],
+  files: ["os", "postinstall.js"],
+  scripts: {
+    postinstall: "node postinstall.js",
+  },
   os: [config.os],
   cpu: [config.cpu],
   ...(config.libc && { libc: [config.libc] }),
@@ -51,6 +54,20 @@ const pkg = {
   },
   license: "MIT",
 };
+
+// Generate postinstall script to set executable permission
+const postinstallScript = `#!/usr/bin/env node
+const { chmodSync } = require("node:fs");
+const { join } = require("node:path");
+
+try {
+  chmodSync(join(__dirname, "os"), 0o755);
+} catch {
+  // Ignore errors (e.g., Windows)
+}
+`;
+
+writeFileSync(join(pkgDir, "postinstall.js"), postinstallScript);
 
 const pkgPath = join(pkgDir, "package.json");
 writeFileSync(pkgPath, JSON.stringify(pkg, null, 2) + "\n");
