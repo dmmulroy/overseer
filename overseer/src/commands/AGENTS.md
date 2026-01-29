@@ -1,16 +1,16 @@
 # CLI COMMAND HANDLERS
 
-**Command handlers for `os` CLI - wire clap to core services.**
+Command handlers for `os` CLI - wire clap to core services.
 
 ## FILES
 
-| File | Purpose | Key Exports |
-|------|---------|-------------|
-| `task.rs` | Task CRUD, lifecycle, queries | `TaskCommand`, `TaskResult`, `handle()` |
-| `learning.rs` | Learning CRUD for tasks | `LearningCommand`, `LearningResult`, `handle()` |
-| `vcs.rs` | VCS operations (detect, status, log, diff, commit) | `VcsCommand`, `VcsResult`, `handle()` |
-| `data.rs` | Import/export tasks + learnings (JSON) | `DataCommand`, `DataResult`, `handle()` |
-| `mod.rs` | Re-exports all commands | Public API |
+| File | Lines | Purpose |
+|------|-------|---------|
+| `task.rs` | 614 | Task CRUD, lifecycle, queries |
+| `learning.rs` | - | Learning CRUD |
+| `vcs.rs` | - | VCS operations (detect, status, log, diff, commit) |
+| `data.rs` | - | Import/export tasks + learnings (JSON) |
+| `mod.rs` | - | Re-exports all commands |
 
 ## PATTERNS
 
@@ -26,31 +26,20 @@ pub fn handle(conn: &Connection, cmd: FooCommand) -> Result<FooResult>
 
 ### Command Cloning (main.rs:147-234)
 
-**Why**: clap Commands borrow CLI state; handlers need owned values
-
+Explicit field clones (no #[derive(Clone)] on Args structs):
 ```rust
 fn clone_task_cmd(cmd: &TaskCommand) -> TaskCommand {
     match cmd {
-        TaskCommand::Create(args) => TaskCommand::Create(CreateArgs {
-            description: args.description.clone(),
-            // ... explicit field clones
-        }),
-        // ... exhaustive match
+        TaskCommand::Create(args) => TaskCommand::Create(CreateArgs { ... }),
     }
 }
 ```
 
-Pattern: Explicit field clones (no #[derive(Clone)] on Args structs)
-
 ### ID Parsing
 
 ```rust
-fn parse_task_id(s: &str) -> std::result::Result<TaskId, String> {
-    s.parse().map_err(|e| format!("{e}"))
-}
+#[arg(value_parser = parse_task_id)]  // validates prefix at CLI boundary
 ```
-
-Used in `#[arg(value_parser = parse_task_id)]` - validates prefix at CLI boundary
 
 ### Result Enums
 
@@ -64,20 +53,14 @@ pub enum TaskResult {
 }
 ```
 
-Each handler returns domain-specific enum (main.rs converts to JSON/human)
-
 ## CONVENTIONS
 
-- **No business logic**: Handlers delegate to services (`TaskService`, repos)
-- **Error propagation**: `?` operator throughout - errors bubble to main.rs
-- **Validation in services**: Handlers trust service layer for invariants
-- **VCS handlers stateless**: No DB conn (VCS is independent state)
+- **No business logic**: Handlers delegate to services
+- **Error propagation**: `?` operator throughout
+- **Validation in services**: Handlers trust service layer
+- **VCS handlers stateless**: No DB conn
 
-## ERROR HANDLING
+## KEY FUNCTIONS (task.rs)
 
-All handlers return `Result<T, OsError>`:
-- Validation errors from services (e.g., cycle detection)
-- DB errors from repos (e.g., not found)
-- VCS errors (e.g., not a repo)
-
-main.rs converts errors to JSON (`{"error": "..."}`) or human output
+- `build_tree()` / `build_tree_recursive()`: Hierarchy construction
+- `search_tasks()`: Substring matching across description/context/result

@@ -1,29 +1,29 @@
 # OVERSEER PROJECT KNOWLEDGE BASE
 
-**Generated:** 2026-01-27  
-**Commit:** adcadb4  
-**Branch:** main
+**Generated:** 2026-01-29  
+**Commit:** 737704a  
+**JJ Change:** rqsypxwv
 
 **Overseer** (`os`) - Codemode MCP server for agent task management. SQLite-backed, native VCS (jj-lib + gix). JJ-first.
 
 ## ARCHITECTURE
 
 ```
-┌─────────────────────────────────────────────────────────────┐
-│                     Overseer (Node MCP)                     │
-│  - Single "execute" tool (codemode pattern)                 │
-│  - VM sandbox with tasks/learnings APIs                     │
-│  - Spawns CLI, parses JSON                                  │
-└─────────────────────────────────────────────────────────────┘
-                              │
-                              ▼
-┌─────────────────────────────────────────────────────────────┐
-│                      os (Rust CLI)                          │
-│  - All business logic                                       │
-│  - SQLite storage                                           │
-│  - Native VCS: jj-lib (jj) + gix (git)                      │
-│  - JSON output mode for MCP                                 │
-└─────────────────────────────────────────────────────────────┘
++-------------------------------------------------------------+
+|                     Overseer (Node MCP)                     |
+|  - Single "execute" tool (codemode pattern)                 |
+|  - VM sandbox with tasks/learnings APIs                     |
+|  - Spawns CLI, parses JSON                                  |
++-------------------------------------------------------------+
+                              |
+                              v
++-------------------------------------------------------------+
+|                      os (Rust CLI)                          |
+|  - All business logic                                       |
+|  - SQLite storage                                           |
+|  - Native VCS: jj-lib (jj) + gix (git)                      |
+|  - JSON output mode for MCP                                 |
++-------------------------------------------------------------+
 ```
 
 ## STRUCTURE
@@ -53,6 +53,8 @@ overseer/
 │   ├── overseer/            # Task management skill
 │   └── overseer-plan/       # Plan-to-task conversion skill
 │
+├── ui/                      # Hono API server (experimental)
+│
 └── docs/                    # Reference documentation
 ```
 
@@ -63,8 +65,8 @@ overseer/
 | Add CLI command | `overseer/src/commands/` | Add in mod.rs, wire in main.rs |
 | Add MCP API | `mcp/src/api/` | Export in api/index.ts |
 | Task CRUD | `overseer/src/db/task_repo.rs` | SQL layer |
-| Task business logic | `overseer/src/core/task_service.rs` | Validation, hierarchy |
-| Task workflow (start/complete) | `overseer/src/core/workflow_service.rs` | VCS integration |
+| Task business logic | `overseer/src/core/task_service.rs` | Validation, hierarchy (1407 lines) |
+| Task workflow (start/complete) | `overseer/src/core/workflow_service.rs` | VCS integration (816 lines) |
 | VCS operations | `overseer/src/vcs/` | jj.rs (primary), git.rs (fallback) |
 | Error types | `overseer/src/error.rs` | OsError enum |
 | Types/IDs | `overseer/src/types.rs`, `overseer/src/id.rs` | Domain types, ULID |
@@ -78,8 +80,16 @@ overseer/
 | VCS primary | jj-lib | Native perf, no spawn |
 | VCS fallback | gix | Pure Rust, no C deps |
 | IDs | ULID | Sortable, coordination-free |
-| Task hierarchy | 3 levels max | Epic → Task → Subtask |
+| Task hierarchy | 3 levels max | Milestone(0) -> Task(1) -> Subtask(2) |
 | Error pattern | `thiserror` | Ergonomic error handling |
+
+## TYPE SYNC (Rust <-> TS)
+
+Types must stay in sync between `overseer/src/types.rs` and `mcp/src/types.ts`:
+- `TaskId`: Newtype (Rust) / Branded type (TS), `task_` prefix + 26-char ULID
+- `LearningId`: Newtype / Branded, `lrn_` prefix
+- `Task`, `Learning`, `TaskContext`, `InheritedLearnings`: Identical shapes
+- Rust uses `serde(rename_all = "camelCase")` -> JSON matches TS interfaces
 
 ## CONVENTIONS
 
@@ -107,7 +117,7 @@ cd overseer && cargo test               # Run tests
 # Node MCP
 cd mcp && npm install             # Install deps
 cd mcp && npm run build           # Compile TS
-cd mcp && npm test                # Run tests
+cd mcp && npm test                # Run tests (node --test)
 ```
 
 ## DESIGN INVARIANTS
@@ -117,10 +127,12 @@ cd mcp && npm test                # Run tests
 3. CLI spawn timeout: 30s in Node executor
 4. Timestamps: ISO 8601 / RFC 3339 (chrono)
 5. "Milestone" = depth-0 task (no parent)
+6. Learnings bubble to immediate parent on completion (preserves source_task_id)
+7. VCS ops are best-effort, never fail task state transitions
 
 ## CODEMODE PATTERN
 
-Agents write JS → server executes → only results return.
+Agents write JS -> server executes -> only results return.
 
 - Pattern source: [opensrc-mcp](https://github.com/dmmulroy/opensrc-mcp)
 - Why: LLMs handle TypeScript APIs better than raw tool calls
