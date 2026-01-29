@@ -136,6 +136,7 @@ pub struct SearchArgs {
 pub enum TaskResult {
     One(Task),
     OneWithContext(TaskWithContext),
+    MaybeOneWithContext(Option<TaskWithContext>),
     Many(Vec<Task>),
     Deleted,
     Tree(TaskTree),
@@ -147,6 +148,8 @@ pub struct TaskTree {
     pub children: Vec<TaskTree>,
 }
 
+/// Handle task command without VCS integration (for testing)
+#[allow(dead_code)]
 pub fn handle(conn: &Connection, cmd: TaskCommand) -> Result<TaskResult> {
     handle_with_vcs(conn, cmd, None)
 }
@@ -197,7 +200,8 @@ pub fn handle_with_vcs(
         }
 
         // VCS-integrated operations use workflow service
-        TaskCommand::Start { id } => Ok(TaskResult::One(workflow.start(&id)?)),
+        // Start now follows blockers to find startable work
+        TaskCommand::Start { id } => Ok(TaskResult::One(workflow.start_follow_blockers(&id)?)),
 
         TaskCommand::Complete(args) => Ok(TaskResult::One(
             workflow.complete(&args.id, args.result.as_deref())?,
@@ -218,28 +222,15 @@ pub fn handle_with_vcs(
         TaskCommand::Unblock(args) => Ok(TaskResult::One(svc.remove_blocker(&args.id, &args.by)?)),
 
         TaskCommand::NextReady(args) => {
-            let filter = ListTasksFilter {
-                parent_id: args.milestone.clone(),
-                ready: true,
-                completed: None,
-            };
-            let tasks = svc.list(&filter)?;
-
-            // Sort by priority desc, then created_at asc
-            let mut tasks = tasks;
-            tasks.sort_by(|a, b| {
-                b.priority
-                    .cmp(&a.priority)
-                    .then_with(|| a.created_at.cmp(&b.created_at))
-            });
-
-            // Return first task or empty list
-            match tasks.first() {
-                Some(task) => {
-                    let with_ctx = get_task_with_context(conn, task.clone())?;
-                    Ok(TaskResult::OneWithContext(with_ctx))
+            // Use new DFS-based next_ready
+            let result = svc.next_ready(args.milestone.as_ref())?;
+            match result {
+                Some(id) => {
+                    let task = svc.get(&id)?;
+                    let with_ctx = get_task_with_context(conn, task)?;
+                    Ok(TaskResult::MaybeOneWithContext(Some(with_ctx)))
                 }
-                None => Ok(TaskResult::Many(vec![])),
+                None => Ok(TaskResult::MaybeOneWithContext(None)),
             }
         }
 
@@ -389,7 +380,7 @@ mod tests {
                 description: "High priority".to_string(),
                 context: None,
                 parent_id: Some(milestone.id.clone()),
-                priority: Some(10),
+                priority: Some(5),
                 blocked_by: vec![],
             })
             .unwrap();
@@ -403,11 +394,11 @@ mod tests {
         )
         .unwrap();
 
-        if let TaskResult::OneWithContext(task_ctx) = result {
+        if let TaskResult::MaybeOneWithContext(Some(task_ctx)) = result {
             assert_eq!(task_ctx.task.id, high_priority.id);
             assert_eq!(task_ctx.task.description, "High priority");
         } else {
-            panic!("Expected OneWithContext result");
+            panic!("Expected MaybeOneWithContext(Some) result");
         }
     }
 
@@ -441,7 +432,7 @@ mod tests {
                 description: "Blocked".to_string(),
                 context: None,
                 parent_id: Some(milestone.id.clone()),
-                priority: Some(10),
+                priority: Some(5),
                 blocked_by: vec![blocker.id.clone()],
             })
             .unwrap();
@@ -456,7 +447,7 @@ mod tests {
             })
             .unwrap();
 
-        // Test next-ready - should return ready task, not blocked one
+        // Test next-ready - should return highest priority unblocked task
         let result = handle(
             &conn,
             TaskCommand::NextReady(NextReadyArgs {
@@ -465,11 +456,11 @@ mod tests {
         )
         .unwrap();
 
-        if let TaskResult::OneWithContext(task_ctx) = result {
+        if let TaskResult::MaybeOneWithContext(Some(task_ctx)) = result {
             // Should return "Blocker" (priority 5) not "Blocked" (priority 10, blocked)
             assert_eq!(task_ctx.task.id, blocker.id);
         } else {
-            panic!("Expected OneWithContext result");
+            panic!("Expected MaybeOneWithContext(Some) result");
         }
     }
 

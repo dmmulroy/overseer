@@ -113,9 +113,14 @@ pub fn build_inherited_learnings(conn: &Connection, task: &Task) -> Result<Inher
     })
 }
 
-pub fn get_task_with_context(conn: &Connection, task: Task) -> Result<TaskWithContext> {
+pub fn get_task_with_context(conn: &Connection, mut task: Task) -> Result<TaskWithContext> {
     let progressive_context = build_progressive_context(conn, &task)?;
     let inherited_learnings = build_inherited_learnings(conn, &task)?;
+
+    // Clear task's own context_chain and learnings to avoid duplicate JSON keys
+    // when TaskWithContext serializes (flatten + explicit fields would conflict)
+    task.context_chain = None;
+    task.learnings = None;
 
     Ok(TaskWithContext {
         task,

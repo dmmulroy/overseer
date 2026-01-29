@@ -29,9 +29,9 @@ Use `/overseer-plan` to convert any markdown planning document into trackable Ov
 
 1. Reads markdown file
 2. Extracts title from first `#` heading (strips "Plan: " prefix)
-3. Creates Overseer milestone with full markdown as context
-4. Analyzes structure for subtask breakdown
-5. Creates subtasks when appropriate
+3. Creates Overseer milestone (or child task if `--parent` provided)
+4. Analyzes structure for child task breakdown
+5. Creates child tasks (depth 1) or subtasks (depth 2) when appropriate
 6. Returns task ID and breakdown summary
 
 ## Hierarchy Levels
@@ -75,13 +75,15 @@ Every milestone must:
 ## After Creating
 
 ```javascript
-await tasks.get("<id>");                    // View task
-await tasks.list({ parentId: "<id>" });     // List children
-await tasks.start("<id>");                  // Start work (creates VCS bookmark)
-await tasks.complete("<id>", "result");     // Complete (squashes commits)
+await tasks.get("<id>");                    // TaskWithContext (full context + learnings)
+await tasks.list({ parentId: "<id>" });     // Task[] (children without context chain)
+await tasks.start("<id>");                  // Task (creates VCS bookmark)
+await tasks.complete("<id>", "result");     // Task (squashes commits)
 ```
 
 **VCS Integration**: `start` and `complete` automatically manage VCS bookmarks and commits. No manual VCS operations needed.
+
+**Note**: Priority must be 1-5. Blockers cannot be ancestors or descendants.
 
 ## When NOT to Use
 

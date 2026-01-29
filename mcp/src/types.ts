@@ -32,20 +32,42 @@ export function parseLearningId(s: string): LearningId {
   return s;
 }
 
+/**
+ * Task context chain (inherited from hierarchy)
+ */
+export interface TaskContext {
+  own: string;
+  parent?: string;
+  milestone?: string;
+}
+
+/**
+ * Inherited learnings from parent/milestone
+ */
+export interface InheritedLearnings {
+  milestone: Learning[];
+  parent: Learning[];
+}
+
+/**
+ * Priority levels (enforced by Rust, 1-5)
+ */
+export type Priority = 1 | 2 | 3 | 4 | 5;
+
+/**
+ * Task depth (0=milestone, 1=task, 2=subtask)
+ */
+export type Depth = 0 | 1 | 2;
+
+/**
+ * Task returned from list/create/update/start/complete/reopen
+ * Does NOT include context chain or inherited learnings
+ */
 export interface Task {
   id: TaskId;
   parentId: TaskId | null;
   description: string;
-  context: {
-    own: string;
-    parent?: string;
-    milestone?: string;
-  };
-  learnings: {
-    milestone: Learning[];
-    parent: Learning[];
-  };
-  priority: 1 | 2 | 3 | 4 | 5;
+  priority: Priority;
   completed: boolean;
   completedAt: string | null;
   startedAt: string | null;
@@ -53,9 +75,19 @@ export interface Task {
   updatedAt: string;
   result: string | null;
   commitSha: string | null;
-  depth: 0 | 1 | 2;
-  blockedBy: TaskId[];
-  blocks: TaskId[];
+  depth: Depth;
+  blockedBy?: TaskId[];
+  blocks?: TaskId[];
+  bookmark?: string;
+  startCommit?: string;
+}
+
+/**
+ * Task returned from get/nextReady - includes context chain and inherited learnings
+ */
+export interface TaskWithContext extends Task {
+  context: TaskContext;
+  learnings: InheritedLearnings;
 }
 
 export interface Learning {

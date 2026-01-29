@@ -5,15 +5,15 @@ Execute JavaScript code to interact with Overseer task management.
 ## Task Interface
 
 ```typescript
+// Basic task - returned by list(), create(), start(), complete()
+// Note: Does NOT include context or learnings fields
 interface Task {
   id: string;
   parentId: string | null;
   description: string;
-  context: { own: string; parent?: string; milestone?: string };
-  learnings: { milestone: Learning[]; parent: Learning[] };
   priority: 1 | 2 | 3 | 4 | 5;
   completed: boolean;
-  depth: 0 | 1 | 2;
+  depth: 0 | 1 | 2;         // 0=milestone, 1=task, 2=subtask
   blockedBy: string[];
   blocks: string[];
   result: string | null;    // Completion result from tasks.complete()
@@ -22,6 +22,19 @@ interface Task {
   updatedAt: string;        // ISO 8601 timestamp
   startedAt: string | null; // Set when tasks.start() called
   completedAt: string | null; // Set when tasks.complete() called
+}
+
+// Task with full context - returned by get(), nextReady()
+interface TaskWithContext extends Task {
+  context: {
+    own: string;              // This task's context
+    parent?: string;          // Parent's context (depth > 0)
+    milestone?: string;       // Root milestone's context (depth > 1)
+  };
+  learnings: {
+    milestone: Learning[];    // Inherited from root milestone
+    parent: Learning[];       // Inherited from parent task
+  };
 }
 ```
 
@@ -42,12 +55,12 @@ interface Learning {
 ```typescript
 declare const tasks: {
   list(filter?: { parentId?: string; ready?: boolean; completed?: boolean }): Promise<Task[]>;
-  get(id: string): Promise<Task>;
+  get(id: string): Promise<TaskWithContext>;
   create(input: {
     description: string;
     context?: string;
     parentId?: string;
-    priority?: 1 | 2 | 3 | 4 | 5;
+    priority?: 1 | 2 | 3 | 4 | 5;  // Required range: 1-5
     blockedBy?: string[];
   }): Promise<Task>;
   update(id: string, input: {
@@ -62,23 +75,23 @@ declare const tasks: {
   delete(id: string): Promise<void>;
   block(taskId: string, blockerId: string): Promise<void>;
   unblock(taskId: string, blockerId: string): Promise<void>;
-  nextReady(milestoneId?: string): Promise<Task | null>;
+  nextReady(milestoneId?: string): Promise<TaskWithContext | null>;
 };
 ```
 
-| Method | Description |
-|--------|-------------|
-| `list` | Filter by `parentId`, `ready`, `completed` |
-| `get` | Get single task by ID |
-| `create` | Create task with description, context, parentId, priority, blockedBy |
-| `update` | Update description, context, priority, parentId |
-| `start` | Mark started + **creates VCS bookmark**, records start commit |
-| `complete` | Mark complete + **squashes commits**, rebases onto parent bookmark |
-| `reopen` | Reopen completed task |
-| `delete` | Delete task + **cleans up VCS bookmark** |
-| `block` | Add blocker relationship |
-| `unblock` | Remove blocker relationship |
-| `nextReady` | Get next ready task (optionally scoped to milestone) |
+| Method | Returns | Description |
+|--------|---------|-------------|
+| `list` | `Task[]` | Filter by `parentId`, `ready`, `completed` |
+| `get` | `TaskWithContext` | Get task with full context chain + inherited learnings |
+| `create` | `Task` | Create task (priority must be 1-5) |
+| `update` | `Task` | Update description, context, priority, parentId |
+| `start` | `Task` | Mark started + **creates VCS bookmark** |
+| `complete` | `Task` | Mark complete + **squashes commits** |
+| `reopen` | `Task` | Reopen completed task |
+| `delete` | `void` | Delete task + **cleans up VCS bookmark** |
+| `block` | `void` | Add blocker (cannot be self, ancestor, or descendant) |
+| `unblock` | `void` | Remove blocker relationship |
+| `nextReady` | `TaskWithContext \| null` | Get deepest ready leaf with full context |
 
 ## Learnings API
 

@@ -147,6 +147,8 @@ pub fn list_tasks(conn: &Connection, filter: &ListTasksFilter) -> Result<Vec<Tas
     Ok(tasks)
 }
 
+/// Check if task is completed. Returns false if task not found or DB error.
+/// This conservative default treats missing/errored tasks as "not completed" (blocking).
 fn is_completed(conn: &Connection, id: &TaskId) -> bool {
     conn.query_row(
         "SELECT completed FROM tasks WHERE id = ?1",
@@ -154,7 +156,7 @@ fn is_completed(conn: &Connection, id: &TaskId) -> bool {
         |row| row.get::<_, i32>(0),
     )
     .map(|c| c != 0)
-    .unwrap_or(false)
+    .unwrap_or(false) // Missing or errored task treated as incomplete (blocking)
 }
 
 pub fn update_task(conn: &Connection, id: &TaskId, input: &UpdateTaskInput) -> Result<Task> {
@@ -318,6 +320,8 @@ pub fn set_start_commit(conn: &Connection, id: &TaskId, start_commit: &str) -> R
     Ok(())
 }
 
+/// Clear VCS fields when reopening a task (reserved for future use)
+#[allow(dead_code)]
 pub fn clear_vcs_fields(conn: &Connection, id: &TaskId) -> Result<()> {
     let now_str = now().to_rfc3339();
     conn.execute(
@@ -339,4 +343,46 @@ pub fn get_children(conn: &Connection, parent_id: &TaskId) -> Result<Vec<Task>> 
     }
 
     Ok(tasks)
+}
+
+/// List root tasks (milestones) ordered by priority DESC, created_at ASC, id ASC
+pub fn list_roots(conn: &Connection) -> Result<Vec<Task>> {
+    let mut stmt = conn.prepare(
+        "SELECT * FROM tasks WHERE parent_id IS NULL ORDER BY priority DESC, created_at ASC, id ASC",
+    )?;
+    let mut tasks: Vec<Task> = stmt
+        .query_map([], row_to_task)?
+        .collect::<rusqlite::Result<Vec<Task>>>()?;
+
+    for task in &mut tasks {
+        task.blocked_by = get_blockers(conn, &task.id)?;
+        task.blocks = get_blocking(conn, &task.id)?;
+    }
+
+    Ok(tasks)
+}
+
+/// Get children ordered by priority DESC, created_at ASC, id ASC
+pub fn get_children_ordered(conn: &Connection, parent_id: &TaskId) -> Result<Vec<Task>> {
+    let mut stmt = conn.prepare(
+        "SELECT * FROM tasks WHERE parent_id = ?1 ORDER BY priority DESC, created_at ASC, id ASC",
+    )?;
+    let mut tasks: Vec<Task> = stmt
+        .query_map(params![parent_id], row_to_task)?
+        .collect::<rusqlite::Result<Vec<Task>>>()?;
+
+    for task in &mut tasks {
+        task.blocked_by = get_blockers(conn, &task.id)?;
+        task.blocks = get_blocking(conn, &task.id)?;
+    }
+
+    Ok(tasks)
+}
+
+/// Check if task is completed.
+/// Returns false if task not found or DB error (conservative default).
+/// Note: This function never errors - the Result wrapper is for API consistency
+/// but will always return Ok. Missing/errored tasks are treated as incomplete.
+pub fn is_task_completed(conn: &Connection, id: &TaskId) -> Result<bool> {
+    Ok(is_completed(conn, id))
 }

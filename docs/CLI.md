@@ -20,7 +20,7 @@ os task create \
   -d "Task description" \
   [--context "Additional context"] \
   [--parent PARENT_TASK_ID] \
-  [--priority 1-10] \
+  [--priority 1-5] \
   [--blocked-by BLOCKER_ID,...]
 ```
 
@@ -28,7 +28,7 @@ os task create \
 - `-d, --description` (required): Task description
 - `--context`: Additional context information
 - `--parent`: Parent task ID (creates subtask)
-- `--priority`: Priority level (1-10, default: 5)
+- `--priority`: Priority level (1-5, default: 3)
 - `--blocked-by`: Comma-separated list of blocking task IDs
 
 **Examples:**
@@ -109,7 +109,7 @@ Update task fields.
 os task update TASK_ID \
   [-d "New description"] \
   [--context "New context"] \
-  [--priority 1-10] \
+  [--priority 1-5] \
   [--parent NEW_PARENT_ID]
 ```
 
@@ -127,13 +127,33 @@ os task update task_01JQAZ... --parent task_01JQBA...
 
 ### `os task start`
 
-Mark task as in-progress.
+Start working on a task.
 
 ```bash
 os task start TASK_ID
 ```
 
-Sets `status = in_progress` and updates `started_at` timestamp.
+**Behavior:**
+- Follows blockers to find startable work
+- Cascades down to deepest incomplete leaf
+- Creates VCS bookmark for started task (if VCS available)
+- Returns the task that was actually started
+
+**Algorithm:**
+1. If requested task is blocked, follow blockers to find startable work
+2. Cascade down through hierarchy to deepest incomplete leaf
+3. Start that leaf task (set `started_at`, create VCS bookmark)
+4. Error only if no startable task found after exhausting all paths
+
+**Examples:**
+```bash
+# Start work on a task
+os task start task_01JQAZ...
+
+# Starting a blocked milestone follows blockers automatically
+# If milestone_A is blocked by task_B, this starts task_B
+os task start task_01MILESTONE_A...
+```
 
 ### `os task complete`
 
@@ -148,6 +168,13 @@ os task complete TASK_ID [--result "Completion notes"]
 - Auto-captures current commit SHA if VCS available
 - Fails if task has pending children
 - Optional `--result` stores completion notes
+- **Bubble-up:** Auto-completes parent if all siblings done and parent unblocked
+
+**Bubble-up Algorithm:**
+1. After completing task, check if parent has any pending children
+2. If no pending children AND parent is not blocked, auto-complete parent
+3. Recursively bubble up to milestone level
+4. Stop if parent is blocked or has pending children
 
 **Examples:**
 ```bash
@@ -156,6 +183,9 @@ os task complete task_01JQAZ...
 
 # With result notes
 os task complete task_01JQAZ... --result "Implemented JWT auth with refresh tokens"
+
+# Completing the last subtask auto-completes its parent task
+# If task has subtask_A and subtask_B, completing both auto-completes the task
 ```
 
 ### `os task reopen`
@@ -210,18 +240,57 @@ os task next-ready [--milestone MILESTONE_ID]
 ```
 
 **Behavior:**
-- Filters to ready tasks (no blockers, not completed)
-- Sorts by priority (desc), then created_at (asc)
-- Returns first match with full context
-- Optional `--milestone` filters to specific milestone's children
+- **Depth-first traversal** through task hierarchy
+- Returns **deepest incomplete leaf** that is not blocked
+- Respects **effective-unblocked inheritance** (if ancestor is blocked, subtree is blocked)
+- Returns milestone itself if it has no children and is unblocked
+- Returns `null` if no ready tasks found
+
+**Algorithm:**
+1. DFS traversal respecting priority ordering (higher priority first)
+2. A task is "effectively blocked" if it OR any ancestor has incomplete blockers
+3. Find deepest incomplete leaf that is effectively unblocked
+4. Ordering: `priority DESC`, `created_at ASC`, `id ASC`
+
+**Effective-Unblocked Inheritance:**
+- If milestone is blocked → entire subtree is blocked
+- Children completing doesn't unblock a blocked parent
+- Children are NOT considered blockers (only explicit `blocked_by` relations)
 
 **Example:**
 ```bash
-# Get next ready task globally
+# Get next ready task globally (searches all milestones)
 os task next-ready
 
-# Get next ready task within milestone
+# Get next ready task within specific milestone
 os task next-ready --milestone task_01JQAZ...
+```
+
+**Output (JSON):**
+```json
+// If task found (TaskWithContext - flat structure):
+{
+  "id": "task_01JQAZ...",
+  "parentId": "task_01JQAY...",
+  "description": "Implement login endpoint",
+  "priority": 5,
+  "completed": false,
+  "depth": 2,
+  "context": {
+    "own": "JWT-based auth",
+    "parent": "User authentication",
+    "milestone": "Auth system v1"
+  },
+  "learnings": {
+    "own": [],
+    "parent": [{ "content": "Use bcrypt for passwords" }],
+    "milestone": []
+  }
+  // ... other task fields
+}
+
+// If no ready tasks:
+null
 ```
 
 ### `os task tree`
@@ -511,32 +580,8 @@ os data export --json
 - All blocker relationships
 - Version metadata for compatibility checking
 
-### `os data import`
-
-Import tasks and learnings from exported JSON:
-
-```bash
-# Import from file (merge with existing data)
-os data import backup.json
-
-# Import and clear existing data first
-os data import backup.json --clear
-
-# JSON output
-os data import backup.json --json
-# Returns: {"imported": true, "tasks": N, "learnings": M}
-```
-
-**Import behavior:**
-- Tasks imported in hierarchical order (parents before children)
-- Existing tasks with same IDs are replaced (INSERT OR REPLACE)
-- Use `--clear` to start fresh database
-- Validates parent references and maintains data integrity
-
 **Use cases:**
-- Backup/restore
-- Migrating between machines
-- Sharing task hierarchies between team members
+- Backup
 - Version control for task plans (commit export files to git)
 
 ## Database Location

@@ -23,6 +23,7 @@ serde_json = "1.0"
 thiserror = "2.0"
 chrono = { version = "0.4", features = ["serde"] }
 ulid = "1.2"
+open = "5"
 
 # VCS backends
 # JJ backend (jj-lib) [PRIMARY] - pin exact version due to API instability
@@ -30,7 +31,7 @@ jj-lib = "=0.37"
 pollster = "0.4"
 
 # Git backend (gix) [FALLBACK] - pure Rust git implementation
-gix = { version = "0.72", default-features = false, features = ["index", "worktree-mutation", "status", "revision", "dirwalk"] }
+gix = { version = "0.77", default-features = false, features = ["index", "worktree-mutation", "status", "revision", "dirwalk"] }
 
 [dev-dependencies]
 tempfile = "3.24"

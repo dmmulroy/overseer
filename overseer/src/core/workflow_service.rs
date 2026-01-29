@@ -28,6 +28,8 @@ impl<'a> TaskWorkflowService<'a> {
         }
     }
 
+    /// Access the underlying TaskService (used primarily in tests)
+    #[allow(dead_code)]
     pub fn task_service(&self) -> &TaskService<'a> {
         &self.task_service
     }
@@ -64,6 +66,16 @@ impl<'a> TaskWorkflowService<'a> {
         self.task_service.get(id)
     }
 
+    /// Start a task, following blockers to find startable work.
+    ///
+    /// If the requested task or any of its descendants are blocked,
+    /// follows blockers until finding a startable task.
+    /// Cascades down to deepest incomplete leaf.
+    pub fn start_follow_blockers(&self, root: &TaskId) -> Result<Task> {
+        let target = self.task_service.resolve_start_target(root)?;
+        self.start(&target)
+    }
+
     pub fn complete(&self, id: &TaskId, result: Option<&str>) -> Result<Task> {
         let task = self.task_service.get(id)?;
 
@@ -94,7 +106,47 @@ impl<'a> TaskWorkflowService<'a> {
             }
         }
 
+        // Bubble up: auto-complete parents if all children done and unblocked
+        self.bubble_up_completion(id)?;
+
         Ok(completed_task)
+    }
+
+    /// Auto-complete parent tasks if all siblings are done and parent is unblocked.
+    /// Bubbles up recursively until hitting a blocked parent or pending children.
+    fn bubble_up_completion(&self, completed_id: &TaskId) -> Result<()> {
+        let mut current_id = completed_id.clone();
+
+        loop {
+            let current = task_repo::get_task(self.conn, &current_id)?
+                .ok_or_else(|| crate::error::OsError::TaskNotFound(current_id.clone()))?;
+
+            let Some(parent_id) = current.parent_id else {
+                break;
+            };
+
+            // Check if parent has pending children
+            if task_repo::has_pending_children(self.conn, &parent_id)? {
+                break;
+            }
+
+            // Check if parent is blocked
+            let parent = self.task_service.get(&parent_id)?;
+            if self.task_service.is_effectively_blocked(&parent)? {
+                break;
+            }
+
+            // Auto-complete parent (use service method to handle depth-0 special case)
+            if parent.depth == Some(0) {
+                self.complete_milestone(&parent_id, None)?;
+            } else {
+                self.task_service.complete(&parent_id, None)?;
+            }
+
+            current_id = parent_id;
+        }
+
+        Ok(())
     }
 
     pub fn complete_milestone(&self, id: &TaskId, result: Option<&str>) -> Result<Task> {
@@ -229,5 +281,273 @@ mod tests {
         let completed = service.complete(&task.id, Some("Done")).unwrap();
         assert!(completed.completed);
         assert_eq!(completed.result, Some("Done".to_string()));
+    }
+
+    #[test]
+    fn test_start_cascades_to_deepest_leaf() {
+        let conn = setup_db();
+        let service = TaskWorkflowService::new(&conn, None);
+        let svc = service.task_service();
+
+        // Create: milestone -> task -> subtask
+        let milestone = svc
+            .create(&CreateTaskInput {
+                description: "Milestone".to_string(),
+                context: None,
+                parent_id: None,
+                priority: Some(5),
+                blocked_by: vec![],
+            })
+            .unwrap();
+
+        let task = svc
+            .create(&CreateTaskInput {
+                description: "Task".to_string(),
+                context: None,
+                parent_id: Some(milestone.id.clone()),
+                priority: Some(5),
+                blocked_by: vec![],
+            })
+            .unwrap();
+
+        let subtask = svc
+            .create(&CreateTaskInput {
+                description: "Subtask".to_string(),
+                context: None,
+                parent_id: Some(task.id.clone()),
+                priority: Some(5),
+                blocked_by: vec![],
+            })
+            .unwrap();
+
+        // Starting milestone should cascade to subtask
+        let started = service.start_follow_blockers(&milestone.id).unwrap();
+        assert_eq!(started.id, subtask.id);
+        assert!(started.started_at.is_some());
+    }
+
+    #[test]
+    fn test_start_follows_blockers_to_startable() {
+        let conn = setup_db();
+        let service = TaskWorkflowService::new(&conn, None);
+        let svc = service.task_service();
+
+        // Create: blocker_task, blocked_milestone -> task
+        let blocker_task = svc
+            .create(&CreateTaskInput {
+                description: "Blocker task".to_string(),
+                context: None,
+                parent_id: None,
+                priority: Some(5),
+                blocked_by: vec![],
+            })
+            .unwrap();
+
+        let blocked_milestone = svc
+            .create(&CreateTaskInput {
+                description: "Blocked milestone".to_string(),
+                context: None,
+                parent_id: None,
+                priority: Some(5),
+                blocked_by: vec![blocker_task.id.clone()],
+            })
+            .unwrap();
+
+        let _task = svc
+            .create(&CreateTaskInput {
+                description: "Task under blocked milestone".to_string(),
+                context: None,
+                parent_id: Some(blocked_milestone.id.clone()),
+                priority: Some(5),
+                blocked_by: vec![],
+            })
+            .unwrap();
+
+        // Starting blocked_milestone should follow blocker and start blocker_task
+        let started = service
+            .start_follow_blockers(&blocked_milestone.id)
+            .unwrap();
+        assert_eq!(started.id, blocker_task.id);
+        assert!(started.started_at.is_some());
+    }
+
+    #[test]
+    fn test_complete_bubbles_up_to_parent() {
+        let conn = setup_db();
+        let service = TaskWorkflowService::new(&conn, None);
+        let svc = service.task_service();
+
+        // Create: milestone -> task -> subtask1, subtask2
+        let milestone = svc
+            .create(&CreateTaskInput {
+                description: "Milestone".to_string(),
+                context: None,
+                parent_id: None,
+                priority: Some(5),
+                blocked_by: vec![],
+            })
+            .unwrap();
+
+        let task = svc
+            .create(&CreateTaskInput {
+                description: "Task".to_string(),
+                context: None,
+                parent_id: Some(milestone.id.clone()),
+                priority: Some(5),
+                blocked_by: vec![],
+            })
+            .unwrap();
+
+        let subtask1 = svc
+            .create(&CreateTaskInput {
+                description: "Subtask 1".to_string(),
+                context: None,
+                parent_id: Some(task.id.clone()),
+                priority: Some(5),
+                blocked_by: vec![],
+            })
+            .unwrap();
+
+        let subtask2 = svc
+            .create(&CreateTaskInput {
+                description: "Subtask 2".to_string(),
+                context: None,
+                parent_id: Some(task.id.clone()),
+                priority: Some(5),
+                blocked_by: vec![],
+            })
+            .unwrap();
+
+        // Complete first subtask - task should NOT be auto-completed
+        service.complete(&subtask1.id, None).unwrap();
+        let task_after = svc.get(&task.id).unwrap();
+        assert!(!task_after.completed);
+
+        // Complete second subtask - task SHOULD be auto-completed
+        service.complete(&subtask2.id, None).unwrap();
+        let task_after = svc.get(&task.id).unwrap();
+        assert!(task_after.completed);
+    }
+
+    #[test]
+    fn test_complete_bubbles_up_to_milestone() {
+        let conn = setup_db();
+        let service = TaskWorkflowService::new(&conn, None);
+        let svc = service.task_service();
+
+        // Create: milestone -> task (single task, no siblings)
+        let milestone = svc
+            .create(&CreateTaskInput {
+                description: "Milestone".to_string(),
+                context: None,
+                parent_id: None,
+                priority: Some(5),
+                blocked_by: vec![],
+            })
+            .unwrap();
+
+        let task = svc
+            .create(&CreateTaskInput {
+                description: "Task".to_string(),
+                context: None,
+                parent_id: Some(milestone.id.clone()),
+                priority: Some(5),
+                blocked_by: vec![],
+            })
+            .unwrap();
+
+        // Complete task - milestone should auto-complete
+        service.complete(&task.id, None).unwrap();
+
+        let milestone_after = svc.get(&milestone.id).unwrap();
+        assert!(milestone_after.completed);
+    }
+
+    #[test]
+    fn test_complete_stops_at_blocked_parent() {
+        let conn = setup_db();
+        let service = TaskWorkflowService::new(&conn, None);
+        let svc = service.task_service();
+
+        // Create: blocker, milestone (blocked by blocker) -> task
+        let blocker = svc
+            .create(&CreateTaskInput {
+                description: "Blocker".to_string(),
+                context: None,
+                parent_id: None,
+                priority: Some(5),
+                blocked_by: vec![],
+            })
+            .unwrap();
+
+        let milestone = svc
+            .create(&CreateTaskInput {
+                description: "Blocked milestone".to_string(),
+                context: None,
+                parent_id: None,
+                priority: Some(5),
+                blocked_by: vec![blocker.id.clone()],
+            })
+            .unwrap();
+
+        let task = svc
+            .create(&CreateTaskInput {
+                description: "Task".to_string(),
+                context: None,
+                parent_id: Some(milestone.id.clone()),
+                priority: Some(5),
+                blocked_by: vec![],
+            })
+            .unwrap();
+
+        // Complete task - milestone should NOT auto-complete (it's blocked)
+        service.complete(&task.id, None).unwrap();
+
+        let milestone_after = svc.get(&milestone.id).unwrap();
+        assert!(!milestone_after.completed);
+    }
+
+    #[test]
+    fn test_complete_stops_at_pending_siblings() {
+        let conn = setup_db();
+        let service = TaskWorkflowService::new(&conn, None);
+        let svc = service.task_service();
+
+        // Create: milestone -> task1, task2
+        let milestone = svc
+            .create(&CreateTaskInput {
+                description: "Milestone".to_string(),
+                context: None,
+                parent_id: None,
+                priority: Some(5),
+                blocked_by: vec![],
+            })
+            .unwrap();
+
+        let task1 = svc
+            .create(&CreateTaskInput {
+                description: "Task 1".to_string(),
+                context: None,
+                parent_id: Some(milestone.id.clone()),
+                priority: Some(5),
+                blocked_by: vec![],
+            })
+            .unwrap();
+
+        let _task2 = svc
+            .create(&CreateTaskInput {
+                description: "Task 2".to_string(),
+                context: None,
+                parent_id: Some(milestone.id.clone()),
+                priority: Some(5),
+                blocked_by: vec![],
+            })
+            .unwrap();
+
+        // Complete task1 - milestone should NOT auto-complete (task2 still pending)
+        service.complete(&task1.id, None).unwrap();
+
+        let milestone_after = svc.get(&milestone.id).unwrap();
+        assert!(!milestone_after.completed);
     }
 }

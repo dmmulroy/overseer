@@ -50,26 +50,33 @@ Use **Overseer** for persistent work. Use **TodoWrite** for ephemeral in-session
 ## Finding Work
 
 ```javascript
-// Get single next task with full context (recommended for work sessions)
-const task = await tasks.nextReady(milestoneId);
+// Get next ready task with full context (recommended for work sessions)
+const task = await tasks.nextReady(milestoneId); // TaskWithContext | null
+if (!task) {
+  console.log("No ready tasks");
+  return;
+}
 
 // Get all ready tasks (for progress overview)
-const readyTasks = await tasks.list({ ready: true });
+const readyTasks = await tasks.list({ ready: true }); // Task[]
 ```
 
-**Use `nextReady()`** when starting work - returns `Task` with full inherited context populated.
-**Use `list({ ready: true })`** for status/progress checks - returns flat `Task[]` without context.
+**Use `nextReady()`** when starting work - returns `TaskWithContext | null` (deepest ready leaf with full context chain + inherited learnings).
+**Use `list({ ready: true })`** for status/progress checks - returns `Task[]` without context chain.
 
 ## Basic Workflow
 
 ```javascript
-// 1. Get next ready task
+// 1. Get next ready task (returns TaskWithContext | null)
 const task = await tasks.nextReady();
+if (!task) return "No ready tasks";
 
-// 2. Review context
+// 2. Review context (available on TaskWithContext)
 console.log(task.context.own);       // This task's context
 console.log(task.context.parent);    // Parent's context (if depth > 0)
 console.log(task.context.milestone); // Root milestone context (if depth > 1)
+console.log(task.learnings.parent);  // Inherited learnings from parent
+console.log(task.learnings.milestone); // Inherited learnings from milestone
 
 // 3. Start work (auto-creates VCS bookmark)
 await tasks.start(task.id);
@@ -88,7 +95,7 @@ See @file references/workflow.md for detailed workflow guidance.
 Tasks have **progressive context** - inherited from ancestors:
 
 ```javascript
-const task = await tasks.get(taskId);
+const task = await tasks.get(taskId); // Returns TaskWithContext
 // task.context.own      - this task's context (always present)
 // task.context.parent   - parent task's context (if depth > 0)
 // task.context.milestone - root milestone's context (if depth > 1)
@@ -96,6 +103,34 @@ const task = await tasks.get(taskId);
 // Inherited learnings
 // task.learnings.milestone - learnings from root milestone
 // task.learnings.parent    - learnings from parent task
+```
+
+## Return Type Summary
+
+| Method | Returns | Notes |
+|--------|---------|-------|
+| `tasks.get(id)` | `TaskWithContext` | Full context chain + inherited learnings |
+| `tasks.nextReady()` | `TaskWithContext \| null` | Deepest ready leaf with full context |
+| `tasks.list()` | `Task[]` | Basic task fields only |
+| `tasks.create()` | `Task` | No context chain |
+| `tasks.start/complete()` | `Task` | No context chain |
+
+## Blockers
+
+Blockers prevent a task from being ready until the blocker completes.
+
+**Constraints:**
+- Blockers cannot be self
+- Blockers cannot be ancestors (parent, grandparent, etc.)
+- Blockers cannot be descendants
+- Creating/reparenting with invalid blockers is rejected
+
+```javascript
+// Add blocker - taskA waits for taskB
+await tasks.block(taskA.id, taskB.id);
+
+// Remove blocker
+await tasks.unblock(taskA.id, taskB.id);
 ```
 
 ## Task Hierarchies

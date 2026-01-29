@@ -29,8 +29,27 @@ pub enum OsError {
     #[error("Cycle detected in blocker chain")]
     BlockerCycle,
 
+    /// Cycle detected while following blockers during start resolution
+    #[error("{message}")]
+    BlockerCycleDetected { message: String, chain: Vec<TaskId> },
+
+    /// No startable task found after exhausting all paths
+    #[error("{message}")]
+    NoStartableTask { message: String, requested: TaskId },
+
+    /// Invalid blocker relation (self, ancestor, or descendant)
+    #[error("{message}")]
+    InvalidBlockerRelation {
+        message: String,
+        task_id: TaskId,
+        blocker_id: TaskId,
+    },
+
     #[error("Cannot complete task with pending children")]
     PendingChildren,
+
+    #[error("Invalid priority: {0} (must be 1-5)")]
+    InvalidPriority(i32),
 
     #[error("IO error: {0}")]
     Io(#[from] std::io::Error),

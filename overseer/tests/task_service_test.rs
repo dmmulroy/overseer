@@ -473,9 +473,12 @@ fn test_blocker_cycle_direct() {
         })
         .unwrap();
 
-    // Try to add task as its own blocker
+    // Try to add task as its own blocker - should return InvalidBlockerRelation
     let result = service.add_blocker(&task.id, &task.id);
-    assert!(matches!(result, Err(OsError::BlockerCycle)));
+    assert!(matches!(
+        result,
+        Err(OsError::InvalidBlockerRelation { .. })
+    ));
 }
 
 #[test]

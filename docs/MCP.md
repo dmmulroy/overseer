@@ -28,7 +28,7 @@ return task;
 
 ## The `execute` Tool
 
-Single tool that runs JavaScript in VM sandbox with `tasks`, `learnings`, `vcs` APIs.
+Single tool that runs JavaScript in VM sandbox with `tasks` and `learnings` APIs.
 
 **Input:** `code` parameter (JavaScript string)  
 **Output:** Return value from code execution  
@@ -38,70 +38,48 @@ Single tool that runs JavaScript in VM sandbox with `tasks`, `learnings`, `vcs` 
 ## Type Definitions
 
 ```typescript
-// Task
+// Task (from list/create/update/start/complete/reopen)
+// Note: Does NOT include context chain or inherited learnings
 interface Task {
-  id: string;              // ULID (task_01JQAZ...)
+  id: string;                   // ULID (task_01JQAZ...)
+  parentId: string | null;
   description: string;
-  context: string;         // Additional info
-  status: "pending" | "in_progress" | "completed";
-  priority: number;        // 1-10
-  depth: number | null;    // 0=milestone, 1=task, 2=subtask
-  parent_id: string | null;
-  commit_sha: string | null; // Auto-populated on complete
-  result: string | null;   // Completion notes
-  created_at: string;      // ISO 8601
-  started_at: string | null;
-  completed_at: string | null;
+  priority: number;             // 1-5 (default: 3)
+  completed: boolean;
+  completedAt: string | null;
+  startedAt: string | null;
+  createdAt: string;            // ISO 8601
+  updatedAt: string;
+  result: string | null;        // Completion notes
+  commitSha: string | null;     // Auto-populated on complete
+  depth: number;                // 0=milestone, 1=task, 2=subtask
+  blockedBy?: string[];         // Blocking task IDs (omitted if empty)
+  blocks?: string[];            // Tasks this blocks (omitted if empty)
+  bookmark?: string;            // VCS bookmark name (if started)
+  startCommit?: string;         // Commit SHA at start
 }
 
-// Task with progressive context
-interface TaskWithContext {
-  task: Task;
-  context: {
-    own: string;           // Always present
-    parent?: string;       // If depth > 0
-    milestone?: string;    // If depth > 1
+// TaskWithContext (from get/nextReady)
+// Extends Task with context chain and inherited learnings
+interface TaskWithContext extends Task {
+  context: {                    // Inherited context chain
+    own: string;
+    parent?: string;            // If depth > 0
+    milestone?: string;         // If depth > 1
   };
-  learnings: {
-    milestone: Learning[]; // From root
-    parent: Learning[];    // From parent
+  learnings: {                  // Inherited learnings from ancestors
+    parent: Learning[];         // Parent's learnings (if depth > 0)
+    milestone: Learning[];      // Milestone's learnings (if depth > 1)
   };
 }
 
 // Learning
 interface Learning {
-  id: string;              // ULID (learning_01JQAZ...)
-  task_id: string;
+  id: string;                   // ULID (lrn_01JQAZ...)
+  taskId: string;
   content: string;
-  source_task_id: string | null;
-  created_at: string;
-}
-
-// VCS types
-interface VcsInfo {
-  vcs_type: "jj" | "git" | "none";
-  root: string | null;
-}
-
-interface VcsStatus {
-  files: string[];         // Changed files
-  current_commit_id: string;
-}
-
-interface LogEntry {
-  id: string;
-  description: string;
-  author: string;
-  timestamp: string;
-}
-
-interface DiffEntry {
-  path: string;
-  change_type: "added" | "modified" | "removed";
-}
-
-interface CommitResult {
-  commit_id: string;
+  sourceTaskId: string | null;
+  createdAt: string;
 }
 ```
 
@@ -124,21 +102,23 @@ tasks.get(id: string): Promise<TaskWithContext>
 tasks.create(input: {
   description: string;
   context?: string;
-  parentId?: string;     // Makes this a subtask
-  priority?: 1 | 2 | 3 | 4 | 5;
-  blockedBy?: string[];  // Task IDs
+  parentId?: string;          // Makes this a subtask
+  priority?: 1 | 2 | 3 | 4 | 5;  // Default: 3
+  blockedBy?: string[];       // Task IDs
 }): Promise<Task>
 
 // Update task
 tasks.update(id: string, input: {
   description?: string;
   context?: string;
-  priority?: 1 | 2 | 3 | 4 | 5;
+  priority?: 1 | 2 | 3 | 4 | 5;  // 1-5 (not 1-10)
   parentId?: string;
 }): Promise<Task>
 
 // State transitions
+// Start follows blockers to find startable work, cascades to deepest leaf
 tasks.start(id: string): Promise<Task>
+// Complete auto-bubbles up if all siblings done and parent unblocked
 tasks.complete(id: string, result?: string): Promise<Task>
 tasks.reopen(id: string): Promise<Task>
 tasks.delete(id: string): Promise<void>
@@ -147,8 +127,9 @@ tasks.delete(id: string): Promise<void>
 tasks.block(taskId: string, blockerId: string): Promise<void>
 tasks.unblock(taskId: string, blockerId: string): Promise<void>
 
-// Queries
-tasks.nextReady(milestoneId?: string): Promise<Task | null>
+// Queries - DFS to find deepest unblocked incomplete leaf
+// Returns TaskWithContext (with context chain + learnings) or null
+tasks.nextReady(milestoneId?: string): Promise<TaskWithContext | null>
 ```
 
 ### `learnings` API
@@ -166,25 +147,6 @@ learnings.list(taskId: string): Promise<Learning[]>
 
 // Delete learning
 learnings.delete(id: string): Promise<void>
-```
-
-### `vcs` API
-
-```javascript
-// Detect VCS type
-vcs.detect(): Promise<VcsInfo>
-
-// Get status
-vcs.status(): Promise<VcsStatus>
-
-// Get log
-vcs.log(limit?: number): Promise<LogEntry[]>
-
-// Get diff
-vcs.diff(base?: string): Promise<DiffEntry[]>
-
-// Create commit
-vcs.commit(message: string): Promise<CommitResult>
 ```
 
 ## Usage Patterns
@@ -219,14 +181,15 @@ return { milestone, tasks: [loginTask, signupTask] };
 ### Start and Complete Task
 
 ```javascript
-// Get next ready task
+// Get next ready task (DFS finds deepest unblocked leaf)
 const task = await tasks.nextReady();
 
 if (!task) {
   return "No tasks ready";
 }
 
-// Start task
+// Start task - if blocked, follows blockers to find startable work
+// Cascades to deepest incomplete leaf
 await tasks.start(task.id);
 
 // ... do work ...
@@ -239,6 +202,8 @@ await learnings.add(
 );
 
 // Complete (auto-captures commit SHA)
+// Auto-bubbles up: if all siblings done and parent unblocked,
+// parent is auto-completed too
 await tasks.complete(
   task.id,
   "Login endpoint implemented with JWT tokens"
@@ -266,27 +231,24 @@ console.log("Milestone context:", subtask.context.milestone);
 console.log("Inherited learnings:", subtask.learnings.parent);
 ```
 
-### VCS Integration
+### VCS Integration (Automatic)
+
+VCS operations are integrated into task lifecycle - no manual VCS API calls needed:
 
 ```javascript
-// Check VCS status before committing
-const status = await vcs.status();
-console.log("Changed files:", status.files);
+// Start task - automatically creates VCS bookmark
+await tasks.start(task.id);
+// -> Creates bookmark named after task ID
+// -> Records start commit for later squashing
 
-if (status.files.length === 0) {
-  return "No changes to commit";
-}
-
-// Show recent commits
-const log = await vcs.log(5);
-console.log("Recent commits:", log);
-
-// Create commit
-const result = await vcs.commit("Implement login endpoint");
-
-// Complete task (will capture this commit SHA)
-await tasks.complete(taskId, "Login endpoint complete");
+// Complete task - automatically captures commit SHA
+await tasks.complete(task.id, "Login endpoint complete");
+// -> Squashes commits since start
+// -> Stores commit SHA on task
+// -> Cleans up bookmark
 ```
+
+VCS type (jj or git) is auto-detected. If no VCS is available, task operations still succeed without VCS features.
 
 ### Error Handling
 
@@ -392,22 +354,7 @@ await tasks.create({ description: "Deploy to prod" });
 // No guarantee tests/review done first
 ```
 
-### 4. Always Check VCS Before Commit
-
-Verify there are changes before committing:
-
-```javascript
-// ✅ Good - check first
-const status = await vcs.status();
-if (status.files.length > 0) {
-  await vcs.commit("Update auth");
-}
-
-// ❌ Bad - might fail on empty commit
-await vcs.commit("Update auth");
-```
-
-### 5. Return Useful Data
+### 4. Return Useful Data
 
 Return structured data for agent inspection:
 
@@ -470,25 +417,17 @@ await tasks.start(task.task.id);
 return task;
 ```
 
-### Completion with Commit
+### Complete Task (VCS Auto-Handled)
 
 ```javascript
-// Verify work done
-const status = await vcs.status();
-if (status.files.length === 0) {
-  return "No changes to commit";
-}
-
-// Commit changes
-const commit = await vcs.commit("Implement feature X");
-
-// Complete task (auto-captures commit SHA)
+// Complete task - VCS squash/commit handled automatically
 const completed = await tasks.complete(
   taskId,
   "Feature X implemented and tested"
 );
 
-return { task: completed, commit: commit.commit_id };
+// completed.commitSha contains the squashed commit SHA (if VCS available)
+return { task: completed, commit: completed.commitSha };
 ```
 
 ## Troubleshooting
@@ -522,46 +461,24 @@ console.log(`${children.length} children still pending`);
 // Complete children first
 ```
 
-### No VCS?
-
-```javascript
-const info = await vcs.detect();
-if (info.vcs_type === "none") {
-  console.log("No VCS found - run from repo root");
-  // Task completion won't capture commit_sha
-}
-```
-
 ## Limitations
 
 - **Timeout:** 30s max execution
 - **Output:** 50,000 chars max (larger outputs truncated)
 - **No network:** Sandbox has no fetch/http access
 - **No filesystem:** Cannot read/write files directly
-- **VCS:** Must run from repo root with `.jj/` or `.git/`
+- **VCS features:** Require running from repo root with `.jj/` or `.git/` (tasks work without VCS, just no bookmarks/squashing)
 
-## Data Export/Import
+## Data Export
 
-For backup, migration, or version control of task data, use the CLI `data` commands:
+For backup or version control of task data, use the CLI `data` command:
 
 ```bash
 # Export all tasks and learnings
 os data export -o backup.json
-
-# Import from file
-os data import backup.json
-
-# Import with clean slate
-os data import backup.json --clear
 ```
 
-These are CLI-only commands (not available via MCP execute tool). Use cases:
-- Backup task hierarchies before major changes
-- Share task plans between projects or team members
-- Version control task definitions in git
-- Migrate data between machines
-
-See [CLI Reference](CLI.md#data-management) for full documentation.
+This is a CLI-only command (not available via MCP execute tool). See [CLI Reference](CLI.md#data-management) for details.
 
 ## See Also
 

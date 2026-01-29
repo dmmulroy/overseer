@@ -33,8 +33,13 @@ before(async () => {
   process.env.OVERSEER_CLI_CWD = testDir;
 
   // Initialize jj repo for VCS tests
+  // Create with initial commit history to avoid jj-lib panics when squashing
+  // (root commit has no parents, causing assertion failure)
   await runCommand("jj", ["git", "init", "--colocate", testDir]);
+  // Create a file and commit to establish parent for working copy
+  await runCommand("sh", ["-c", `echo "init" > "${testDir}/.overseer-init"`]);
   await runCommand("jj", ["describe", "-m", "initial"], testDir);
+  await runCommand("jj", ["new"], testDir);
 });
 
 after(async () => {
@@ -208,8 +213,8 @@ describe("Integration Tests", () => {
 
     it("should add and remove blockers", async () => {
       const result = await executeCode(`
-        const task1 = await tasks.create({ description: "Task 1" });
-        const task2 = await tasks.create({ description: "Task 2" });
+        const task1 = await tasks.create({ description: "Blocker test task 1" });
+        const task2 = await tasks.create({ description: "Blocker test task 2" });
         
         await tasks.block(task1.id, task2.id);
         const blocked = await tasks.get(task1.id);
@@ -218,13 +223,14 @@ describe("Integration Tests", () => {
         const unblocked = await tasks.get(task1.id);
         
         return {
-          blockedCount: blocked.blockedBy.length,
-          unblockedCount: unblocked.blockedBy.length
+          blockedCount: (blocked.blockedBy || []).length,
+          unblockedCount: (unblocked.blockedBy || []).length,
+          blockedBy: blocked.blockedBy
         };
       `);
 
-      const counts = result as Record<string, number>;
-      assert.equal(counts.blockedCount, 1);
+      const counts = result as Record<string, unknown>;
+      assert.equal(counts.blockedCount, 1, `Expected 1 blocker, got ${counts.blockedCount}. blockedBy: ${JSON.stringify(counts.blockedBy)}`);
       assert.equal(counts.unblockedCount, 0);
     });
 
@@ -253,6 +259,140 @@ describe("Integration Tests", () => {
       const flags = result as Record<string, boolean>;
       assert.equal(flags.hasBlocked, false, "Blocked task should not be ready");
       assert.equal(flags.hasReady, true, "Unblocked task should be ready");
+    });
+  });
+
+  describe("NextReady API", () => {
+    it("should return null when no tasks are ready", async () => {
+      const result = await executeCode(`
+        // Create a blocked milestone (blocked by another task)
+        const blocker = await tasks.create({ description: "Blocker task", priority: 1 });
+        const blockedMilestone = await tasks.create({
+          description: "Blocked milestone",
+          priority: 5,
+          blockedBy: [blocker.id]
+        });
+        
+        // nextReady with milestoneId should return null since milestone is blocked
+        const next = await tasks.nextReady(blockedMilestone.id);
+        return next;
+      `);
+
+      assert.equal(result, null, "nextReady should return null for blocked milestone");
+    });
+
+    it("should return task with context when ready", async () => {
+      const result = await executeCode(`
+        // Create unblocked milestone
+        const milestone = await tasks.create({
+          description: "Ready milestone",
+          context: "Milestone context",
+          priority: 5
+        });
+        
+        const next = await tasks.nextReady(milestone.id);
+        return next;
+      `);
+
+      assert.ok(result, "nextReady should return a task");
+      const task = result as Record<string, unknown>;
+      assert.ok(task.id, "Task should have id");
+      assert.ok(task.context, "Task should have context chain");
+      const context = task.context as Record<string, string>;
+      assert.equal(context.own, "Milestone context", "Context should include own");
+    });
+
+    it("should return deepest ready leaf in hierarchy", async () => {
+      const result = await executeCode(`
+        // Create hierarchy: milestone -> task -> subtask
+        const milestone = await tasks.create({
+          description: "M",
+          context: "MC",
+          priority: 5
+        });
+        
+        const task = await tasks.create({
+          description: "T",
+          context: "TC",
+          parentId: milestone.id,
+          priority: 5
+        });
+        
+        const subtask = await tasks.create({
+          description: "S",
+          context: "SC",
+          parentId: task.id,
+          priority: 5
+        });
+        
+        const next = await tasks.nextReady(milestone.id);
+        return { 
+          nextId: next?.id, 
+          subtaskId: subtask.id,
+          depth: next?.depth
+        };
+      `);
+
+      const res = result as Record<string, unknown>;
+      assert.equal(res.nextId, res.subtaskId, "Should return deepest leaf (subtask)");
+      assert.equal(res.depth, 2, "Subtask should have depth 2");
+    });
+
+    it("should return task with inherited learnings", async () => {
+      const result = await executeCode(`
+        const milestone = await tasks.create({
+          description: "M",
+          priority: 5
+        });
+        
+        // Add learning to milestone
+        await learnings.add(milestone.id, "Milestone learning");
+        
+        const task = await tasks.create({
+          description: "T",
+          parentId: milestone.id,
+          priority: 5
+        });
+        
+        const next = await tasks.nextReady(milestone.id);
+        return next?.learnings;
+      `);
+
+      assert.ok(result, "Should have learnings");
+      const inherited = result as Record<string, unknown[]>;
+      assert.ok(inherited.milestone, "Should have milestone learnings");
+      assert.equal(inherited.milestone.length, 1, "Should have 1 milestone learning");
+    });
+
+    it("should skip blocked subtrees", async () => {
+      const result = await executeCode(`
+        // Create blocker (separate milestone)
+        const blocker = await tasks.create({ description: "Blocker for skip test", priority: 1 });
+        
+        // Create blocked milestone (high priority)
+        const blockedM = await tasks.create({
+          description: "Blocked M for skip test",
+          priority: 5,
+          blockedBy: [blocker.id]
+        });
+        const blockedTask = await tasks.create({
+          description: "Blocked T for skip test",
+          parentId: blockedM.id,
+          priority: 5
+        });
+        
+        // nextReady within the blocked milestone should return null
+        const nextInBlocked = await tasks.nextReady(blockedM.id);
+        
+        return {
+          blockedMilestoneNext: nextInBlocked,
+          blockedTaskId: blockedTask.id
+        };
+      `);
+
+      const res = result as Record<string, unknown>;
+      // nextReady within blocked milestone should return null
+      assert.equal(res.blockedMilestoneNext, null, "nextReady in blocked milestone should return null");
     });
   });
 

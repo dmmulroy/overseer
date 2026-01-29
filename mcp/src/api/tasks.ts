@@ -2,7 +2,7 @@
  * Tasks API - typed wrapper around os task commands
  */
 import { callCli } from "../cli.js";
-import type { Task } from "../types.js";
+import type { Task, TaskWithContext } from "../types.js";
 
 export interface TaskFilter {
   parentId?: string;
@@ -30,7 +30,8 @@ export interface UpdateTaskInput {
  */
 export const tasks = {
   /**
-   * List tasks with optional filters
+   * List tasks with optional filters.
+   * Returns tasks without context chain or inherited learnings.
    */
   async list(filter?: TaskFilter): Promise<Task[]> {
     const args = ["task", "list"];
@@ -41,14 +42,15 @@ export const tasks = {
   },
 
   /**
-   * Get single task with full context and learnings
+   * Get single task with full context chain and inherited learnings.
    */
-  async get(id: string): Promise<Task> {
-    return (await callCli(["task", "get", id])) as Task;
+  async get(id: string): Promise<TaskWithContext> {
+    return (await callCli(["task", "get", id])) as TaskWithContext;
   },
 
   /**
-   * Create new task
+   * Create new task.
+   * Returns task without context chain or inherited learnings.
    */
   async create(input: CreateTaskInput): Promise<Task> {
     const args = ["task", "create", "-d", input.description];
@@ -62,7 +64,8 @@ export const tasks = {
   },
 
   /**
-   * Update existing task
+   * Update existing task.
+   * Returns task without context chain or inherited learnings.
    */
   async update(id: string, input: UpdateTaskInput): Promise<Task> {
     const args = ["task", "update", id];
@@ -74,14 +77,19 @@ export const tasks = {
   },
 
   /**
-   * Mark task as started
+   * Mark task as started.
+   * Follows blockers to find startable work, cascades to deepest leaf.
+   * Creates VCS bookmark for started task (if VCS available).
+   * Returns the task that was actually started.
    */
   async start(id: string): Promise<Task> {
     return (await callCli(["task", "start", id])) as Task;
   },
 
   /**
-   * Complete task with optional result
+   * Complete task with optional result.
+   * Auto-bubbles up if all siblings done and parent unblocked.
+   * Squashes commits and captures commit SHA (if VCS available).
    */
   async complete(id: string, result?: string): Promise<Task> {
     const args = ["task", "complete", id];
@@ -90,39 +98,41 @@ export const tasks = {
   },
 
   /**
-   * Reopen completed task
+   * Reopen completed task.
    */
   async reopen(id: string): Promise<Task> {
     return (await callCli(["task", "reopen", id])) as Task;
   },
 
   /**
-   * Delete task (cascades to children)
+   * Delete task (cascades to children and learnings).
    */
   async delete(id: string): Promise<void> {
     await callCli(["task", "delete", id]);
   },
 
   /**
-   * Add blocker relationship
+   * Add blocker relationship.
+   * Validates: no self-blocks, no ancestor/descendant blocks, no cycles.
    */
   async block(taskId: string, blockerId: string): Promise<void> {
     await callCli(["task", "block", taskId, "--by", blockerId]);
   },
 
   /**
-   * Remove blocker relationship
+   * Remove blocker relationship.
    */
   async unblock(taskId: string, blockerId: string): Promise<void> {
     await callCli(["task", "unblock", taskId, "--by", blockerId]);
   },
 
   /**
-   * Get next ready task
+   * Get next ready task (DFS to find deepest unblocked incomplete leaf).
+   * Returns task with full context chain and inherited learnings, or null if no ready tasks.
    */
-  async nextReady(milestoneId?: string): Promise<Task | null> {
+  async nextReady(milestoneId?: string): Promise<TaskWithContext | null> {
     const args = ["task", "next-ready"];
     if (milestoneId) args.push("--milestone", milestoneId);
-    return (await callCli(args)) as Task | null;
+    return (await callCli(args)) as TaskWithContext | null;
   },
 };

@@ -95,8 +95,13 @@ impl VcsBackend for GixBackend {
                         }
                     }
                 }
-                gix::status::Item::TreeIndex(_change) => {
-                    // Staged changes (HEAD tree vs index) - can add if needed
+                gix::status::Item::TreeIndex(change) => {
+                    // Staged changes (HEAD tree vs index) - include as dirty
+                    let path = change.location().to_string();
+                    files.push(FileStatus {
+                        path,
+                        status: FileStatusKind::Modified, // staged = modified from HEAD
+                    });
                 }
             }
         }
@@ -136,18 +141,18 @@ impl VcsBackend for GixBackend {
             let id = commit_obj.id.to_string()[..12].to_string();
             let description = decoded.message.to_str_lossy().trim().to_string();
 
-            // Parse author and timestamp
-            let author_ref = decoded.author();
-            let author = author_ref.name.to_str_lossy().to_string();
-
-            // author().time() returns Result<Time,_> based on gix docs
-            let timestamp = match author_ref
-                .time()
-                .ok()
-                .and_then(|t| Utc.timestamp_opt(t.seconds, 0).single())
-            {
-                Some(ts) => ts,
-                None => Utc::now(),
+            // Parse author and timestamp - author() returns Result in gix 0.77+
+            let (author, timestamp) = match decoded.author() {
+                Ok(author_ref) => {
+                    let name = author_ref.name.to_str_lossy().to_string();
+                    let ts = author_ref
+                        .time()
+                        .ok()
+                        .and_then(|t| Utc.timestamp_opt(t.seconds, 0).single())
+                        .unwrap_or_else(Utc::now);
+                    (name, ts)
+                }
+                Err(_) => ("Unknown".to_string(), Utc::now()),
             };
 
             entries.push(LogEntry {
@@ -210,8 +215,13 @@ impl VcsBackend for GixBackend {
                         }
                     }
                 }
-                gix::status::Item::TreeIndex(_change) => {
-                    // Staged changes (HEAD tree vs index) - can add if needed
+                gix::status::Item::TreeIndex(change) => {
+                    // Staged changes (HEAD tree vs index) - include in diff
+                    let path = change.location().to_string();
+                    entries.push(DiffEntry {
+                        path,
+                        change_type: ChangeType::Modified,
+                    });
                 }
             }
         }
@@ -793,5 +803,52 @@ mod tests {
 
         let log = backend.log(5).unwrap();
         assert!(log.iter().any(|e| e.description == "add source files"));
+    }
+
+    #[test]
+    fn test_status_with_staged_changes() {
+        let repo = GitTestRepo::new().unwrap();
+        repo.write_file("test.txt", "initial").unwrap();
+        repo.commit("initial commit").unwrap();
+
+        // Modify and stage the file
+        repo.write_file("test.txt", "modified").unwrap();
+        std::process::Command::new("git")
+            .args(["add", "test.txt"])
+            .current_dir(repo.path())
+            .output()
+            .unwrap();
+
+        let backend = GixBackend::open(repo.path()).unwrap();
+        let status = backend.status().unwrap();
+
+        // Staged changes should be detected as dirty
+        assert!(
+            !status.files.is_empty(),
+            "Status should include staged changes"
+        );
+    }
+
+    #[test]
+    fn test_is_clean_false_with_staged_changes() {
+        let repo = GitTestRepo::new().unwrap();
+        repo.write_file("test.txt", "initial").unwrap();
+        repo.commit("initial commit").unwrap();
+
+        // Modify and stage the file
+        repo.write_file("test.txt", "modified").unwrap();
+        std::process::Command::new("git")
+            .args(["add", "test.txt"])
+            .current_dir(repo.path())
+            .output()
+            .unwrap();
+
+        let backend = GixBackend::open(repo.path()).unwrap();
+
+        // is_clean should return false when there are staged changes
+        assert!(
+            !backend.is_clean().unwrap(),
+            "is_clean should return false with staged changes"
+        );
     }
 }

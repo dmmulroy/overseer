@@ -93,6 +93,11 @@ export async function execute(code: string): Promise<unknown> {
  * Truncate large outputs to prevent response overflow
  */
 function truncateOutput(result: unknown): unknown {
+  // Handle undefined explicitly (JSON.stringify returns undefined for undefined)
+  if (result === undefined) {
+    return undefined;
+  }
+
   const json = JSON.stringify(result, null, 2);
   if (json.length <= MAX_OUTPUT_SIZE) {
     return result;
