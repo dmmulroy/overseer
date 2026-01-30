@@ -57,8 +57,24 @@ pub enum OsError {
     #[error("JSON error: {0}")]
     Json(#[from] serde_json::Error),
 
+    #[error("Not in a repository - run `jj init` or `git init`")]
+    NotARepository,
+
+    #[error("Working copy has uncommitted changes - commit or stash first")]
+    DirtyWorkingCopy,
+
     #[error("VCS error: {0}")]
-    Vcs(#[from] VcsError),
+    Vcs(VcsError),
+}
+
+impl From<VcsError> for OsError {
+    fn from(err: VcsError) -> Self {
+        match err {
+            VcsError::NotARepository => OsError::NotARepository,
+            VcsError::DirtyWorkingCopy => OsError::DirtyWorkingCopy,
+            other => OsError::Vcs(other),
+        }
+    }
 }
 
 pub type Result<T> = std::result::Result<T, OsError>;

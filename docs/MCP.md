@@ -231,24 +231,23 @@ console.log("Milestone context:", subtask.context.milestone);
 console.log("Inherited learnings:", subtask.learnings.parent);
 ```
 
-### VCS Integration (Automatic)
+### VCS Integration (Required for Workflow)
 
 VCS operations are integrated into task lifecycle - no manual VCS API calls needed:
 
 ```javascript
-// Start task - automatically creates VCS bookmark
+// Start task - VCS required, creates bookmark
 await tasks.start(task.id);
 // -> Creates bookmark named after task ID
-// -> Records start commit for later squashing
+// -> Records start commit
 
-// Complete task - automatically captures commit SHA
+// Complete task - VCS required, commits changes
 await tasks.complete(task.id, "Login endpoint complete");
-// -> Squashes commits since start
+// -> Commits changes (NothingToCommit treated as success)
 // -> Stores commit SHA on task
-// -> Cleans up bookmark
 ```
 
-VCS type (jj or git) is auto-detected. If no VCS is available, task operations still succeed without VCS features.
+**VCS is required** for `start` and `complete`. Fails with `NotARepository` if no jj/git found, `DirtyWorkingCopy` if uncommitted changes. CRUD operations (create, list, get, etc.) work without VCS.
 
 ### Error Handling
 
@@ -420,13 +419,13 @@ return task;
 ### Complete Task (VCS Auto-Handled)
 
 ```javascript
-// Complete task - VCS squash/commit handled automatically
+// Complete task - VCS required, commits changes
 const completed = await tasks.complete(
   taskId,
   "Feature X implemented and tested"
 );
 
-// completed.commitSha contains the squashed commit SHA (if VCS available)
+// completed.commitSha contains the commit SHA
 return { task: completed, commit: completed.commitSha };
 ```
 
@@ -467,7 +466,7 @@ console.log(`${children.length} children still pending`);
 - **Output:** 50,000 chars max (larger outputs truncated)
 - **No network:** Sandbox has no fetch/http access
 - **No filesystem:** Cannot read/write files directly
-- **VCS features:** Require running from repo root with `.jj/` or `.git/` (tasks work without VCS, just no bookmarks/squashing)
+- **VCS required for workflow:** `start` and `complete` require jj or git (fails with `NotARepository` error). CRUD operations work without VCS.
 
 ## Data Export
 

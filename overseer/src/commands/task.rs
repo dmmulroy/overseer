@@ -152,19 +152,9 @@ pub struct TaskTree {
     pub children: Vec<TaskTree>,
 }
 
-/// Handle task command without VCS integration (for testing)
-#[allow(dead_code)]
+/// Handle task command (CRUD operations - no VCS required)
 pub fn handle(conn: &Connection, cmd: TaskCommand) -> Result<TaskResult> {
-    handle_with_vcs(conn, cmd, None)
-}
-
-pub fn handle_with_vcs(
-    conn: &Connection,
-    cmd: TaskCommand,
-    vcs: Option<Box<dyn VcsBackend>>,
-) -> Result<TaskResult> {
     let svc = TaskService::new(conn);
-    let workflow = TaskWorkflowService::new(conn, vcs);
 
     match cmd {
         TaskCommand::Create(args) => {
@@ -203,21 +193,10 @@ pub fn handle_with_vcs(
             Ok(TaskResult::One(svc.update(&args.id, &input)?))
         }
 
-        // VCS-integrated operations use workflow service
-        // Start now follows blockers to find startable work
-        TaskCommand::Start { id } => Ok(TaskResult::One(workflow.start_follow_blockers(&id)?)),
-
-        TaskCommand::Complete(args) => Ok(TaskResult::One(
-            workflow.complete_with_learnings(&args.id, args.result.as_deref(), &args.learnings)?,
-        )),
-
         TaskCommand::Reopen { id } => Ok(TaskResult::One(svc.reopen(&id)?)),
 
         TaskCommand::Delete { id } => {
-            // DB first - validates constraints (cascade deletes children)
             svc.delete(&id)?;
-            // VCS cleanup after - best effort
-            workflow.cleanup_bookmark(&id)?;
             Ok(TaskResult::Deleted)
         }
 
@@ -226,7 +205,6 @@ pub fn handle_with_vcs(
         TaskCommand::Unblock(args) => Ok(TaskResult::One(svc.remove_blocker(&args.id, &args.by)?)),
 
         TaskCommand::NextReady(args) => {
-            // Use new DFS-based next_ready
             let result = svc.next_ready(args.milestone.as_ref())?;
             match result {
                 Some(id) => {
@@ -247,6 +225,38 @@ pub fn handle_with_vcs(
             let tasks = search_tasks(conn, &args.query)?;
             Ok(TaskResult::Many(tasks))
         }
+
+        // Workflow commands require VCS - caller must use handle_workflow
+        TaskCommand::Start { .. } | TaskCommand::Complete(_) => {
+            Err(crate::error::OsError::NotARepository)
+        }
+    }
+}
+
+/// Handle workflow commands (start/complete - VCS required)
+pub fn handle_workflow(
+    conn: &Connection,
+    cmd: TaskCommand,
+    vcs: Box<dyn VcsBackend>,
+) -> Result<TaskResult> {
+    let svc = TaskService::new(conn);
+    let workflow = TaskWorkflowService::new(conn, vcs);
+
+    match cmd {
+        TaskCommand::Start { id } => Ok(TaskResult::One(workflow.start_follow_blockers(&id)?)),
+
+        TaskCommand::Complete(args) => Ok(TaskResult::One(
+            workflow.complete_with_learnings(&args.id, args.result.as_deref(), &args.learnings)?,
+        )),
+
+        TaskCommand::Delete { id } => {
+            svc.delete(&id)?;
+            workflow.cleanup_bookmark(&id)?;
+            Ok(TaskResult::Deleted)
+        }
+
+        // Non-workflow commands delegate to handle()
+        _ => handle(conn, cmd),
     }
 }
 

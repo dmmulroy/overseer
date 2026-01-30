@@ -138,11 +138,11 @@ Task is ready when:
 
 **Enforced by:** Computed during `list(filter: { ready: true })`.
 
-### 6. Auto-Capture Commit SHA
+### 6. VCS Required for Workflow
 
-On task completion, if VCS available, automatically capture current commit SHA.
+VCS (jj or git) is required for `start` and `complete` operations. Fails with `NotARepository` if none found.
 
-**Enforced by:** `TaskService::complete()` calls `vcs::current_commit_id()`.
+**Enforced by:** `WorkflowService` requires `Box<dyn VcsBackend>` (not Option).
 
 ### 7. CASCADE Delete
 

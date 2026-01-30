@@ -35,12 +35,13 @@ return result as Task;
 - Never `any` - all CLI responses cast to domain types
 - Filters map to CLI flags: `filter.ready` -> `--ready`
 
-## VCS INTEGRATION (Automatic)
+## VCS INTEGRATION (Required for Workflow)
 
-- `tasks.start()` -> creates VCS bookmark for task
-- `tasks.complete()` -> squashes commits, captures SHA
+- `tasks.start()` -> **VCS required** - creates bookmark, records start commit
+- `tasks.complete()` -> **VCS required** - commits changes (NothingToCommit = success), captures SHA
 - VCS type auto-detected (jj-first, git fallback)
-- Agents don't manage VCS directly
+- Fails with `NotARepository` if no jj/git, `DirtyWorkingCopy` if uncommitted changes
+- CRUD operations (create, get, list, update, delete, block, unblock) work without VCS
 
 ## CONVENTIONS
 

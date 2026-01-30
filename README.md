@@ -75,9 +75,9 @@ const login = await tasks.create({
   parentId: milestone.id
 });
 
-await tasks.start(login.id);  // Creates VCS bookmark automatically
+await tasks.start(login.id);  // VCS required: creates bookmark, records start commit
 // ... do work ...
-await tasks.complete(login.id, {  // Squashes commits, bubbles learnings to parent
+await tasks.complete(login.id, {  // VCS required: commits changes, bubbles learnings to parent
   result: "Implemented with bcrypt",
   learnings: ["bcrypt rounds should be 12+ for production"]
 });
@@ -115,17 +115,17 @@ tasks.nextReady(milestoneId?)
 learnings.list(taskId)  // Learnings are added via tasks.complete()
 ```
 
-### VCS (Automatic)
+### VCS (Required for Workflow)
 
 VCS operations are integrated into task workflow - no direct API:
 
 | Operation | VCS Effect |
 |-----------|-----------|
-| `tasks.start(id)` | Creates bookmark `task/<id>`, records start commit |
-| `tasks.complete(id)` | Squashes commits since start, rebases onto parent |
-| `tasks.delete(id)` | Deletes VCS bookmark |
+| `tasks.start(id)` | **VCS required** - creates bookmark `task/<id>`, records start commit |
+| `tasks.complete(id)` | **VCS required** - commits changes (NothingToCommit = success) |
+| `tasks.delete(id)` | Best-effort bookmark cleanup (logs warning on failure) |
 
-VCS is best-effort - failures never block task state transitions.
+VCS (jj or git) is **required** for start/complete. CRUD operations work without VCS.
 
 ## Progressive Context
 

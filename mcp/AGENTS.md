@@ -59,11 +59,16 @@ npm run watch          # tsc --watch for dev
 ```
 Agent code -> execute(code) -> vm.Script -> sandbox context
                                               |-- tasks.list() -> callCli(["task","list"]) -> spawn os -> JSON
-                                              |-- tasks.start() -> callCli(["task","start"]) -> VCS bookmark auto
-                                              |-- tasks.complete({result,learnings}) -> VCS squash + bubble learnings
+                                              |-- tasks.start() -> callCli(["task","start"]) -> VCS required, creates bookmark
+                                              |-- tasks.complete({result,learnings}) -> VCS required, commits + bubbles learnings
                                               +-- learnings.list() -> callCli(["learning","list"]) -> spawn os -> JSON
                             <- truncateOutput(result) <- Promise resolves
 ```
+
+**VCS Notes:**
+- `start` and `complete` require VCS (jj or git) - fail with NotARepository error if none
+- CRUD operations (create, get, list, update, delete, block, unblock) work without VCS
+- Complete uses `commit()` (not squash); NothingToCommit treated as success
 
 ## TYPE SYNC
 

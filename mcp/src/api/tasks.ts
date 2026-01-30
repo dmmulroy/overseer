@@ -79,8 +79,10 @@ export const tasks = {
   /**
    * Mark task as started.
    * Follows blockers to find startable work, cascades to deepest leaf.
-   * Creates VCS bookmark for started task (if VCS available).
+   * Creates VCS bookmark for started task.
    * Returns the task that was actually started.
+   *
+   * **Requires VCS**: Must be in a jj or git repository.
    */
   async start(id: string): Promise<Task> {
     return (await callCli(["task", "start", id])) as Task;
@@ -90,7 +92,9 @@ export const tasks = {
    * Complete task with optional result and learnings.
    * Learnings are attached to the task and bubbled to immediate parent.
    * Auto-bubbles up if all siblings done and parent unblocked.
-   * Squashes commits and captures commit SHA (if VCS available).
+   * Commits changes and captures commit SHA.
+   *
+   * **Requires VCS**: Must be in a jj or git repository.
    */
   async complete(
     id: string,

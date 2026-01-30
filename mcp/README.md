@@ -5,7 +5,7 @@ MCP server for Overseer task orchestration using the codemode pattern.
 ## Architecture
 
 - **Single `execute` tool** - agents write JavaScript, server executes
-- **VM sandbox** - isolated execution with exposed APIs (tasks, learnings, vcs)
+- **VM sandbox** - isolated execution with exposed APIs (tasks, learnings)
 - **CLI bridge** - spawns `os` binary, parses JSON output
 - **Type-safe** - full TypeScript types for all APIs
 
@@ -69,13 +69,17 @@ await tasks.complete(task.id, {
 
 - `list(taskId)` - List learnings for task (learnings are added via `tasks.complete`)
 
-### vcs
+### VCS Integration (Automatic)
 
-- `detect()` - Detect VCS type (jj/git/none)
-- `status()` - Get working copy status
-- `log(limit?)` - Get commit history
-- `diff(base?)` - Get diff
-- `commit(message)` - Create commit
+VCS operations are integrated into task lifecycle - no direct VCS API exposed:
+
+| Task Operation | VCS Effect |
+|----------------|------------|
+| `tasks.start(id)` | **VCS required** - creates bookmark, records start commit |
+| `tasks.complete(id)` | **VCS required** - commits changes (NothingToCommit = success) |
+| `tasks.delete(id)` | Best-effort bookmark cleanup |
+
+**Note:** VCS (jj or git) is required for start/complete. CRUD operations work without VCS.
 
 ## MCP Configuration
 

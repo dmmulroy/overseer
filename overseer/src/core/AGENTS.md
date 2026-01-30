@@ -63,11 +63,11 @@ On task completion with learnings:
 4. DB mutation
 
 ### VCS Integration (workflow_service.rs)
-- `start()`: Creates VCS bookmark
-- `complete_with_learnings()`: Squashes commits, captures SHA, adds learnings
-- Graceful degradation if no VCS
-- VCS errors never block task state transitions
-- Task state updated BEFORE VCS ops
+- `start()`: VCS required - creates bookmark, records start commit
+- `complete_with_learnings()`: VCS required - commits changes (NothingToCommit = success), adds learnings
+- Transaction order: VCS ops first, then DB state update
+- Errors: `NotARepository` (no jj/git), `DirtyWorkingCopy` (uncommitted changes)
+- WorkflowService.new() takes `Box<dyn VcsBackend>` (not Option)
 
 ## INVARIANTS
 
@@ -76,4 +76,5 @@ On task completion with learnings:
 3. Depth always recomputed, never trusted from DB
 4. Context chain matches depth semantics exactly
 5. Learnings bubble to immediate parent only (preserves source_task_id)
-6. VCS ops are best-effort
+6. VCS required for start/complete - CRUD ops work without VCS
+7. VCS cleanup on delete is best-effort (logs warning, doesn't fail)

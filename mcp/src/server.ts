@@ -38,7 +38,7 @@ interface Learning {
 }
 
 // Tasks API
-// Note: VCS operations (bookmarks, commits) are handled automatically by start/complete
+// Note: VCS (jj or git) is REQUIRED for start/complete. CRUD ops work without VCS.
 declare const tasks: {
   list(filter?: { parentId?: string; ready?: boolean; completed?: boolean }): Promise<Task[]>;
   get(id: string): Promise<Task>;
@@ -55,22 +55,22 @@ declare const tasks: {
     priority?: 1 | 2 | 3 | 4 | 5;
     parentId?: string;
   }): Promise<Task>;
-  start(id: string): Promise<Task>;  // Creates VCS bookmark, records start commit
-  complete(id: string, result?: string): Promise<Task>;  // Squashes commits, rebases if child task
+  start(id: string): Promise<Task>;  // VCS required: creates bookmark, records start commit
+  complete(id: string, result?: string): Promise<Task>;  // VCS required: commits changes (NothingToCommit = success)
   reopen(id: string): Promise<Task>;
-  delete(id: string): Promise<void>;  // Cleans up VCS bookmark
+  delete(id: string): Promise<void>;  // Best-effort VCS bookmark cleanup
   block(taskId: string, blockerId: string): Promise<void>;
   unblock(taskId: string, blockerId: string): Promise<void>;
   nextReady(milestoneId?: string): Promise<Task | null>;
 };
 
-// Learnings API
+// Learnings API (learnings are added via tasks.complete)
 declare const learnings: {
-  add(taskId: string, content: string, sourceTaskId?: string): Promise<Learning>;
   list(taskId: string): Promise<Learning[]>;
-  delete(id: string): Promise<void>;
 };
 \`\`\`
+
+**VCS Requirement:** \`start\` and \`complete\` require jj or git. Fails with NotARepository error if none found. CRUD operations work without VCS.
 
 Examples:
 
@@ -92,16 +92,15 @@ const subtask = await tasks.create({
   priority: 2
 });
 
-// Start working on task (auto-creates VCS bookmark)
+// Start working on task (VCS required - creates bookmark)
 await tasks.start(subtask.id);
 
 // Get task with full context
 const task = await tasks.get(subtask.id);
 console.log(task.context.milestone); // inherited from root
 
-// Complete task (auto-squashes commits) and add learning
+// Complete task (VCS required - commits changes)
 await tasks.complete(task.id, "Implemented using jose library");
-await learnings.add(task.id, "Use jose instead of jsonwebtoken");
 \`\`\`
 `.trim();
 

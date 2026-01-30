@@ -84,10 +84,10 @@ declare const tasks: {
 | `get` | `TaskWithContext` | Get task with full context chain + inherited learnings |
 | `create` | `Task` | Create task (priority must be 1-5) |
 | `update` | `Task` | Update description, context, priority, parentId |
-| `start` | `Task` | Mark started + **creates VCS bookmark** |
-| `complete` | `Task` | Mark complete + **squashes commits** + bubbles learnings to parent |
+| `start` | `Task` | **VCS required** - creates bookmark, records start commit |
+| `complete` | `Task` | **VCS required** - commits changes + bubbles learnings to parent |
 | `reopen` | `Task` | Reopen completed task |
-| `delete` | `void` | Delete task + **cleans up VCS bookmark** |
+| `delete` | `void` | Delete task + best-effort VCS bookmark cleanup |
 | `block` | `void` | Add blocker (cannot be self, ancestor, or descendant) |
 | `unblock` | `void` | Remove blocker relationship |
 | `nextReady` | `TaskWithContext \| null` | Get deepest ready leaf with full context |
@@ -106,17 +106,17 @@ declare const learnings: {
 |--------|-------------|
 | `list` | List learnings for task |
 
-## VCS Integration
+## VCS Integration (Required for Workflow)
 
 VCS operations are **automatically handled** by the tasks API:
 
 | Task Operation | VCS Effect |
 |----------------|------------|
-| `tasks.start(id)` | Creates bookmark `task/<id>`, records start commit, creates WIP commit |
-| `tasks.complete(id)` | Squashes commits since start, rebases onto parent's bookmark (if child task) |
-| `tasks.delete(id)` | Deletes bookmark `task/<id>` |
+| `tasks.start(id)` | **VCS required** - creates bookmark `task/<id>`, records start commit |
+| `tasks.complete(id)` | **VCS required** - commits changes (NothingToCommit = success) |
+| `tasks.delete(id)` | Best-effort bookmark cleanup (logs warning on failure) |
 
-**No direct VCS API** - agents work with tasks, VCS is managed behind the scenes.
+**VCS (jj or git) is required** for start/complete. Fails with `NotARepository` if none found. CRUD operations work without VCS.
 
 ## Quick Examples
 
@@ -139,7 +139,7 @@ await tasks.start(subtask.id);
 
 // ... do implementation work ...
 
-// Complete task with learnings (auto-squashes commits, bubbles learnings to parent)
+// Complete task with learnings (VCS required - commits changes, bubbles learnings to parent)
 await tasks.complete(subtask.id, {
   result: "Implemented using jose library",
   learnings: ["Use jose instead of jsonwebtoken"]

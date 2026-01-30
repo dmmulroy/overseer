@@ -99,9 +99,18 @@ fn run(command: &Command, db_path: &PathBuf) -> error::Result<String> {
         }
         Command::Task(cmd) => {
             let conn = db::open_db(db_path)?;
-            // Auto-detect VCS for start/complete operations
-            let vcs = vcs::get_backend(&std::env::current_dir().unwrap_or_default()).ok();
-            match task::handle_with_vcs(&conn, clone_task_cmd(cmd), vcs)? {
+            let cloned_cmd = clone_task_cmd(cmd);
+            
+            // Only workflow commands (start/complete/delete) need VCS
+            let result = match &cloned_cmd {
+                TaskCommand::Start { .. } | TaskCommand::Complete(_) | TaskCommand::Delete { .. } => {
+                    let vcs = vcs::get_backend(&std::env::current_dir().unwrap_or_default())?;
+                    task::handle_workflow(&conn, cloned_cmd, vcs)?
+                }
+                _ => task::handle(&conn, cloned_cmd)?,
+            };
+            
+            match result {
                 TaskResult::One(t) => Ok(serde_json::to_string_pretty(&t)?),
                 TaskResult::OneWithContext(t) => Ok(serde_json::to_string_pretty(&t)?),
                 TaskResult::MaybeOneWithContext(opt) => Ok(serde_json::to_string_pretty(&opt)?),

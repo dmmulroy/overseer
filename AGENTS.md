@@ -128,7 +128,8 @@ cd mcp && npm test                # Run tests (node --test)
 4. Timestamps: ISO 8601 / RFC 3339 (chrono)
 5. "Milestone" = depth-0 task (no parent)
 6. Learnings bubble to immediate parent on completion (preserves source_task_id)
-7. VCS ops are best-effort, never fail task state transitions
+7. VCS required for workflow ops (start/complete) - fails with NotARepository or DirtyWorkingCopy
+8. VCS cleanup on delete is best-effort (logs warning, doesn't fail)
 
 ## CODEMODE PATTERN
 
