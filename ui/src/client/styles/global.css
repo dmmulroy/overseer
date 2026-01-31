@@ -75,3 +75,38 @@ pre,
 .font-mono {
   font-family: var(--font-mono);
 }
+
+/* React Flow Controls theming */
+.react-flow-controls-themed {
+  background-color: var(--color-surface-primary) !important;
+  border: 1px solid var(--color-border) !important;
+  border-radius: 8px !important;
+  box-shadow: none !important;
+}
+
+.react-flow-controls-themed button {
+  background-color: var(--color-surface-primary) !important;
+  border: none !important;
+  border-bottom: 1px solid var(--color-border) !important;
+  color: var(--color-text-muted) !important;
+  width: 28px !important;
+  height: 28px !important;
+  padding: 0 !important;
+}
+
+.react-flow-controls-themed button:last-child {
+  border-bottom: none !important;
+}
+
+.react-flow-controls-themed button:hover {
+  background-color: var(--color-surface-secondary) !important;
+  color: var(--color-text-primary) !important;
+}
+
+.react-flow-controls-themed button svg {
+  fill: currentColor !important;
+}
+
+.react-flow-controls-themed button path {
+  fill: currentColor !important;
+}
