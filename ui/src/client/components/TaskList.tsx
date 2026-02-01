@@ -1,5 +1,7 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useCallback, useRef, useEffect } from "react";
 import type { Task, TaskId } from "../../types.js";
+import { Badge } from "./ui/Badge.js";
+import { useKeyboardShortcuts, useKeyboardContext } from "../lib/keyboard.js";
 
 type FilterType = "all" | "active" | "completed" | "blocked" | "ready";
 
@@ -10,10 +12,54 @@ interface TaskListProps {
 }
 
 /**
- * Hierarchical task list with filters
+ * Get the technical label for a task based on depth
+ */
+function getDepthLabel(depth: number): string {
+  switch (depth) {
+    case 0:
+      return "MILESTONE";
+    case 1:
+      return "TASK";
+    case 2:
+      return "SUBTASK";
+    default:
+      return "SUBTASK";
+  }
+}
+
+/**
+ * Get the status variant for the Badge component
+ */
+function getStatusVariant(
+  task: Task
+): "pending" | "active" | "blocked" | "done" {
+  if (task.completed) return "done";
+  const isBlocked = (task.blockedBy?.length ?? 0) > 0;
+  if (isBlocked) return "blocked";
+  if (task.startedAt !== null) return "active";
+  return "pending";
+}
+
+/**
+ * Get human-readable status label
+ */
+function getStatusLabel(task: Task): string {
+  if (task.completed) return "DONE";
+  const isBlocked = (task.blockedBy?.length ?? 0) > 0;
+  if (isBlocked) return "BLOCKED";
+  if (task.startedAt !== null) return "ACTIVE";
+  return "PENDING";
+}
+
+/**
+ * Hierarchical task list with filters, industrial styling, and j/k navigation
  */
 export function TaskList({ tasks, selectedId, onSelect }: TaskListProps) {
   const [filter, setFilter] = useState<FilterType>("all");
+  const [focusedIndex, setFocusedIndex] = useState<number>(0);
+  const listRef = useRef<HTMLDivElement>(null);
+  const itemRefs = useRef<Map<number, HTMLButtonElement>>(new Map());
+  const { setActiveScope } = useKeyboardContext();
 
   // Build parent->children map for hierarchy
   const tasksByParent = useMemo(() => {
@@ -70,13 +116,30 @@ export function TaskList({ tasks, selectedId, onSelect }: TaskListProps) {
     return withAncestors;
   }, [tasks, filter]);
 
+  // Build flat list of visible tasks in tree order for keyboard navigation
+  const flatVisibleTasks = useMemo(() => {
+    const result: Task[] = [];
+
+    function traverse(parentId: TaskId | null): void {
+      const children = tasksByParent.get(parentId) ?? [];
+      for (const child of children) {
+        if (visibleTaskIds.has(child.id)) {
+          result.push(child);
+          traverse(child.id);
+        }
+      }
+    }
+
+    traverse(null);
+    return result;
+  }, [tasksByParent, visibleTaskIds]);
+
   // Get milestones (depth 0) that are visible
   const visibleMilestones = useMemo(() => {
     return tasks.filter((t) => t.depth === 0 && visibleTaskIds.has(t.id));
   }, [tasks, visibleTaskIds]);
 
   // Count tasks by filter type for badges
-  // Must align with matchesFilter logic above
   const counts = useMemo(() => {
     let active = 0;
     let completed = 0;
@@ -85,7 +148,6 @@ export function TaskList({ tasks, selectedId, onSelect }: TaskListProps) {
 
     for (const task of tasks) {
       const isBlocked = (task.blockedBy?.length ?? 0) > 0 && !task.completed;
-      // Align with filter: ready OR in-progress (started but not completed)
       const isReadyOrInProgress =
         !task.completed && (!isBlocked || task.startedAt !== null);
 
@@ -101,18 +163,94 @@ export function TaskList({ tasks, selectedId, onSelect }: TaskListProps) {
     return { all: tasks.length, active, completed, blocked, ready };
   }, [tasks]);
 
+  // Keep focusedIndex in bounds when list changes
+  useEffect(() => {
+    if (flatVisibleTasks.length === 0) {
+      setFocusedIndex(0);
+    } else if (focusedIndex >= flatVisibleTasks.length) {
+      setFocusedIndex(flatVisibleTasks.length - 1);
+    }
+  }, [flatVisibleTasks.length, focusedIndex]);
+
+  // Sync focusedIndex with selectedId when selectedId changes externally
+  useEffect(() => {
+    if (selectedId) {
+      const idx = flatVisibleTasks.findIndex((t) => t.id === selectedId);
+      if (idx !== -1 && idx !== focusedIndex) {
+        setFocusedIndex(idx);
+      }
+    }
+  }, [selectedId, flatVisibleTasks, focusedIndex]);
+
+  // Scroll focused item into view
+  useEffect(() => {
+    const el = itemRefs.current.get(focusedIndex);
+    if (el) {
+      el.scrollIntoView({ block: "nearest", behavior: "smooth" });
+    }
+  }, [focusedIndex]);
+
+  // Navigation handlers
+  const moveUp = useCallback(() => {
+    setFocusedIndex((prev) => Math.max(0, prev - 1));
+  }, []);
+
+  const moveDown = useCallback(() => {
+    setFocusedIndex((prev) =>
+      Math.min(flatVisibleTasks.length - 1, prev + 1)
+    );
+  }, [flatVisibleTasks.length]);
+
+  const selectFocused = useCallback(() => {
+    const task = flatVisibleTasks[focusedIndex];
+    if (task) {
+      onSelect(task.id);
+    }
+  }, [flatVisibleTasks, focusedIndex, onSelect]);
+
+  // Register keyboard shortcuts
+  useKeyboardShortcuts(
+    () => [
+      {
+        key: "j",
+        description: "Move down in list",
+        scope: "list",
+        handler: moveDown,
+      },
+      {
+        key: "k",
+        description: "Move up in list",
+        scope: "list",
+        handler: moveUp,
+      },
+      {
+        key: "Enter",
+        description: "Select focused task",
+        scope: "list",
+        handler: selectFocused,
+      },
+    ],
+    [moveDown, moveUp, selectFocused]
+  );
+
+  // Set active scope when list is rendered
+  useEffect(() => {
+    setActiveScope("list");
+    return () => setActiveScope("global");
+  }, [setActiveScope]);
+
   const filterButtons: { type: FilterType; label: string }[] = [
-    { type: "all", label: "All" },
-    { type: "active", label: "Active" },
-    { type: "completed", label: "Done" },
-    { type: "blocked", label: "Blocked" },
-    { type: "ready", label: "Ready" },
+    { type: "all", label: "ALL" },
+    { type: "active", label: "ACTIVE" },
+    { type: "completed", label: "DONE" },
+    { type: "blocked", label: "BLOCKED" },
+    { type: "ready", label: "READY" },
   ];
 
   if (tasks.length === 0) {
     return (
-      <div className="p-4 text-[var(--color-text-muted)] text-sm">
-        No tasks found
+      <div className="p-4 text-text-muted text-sm font-mono">
+        NO TASKS FOUND
       </div>
     );
   }
@@ -120,18 +258,21 @@ export function TaskList({ tasks, selectedId, onSelect }: TaskListProps) {
   return (
     <div className="flex flex-col h-full">
       {/* Filter bar */}
-      <div className="flex flex-wrap gap-1 p-2 border-b border-[var(--color-border)]">
+      <div className="flex flex-wrap gap-1 p-2 border-b border-border">
         {filterButtons.map(({ type, label }) => (
           <button
             key={type}
             type="button"
             onClick={() => setFilter(type)}
+            aria-pressed={filter === type}
             className={`
-              px-2 py-1 text-xs rounded transition-colors
+              px-2 py-1 text-xs font-mono uppercase tracking-wider rounded 
+              transition-colors motion-reduce:transition-none
+              focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-bg-primary
               ${
                 filter === type
-                  ? "bg-[var(--color-accent)] text-white"
-                  : "bg-[var(--color-surface-primary)] text-[var(--color-text-muted)] hover:bg-[var(--color-surface-secondary)]"
+                  ? "bg-accent text-bg-primary"
+                  : "bg-surface-primary text-text-muted hover:bg-surface-secondary"
               }
             `}
           >
@@ -142,70 +283,104 @@ export function TaskList({ tasks, selectedId, onSelect }: TaskListProps) {
       </div>
 
       {/* Task list */}
-      <div className="flex-1 overflow-y-auto p-2">
+      <div
+        ref={listRef}
+        className="flex-1 overflow-y-auto p-2"
+        role="listbox"
+        aria-label="Task list"
+      >
         {visibleMilestones.length === 0 ? (
-          <div className="p-4 text-[var(--color-text-muted)] text-sm text-center">
+          <div className="p-4 text-text-muted text-sm text-center font-mono uppercase">
             No tasks match filter
           </div>
         ) : (
-          <div className="space-y-1">
+          <div className="space-y-0.5">
             {visibleMilestones.map((milestone) => (
-              <MilestoneGroup
+              <TaskTreeNode
                 key={milestone.id}
-                milestone={milestone}
+                task={milestone}
                 tasksByParent={tasksByParent}
                 visibleTaskIds={visibleTaskIds}
                 selectedId={selectedId}
+                focusedIndex={focusedIndex}
+                flatVisibleTasks={flatVisibleTasks}
                 onSelect={onSelect}
+                onFocus={setFocusedIndex}
+                itemRefs={itemRefs}
                 depth={0}
               />
             ))}
           </div>
         )}
       </div>
+
+      {/* Navigation hint */}
+      <div className="px-2 py-1 border-t border-border text-xs text-text-dim font-mono">
+        <span className="opacity-70">j/k</span> navigate{" "}
+        <span className="opacity-70">Enter</span> select
+      </div>
     </div>
   );
 }
 
-interface MilestoneGroupProps {
-  milestone: Task;
+interface TaskTreeNodeProps {
+  task: Task;
   tasksByParent: Map<TaskId | null, Task[]>;
   visibleTaskIds: Set<TaskId>;
   selectedId: TaskId | null;
+  focusedIndex: number;
+  flatVisibleTasks: Task[];
   onSelect: (id: TaskId) => void;
+  onFocus: (index: number) => void;
+  itemRefs: React.MutableRefObject<Map<number, HTMLButtonElement>>;
   depth: number;
 }
 
-function MilestoneGroup({
-  milestone,
+function TaskTreeNode({
+  task,
   tasksByParent,
   visibleTaskIds,
   selectedId,
+  focusedIndex,
+  flatVisibleTasks,
   onSelect,
+  onFocus,
+  itemRefs,
   depth,
-}: MilestoneGroupProps) {
-  const children = (tasksByParent.get(milestone.id) ?? []).filter((t) =>
+}: TaskTreeNodeProps) {
+  const children = (tasksByParent.get(task.id) ?? []).filter((t) =>
     visibleTaskIds.has(t.id)
   );
+  const taskIndex = flatVisibleTasks.findIndex((t) => t.id === task.id);
+  const isFocused = taskIndex === focusedIndex;
+  const isSelected = selectedId === task.id;
 
   return (
     <div>
       <TaskItem
-        task={milestone}
-        isSelected={selectedId === milestone.id}
+        task={task}
+        isSelected={isSelected}
+        isFocused={isFocused}
+        taskIndex={taskIndex}
         onSelect={onSelect}
+        onFocus={onFocus}
+        itemRefs={itemRefs}
         depth={depth}
       />
       {children.length > 0 && (
-        <div className="ml-3 border-l border-[var(--color-border)]">
+        <div className="ml-4 pl-3 border-l border-border">
           {children.map((child) => (
-            <MilestoneGroup
+            <TaskTreeNode
               key={child.id}
-              milestone={child}
+              task={child}
               tasksByParent={tasksByParent}
               visibleTaskIds={visibleTaskIds}
               selectedId={selectedId}
+              focusedIndex={focusedIndex}
+              flatVisibleTasks={flatVisibleTasks}
               onSelect={onSelect}
+              onFocus={onFocus}
+              itemRefs={itemRefs}
               depth={depth + 1}
             />
           ))}
@@ -218,65 +393,77 @@ function MilestoneGroup({
 interface TaskItemProps {
   task: Task;
   isSelected: boolean;
+  isFocused: boolean;
+  taskIndex: number;
   onSelect: (id: TaskId) => void;
+  onFocus: (index: number) => void;
+  itemRefs: React.MutableRefObject<Map<number, HTMLButtonElement>>;
   depth: number;
 }
 
-function TaskItem({ task, isSelected, onSelect, depth }: TaskItemProps) {
-  const isBlocked = (task.blockedBy?.length ?? 0) > 0 && !task.completed;
-  const isInProgress = task.startedAt !== null && !task.completed;
+function TaskItem({
+  task,
+  isSelected,
+  isFocused,
+  taskIndex,
+  onSelect,
+  onFocus,
+  itemRefs,
+  depth,
+}: TaskItemProps) {
+  const statusVariant = getStatusVariant(task);
+  const statusLabel = getStatusLabel(task);
+  const depthLabel = getDepthLabel(depth);
 
-  // Status for aria-label
-  const statusLabel = task.completed
-    ? "Completed"
-    : isBlocked
-      ? "Blocked"
-      : isInProgress
-        ? "In progress"
-        : "Pending";
-
-  // Status color
-  const statusColor = task.completed
-    ? "bg-[var(--color-status-done)]"
-    : isBlocked
-      ? "bg-[var(--color-status-blocked)]"
-      : isInProgress
-        ? "bg-[var(--color-status-active)]"
-        : "bg-[var(--color-status-pending)]";
+  const handleRef = useCallback(
+    (el: HTMLButtonElement | null) => {
+      if (el) {
+        itemRefs.current.set(taskIndex, el);
+      } else {
+        itemRefs.current.delete(taskIndex);
+      }
+    },
+    [itemRefs, taskIndex]
+  );
 
   return (
     <button
+      ref={handleRef}
       type="button"
+      role="option"
+      aria-selected={isSelected}
       onClick={() => onSelect(task.id)}
-      aria-current={isSelected ? "true" : undefined}
+      onMouseEnter={() => onFocus(taskIndex)}
       className={`
-        w-full text-left p-2 rounded transition-colors
-        ${isSelected ? "bg-[var(--color-surface-secondary)]" : "hover:bg-[var(--color-surface-primary)]"}
-        ${depth > 0 ? "pl-4" : ""}
+        w-full text-left p-2 rounded transition-colors motion-reduce:transition-none
+        ${isSelected ? "bg-surface-secondary" : "hover:bg-surface-primary"}
+        ${isFocused ? "ring-2 ring-accent ring-offset-1 ring-offset-bg-primary" : ""}
+        focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-1 focus-visible:ring-offset-bg-primary
       `}
     >
       <div className="flex items-center gap-2">
-        {/* Status indicator */}
-        <span
-          role="status"
-          aria-label={statusLabel}
-          className={`w-2 h-2 rounded-full flex-shrink-0 ${statusColor}`}
-        />
+        {/* Type label */}
+        <span className="text-[10px] font-mono text-text-dim uppercase tracking-wider w-16 flex-shrink-0">
+          {depthLabel}
+        </span>
 
         {/* Description */}
         <span
           className={`
-            text-sm truncate flex-1
-            ${task.completed ? "text-[var(--color-text-muted)] line-through" : "text-[var(--color-text-primary)]"}
+            text-sm font-mono truncate flex-1
+            ${task.completed ? "text-text-muted line-through" : "text-text-primary"}
           `}
         >
           {task.description}
         </span>
 
-        {/* Priority badge */}
-        <span className="text-xs font-mono text-[var(--color-text-muted)]">
-          P{task.priority}
-        </span>
+        {/* Status badge */}
+        <Badge variant={statusVariant} aria-label={`Status: ${statusLabel}`}>
+          {statusLabel}
+        </Badge>
+
+        {/* Priority */}
+        <span className="text-xs font-mono text-text-dim">P{task.priority}</span>
       </div>
     </button>
   );

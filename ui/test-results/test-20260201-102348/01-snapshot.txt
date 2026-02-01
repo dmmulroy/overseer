@@ -1,0 +1,88 @@
+- document:
+  - banner:
+    - text: OVERSEER
+    - navigation "Views" [ref=e1]:
+      - button "Graph" [ref=e2] [pressed]
+      - button "Kanban" [ref=e3]
+      - button "List" [ref=e4]
+    - text: updated just now
+    - button "Show keyboard shortcuts" [ref=e5]: ⌘ ?
+  - main:
+    - application:
+      - img:
+        - img "Edge from task_01KG3GZMCZNS4M4SDBM1BTF4PM to task_01KG3GZMDY1Y2PSATBBSY8Q244"
+      - img:
+        - img "Edge from task_01KG3GZMCZNS4M4SDBM1BTF4PM to task_01KG3GZMF04DK39T9ASPT2RH1G"
+      - img:
+        - img "Edge from task_01KGB7CAMWS3Y60G9W78MRE1JC to task_01KGB7CANJSTAA3FGE604F9TYA"
+      - img:
+        - img "Edge from task_01KG3GZMCZNS4M4SDBM1BTF4PM to task_01KG3GZMDHF6NRTDF1Y7X51T0V"
+      - img:
+        - img "Edge from task_01KG3GZMCZNS4M4SDBM1BTF4PM to task_01KG3GZMEC71538TEHRYY1ECG5"
+      - img:
+        - img "Edge from task_01KG3GZMCZNS4M4SDBM1BTF4PM to task_01KG3GZMEPJM7QMKB599ZW572E"
+      - img:
+        - img "Edge from task_01KG3GZMCZNS4M4SDBM1BTF4PM to task_01KG3GZMF7VND2AHMXJZH6YC6W"
+      - img:
+        - img "Edge from task_01KGB7CAMWS3Y60G9W78MRE1JC to task_01KGB7CAQQCEJ55QZKNVRTY1KX"
+      - img:
+        - img "Edge from task_01KG3GZMCZNS4M4SDBM1BTF4PM to task_01KG3GZMFEXWCRJD3RRJNQ32C8"
+      - img:
+        - img "Edge from task_01KGB7CAMWS3Y60G9W78MRE1JC to task_01KGB7CAS35HGYWB578722B3MP"
+      - button "Expand" [ref=e6]:
+        - img
+      - text: Task Pending P1
+      - paragraph: Hono API server
+      - button "Expand" [ref=e7] [nth=1]:
+        - img
+      - text: Task Blocked P1
+      - paragraph: Dependency graph view
+      - button "Collapse" [ref=e8]:
+        - img
+      - text: Milestone Active P1
+      - paragraph: Overseer UI Redesign
+      - button "Expand" [ref=e9] [nth=2]:
+        - img
+      - text: Task Done P1
+      - paragraph: "Foundation: Tokens, Components, Shell"
+      - button "Collapse" [ref=e10] [nth=1]:
+        - img
+      - text: Milestone Pending P2
+      - paragraph: Overseer Task Viewer
+      - button "Expand" [ref=e11] [nth=3]:
+        - img
+      - text: Task Done P2
+      - paragraph: "CLI `os ui` command"
+      - button "Expand" [ref=e12] [nth=4]:
+        - img
+      - text: Task Blocked P2
+      - paragraph: Astro frontend shell
+      - button "Expand" [ref=e13] [nth=5]:
+        - img
+      - text: Task Blocked P2
+      - paragraph: Task list sidebar view
+      - button "Expand" [ref=e14] [nth=6]:
+        - img
+      - text: Task Blocked P2
+      - paragraph: Task detail panel
+      - button "Expand" [ref=e15] [nth=7]:
+        - img
+      - text: Task Active P2
+      - paragraph: "Core Components: List, Graph, Detail"
+      - button "Expand" [ref=e16] [nth=8]:
+        - img
+      - text: Task Blocked P3
+      - paragraph: Visual theme polish
+      - button "Expand" [ref=e17] [nth=9]:
+        - img
+      - text: Task Blocked P3
+      - paragraph: "Features & Polish: Kanban, Indicators, Refinements"
+      - img
+      - button "Zoom In" [ref=e18]:
+        - img
+      - button "Zoom Out" [ref=e19]:
+        - img
+      - button "Fit View" [ref=e20]:
+        - img
+    - button "No task selected D" [ref=e21] [expanded]
+    - text: Select a task to view details
