@@ -7,7 +7,7 @@ const input = tv({
     "bg-surface-primary text-text-primary placeholder:text-text-dim",
     "font-mono",
     "border border-border rounded",
-    "transition-colors",
+    "transition-colors duration-150 motion-reduce:transition-none",
     "focus:outline-none focus:border-border-focus focus:ring-1 focus:ring-border-focus",
     "disabled:opacity-50 disabled:cursor-not-allowed",
   ],

@@ -5,7 +5,7 @@ const button = tv({
   base: [
     "inline-flex items-center justify-center gap-2",
     "font-mono text-sm font-medium",
-    "border rounded transition-colors",
+    "border rounded transition-colors duration-150 motion-reduce:transition-none",
     "focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-bg-primary",
     "disabled:opacity-50 disabled:cursor-not-allowed",
   ],

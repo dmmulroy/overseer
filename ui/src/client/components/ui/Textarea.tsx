@@ -8,7 +8,7 @@ const textarea = tv({
     "font-mono text-sm",
     "border border-border rounded",
     "px-3 py-2",
-    "transition-colors resize-y",
+    "transition-colors duration-150 motion-reduce:transition-none resize-y",
     "focus:outline-none focus:border-border-focus focus:ring-1 focus:ring-border-focus",
     "disabled:opacity-50 disabled:cursor-not-allowed",
   ],

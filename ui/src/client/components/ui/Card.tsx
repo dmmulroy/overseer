@@ -4,7 +4,7 @@ import { forwardRef, type HTMLAttributes } from "react";
 const card = tv({
   base: [
     "bg-surface-primary border border-border rounded",
-    "transition-colors",
+    "transition-colors duration-150 motion-reduce:transition-none",
   ],
   variants: {
     selected: {

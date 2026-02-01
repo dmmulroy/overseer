@@ -29,6 +29,14 @@ const COLUMN_LABELS: Record<StatusColumn, string> = {
   done: "DONE",
 };
 
+/** Static text color classes for each column (Tailwind can't detect dynamic classes) */
+const COLUMN_TEXT_COLORS: Record<StatusColumn, string> = {
+  pending: "text-status-pending",
+  active: "text-status-active",
+  blocked: "text-status-blocked",
+  done: "text-status-done",
+};
+
 interface KanbanViewProps {
   tasks: Task[];
   selectedId: TaskId | null;
@@ -102,13 +110,10 @@ export function KanbanView({ tasks, selectedId, onSelect }: KanbanViewProps) {
   const currentColumnKey = COLUMNS[focusedColumn];
   const currentColumnTasks = currentColumnKey ? tasksByColumn[currentColumnKey] : [];
 
-  // Clamp focus indices when columns change
+  // Clamp focus index when column's task count changes
   useEffect(() => {
-    if (focusedColumn >= COLUMNS.length) {
-      setFocusedColumn(COLUMNS.length - 1);
-    }
-    
-    const columnTasks = COLUMNS[focusedColumn] ? tasksByColumn[COLUMNS[focusedColumn]] : [];
+    const col = COLUMNS[focusedColumn];
+    const columnTasks = col ? tasksByColumn[col] : [];
     if (focusedIndexInColumn >= columnTasks.length && columnTasks.length > 0) {
       setFocusedIndexInColumn(columnTasks.length - 1);
     } else if (columnTasks.length === 0) {
@@ -159,33 +164,30 @@ export function KanbanView({ tasks, selectedId, onSelect }: KanbanViewProps) {
   }, [focusedColumn, tasksByColumn]);
 
   const moveLeft = useCallback(() => {
-    setFocusedColumn((prev) => {
-      const next = Math.max(0, prev - 1);
-      // Reset vertical position when changing columns
-      const col = COLUMNS[next];
-      const nextColumnTasks = col ? tasksByColumn[col] : [];
-      if (nextColumnTasks.length > 0) {
-        setFocusedIndexInColumn((prevIdx) => 
-          Math.min(prevIdx, nextColumnTasks.length - 1)
-        );
-      }
-      return next;
-    });
-  }, [tasksByColumn]);
+    const nextCol = Math.max(0, focusedColumn - 1);
+    const col = COLUMNS[nextCol];
+    const nextColumnTasks = col ? tasksByColumn[col] : [];
+    
+    setFocusedColumn(nextCol);
+    if (nextColumnTasks.length > 0) {
+      setFocusedIndexInColumn((prevIdx) => 
+        Math.min(prevIdx, nextColumnTasks.length - 1)
+      );
+    }
+  }, [focusedColumn, tasksByColumn]);
 
   const moveRight = useCallback(() => {
-    setFocusedColumn((prev) => {
-      const next = Math.min(COLUMNS.length - 1, prev + 1);
-      const col = COLUMNS[next];
-      const nextColumnTasks = col ? tasksByColumn[col] : [];
-      if (nextColumnTasks.length > 0) {
-        setFocusedIndexInColumn((prevIdx) => 
-          Math.min(prevIdx, nextColumnTasks.length - 1)
-        );
-      }
-      return next;
-    });
-  }, [tasksByColumn]);
+    const nextCol = Math.min(COLUMNS.length - 1, focusedColumn + 1);
+    const col = COLUMNS[nextCol];
+    const nextColumnTasks = col ? tasksByColumn[col] : [];
+    
+    setFocusedColumn(nextCol);
+    if (nextColumnTasks.length > 0) {
+      setFocusedIndexInColumn((prevIdx) => 
+        Math.min(prevIdx, nextColumnTasks.length - 1)
+      );
+    }
+  }, [focusedColumn, tasksByColumn]);
 
   const selectFocused = useCallback(() => {
     const col = COLUMNS[focusedColumn];
@@ -364,7 +366,7 @@ function KanbanColumn({
           <span
             className={`
               text-xs font-mono uppercase tracking-wider
-              ${isCurrentColumn ? "text-accent" : `text-status-${column}`}
+              ${isCurrentColumn ? "text-accent" : COLUMN_TEXT_COLORS[column]}
             `}
           >
             {COLUMN_LABELS[column]}
@@ -449,23 +451,22 @@ function KanbanCard({
   );
 
   return (
-    <button
-      ref={handleRef}
-      type="button"
-      tabIndex={isFocused ? 0 : -1}
-      role="listitem"
-      aria-current={isSelected ? "true" : undefined}
-      onClick={() => onClick(task, columnIndex, taskIndex)}
-      onMouseEnter={() => onFocus(columnIndex, taskIndex)}
-      className="w-full text-left"
-    >
+    <div role="listitem">
+      <button
+        ref={handleRef}
+        type="button"
+        tabIndex={isFocused ? 0 : -1}
+        aria-current={isSelected ? "true" : undefined}
+        onClick={() => onClick(task, columnIndex, taskIndex)}
+        onMouseEnter={() => onFocus(columnIndex, taskIndex)}
+        className="w-full text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-bg-primary rounded"
+      >
       <Card
         selected={isSelected}
         interactive
         className={`
           p-3 
           ${isChanged ? "animate-flash-change" : ""}
-          ${isFocused && !isSelected ? "ring-1 ring-text-dim" : ""}
         `}
       >
         {/* Type badge */}
@@ -504,6 +505,7 @@ function KanbanCard({
           </div>
         )}
       </Card>
-    </button>
+      </button>
+    </div>
   );
 }

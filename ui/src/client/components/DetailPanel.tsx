@@ -11,7 +11,7 @@ import { Kbd } from "./ui/Kbd.js";
 
 const panel = tv({
   base: [
-    "border-t border-border bg-bg-secondary transition-[height] duration-200 motion-reduce:transition-none",
+    "border-t border-border bg-bg-secondary transition-[height] duration-150 motion-reduce:transition-none",
     "flex flex-col",
   ],
   variants: {
@@ -38,7 +38,7 @@ export function DetailPanel() {
     <div className={panel({ open: detailPanelOpen })}>
       {/* Toggle bar */}
       <button
-        className="h-10 px-4 flex items-center justify-between shrink-0 hover:bg-surface-primary transition-colors cursor-pointer w-full text-left focus:outline-none focus-visible:ring-2 focus-visible:ring-border-focus focus-visible:ring-inset"
+        className="h-10 px-4 flex items-center justify-between shrink-0 hover:bg-surface-primary transition-colors duration-150 motion-reduce:transition-none cursor-pointer w-full text-left focus:outline-none focus-visible:ring-2 focus-visible:ring-border-focus focus-visible:ring-inset"
         onClick={toggleDetailPanel}
         aria-expanded={detailPanelOpen}
         aria-controls="detail-panel-content"

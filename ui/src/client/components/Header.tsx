@@ -20,7 +20,7 @@ const tab = tv({
   base: [
     "px-3 py-1.5 text-sm font-mono",
     "border border-transparent rounded",
-    "transition-colors cursor-pointer",
+    "transition-colors duration-150 motion-reduce:transition-none cursor-pointer",
     "focus:outline-none focus-visible:ring-2 focus-visible:ring-border-focus",
   ],
   variants: {
@@ -138,7 +138,7 @@ export function Header({ lastUpdated, isError, isLoading }: HeaderProps) {
 
       {/* Help shortcut */}
       <button
-        className="flex items-center gap-1 px-2 py-1 text-text-muted hover:text-text-primary transition-colors rounded hover:bg-surface-primary focus:outline-none focus-visible:ring-2 focus-visible:ring-border-focus"
+        className="flex items-center gap-1 px-2 py-1 text-text-muted hover:text-text-primary transition-colors duration-150 motion-reduce:transition-none rounded hover:bg-surface-primary focus:outline-none focus-visible:ring-2 focus-visible:ring-border-focus"
         onClick={() => setHelpOpen(true)}
         aria-label="Show keyboard shortcuts"
       >
