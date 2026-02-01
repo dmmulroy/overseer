@@ -231,31 +231,50 @@ export function KeyboardProvider({ children }: KeyboardProviderProps): ReactNode
   // Global keyboard listener
   useEffect(() => {
     function handleKeyDown(e: KeyboardEvent): void {
-      // Don't fire shortcuts when typing in inputs
-      const target = e.target as HTMLElement;
-      if (
-        target.tagName === "INPUT" ||
-        target.tagName === "TEXTAREA" ||
-        target.isContentEditable
-      ) {
-        // Allow Escape to work even in inputs
-        if (e.key !== "Escape") {
-          return;
-        }
-      }
+      // Don't fire shortcuts during IME composition
+      if (e.isComposing) return;
+
+      // Don't fire shortcuts when typing in inputs (allow Escape)
+      const t = e.target;
+      const target = t instanceof HTMLElement ? t : null;
+      const isTypingTarget =
+        target !== null &&
+        (target.tagName === "INPUT" ||
+          target.tagName === "TEXTAREA" ||
+          target.tagName === "SELECT" ||
+          target.isContentEditable);
+      if (isTypingTarget && e.key !== "Escape") return;
 
       const normalized = normalizeKey(e);
 
-      // Find matching shortcut (global scope or active scope)
+      // Two-pass dispatch: scoped shortcuts take precedence over global
+      // Pass 1: Find match in active scope (non-global)
+      let matched: Shortcut | undefined;
       for (const shortcut of shortcuts.values()) {
         if (shortcut.key !== normalized) continue;
-        if (shortcut.scope !== "global" && shortcut.scope !== activeScope) continue;
+        if (shortcut.scope === activeScope && shortcut.scope !== "global") {
+          matched = shortcut;
+          break;
+        }
+      }
 
+      // Pass 2: If no scoped match, find global match
+      if (!matched) {
+        for (const shortcut of shortcuts.values()) {
+          if (shortcut.key !== normalized) continue;
+          if (shortcut.scope === "global") {
+            matched = shortcut;
+            break;
+          }
+        }
+      }
+
+      if (matched) {
         e.preventDefault();
         try {
-          shortcut.handler();
+          matched.handler();
         } catch (err) {
-          console.error("Shortcut handler failed:", shortcut.id, err);
+          console.error("Shortcut handler failed:", matched.id, err);
         }
         return;
       }
