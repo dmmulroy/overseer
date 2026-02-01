@@ -1,4 +1,4 @@
-import { useState, useMemo, useCallback, memo, useRef, useEffect } from "react";
+import { useState, useMemo, useCallback, memo, useEffect } from "react";
 import {
   ReactFlow,
   Controls,
@@ -154,32 +154,32 @@ function getDescendantIds(
   childrenMap: Map<TaskId, TaskId[]>
 ): Set<TaskId> {
   const descendants = new Set<TaskId>();
-  const stack = childrenMap.get(taskId) ?? [];
+  const stack = [...(childrenMap.get(taskId) ?? [])];
 
-  while (stack.length > 0) {
-    const id = stack.pop()!;
+  let id = stack.pop();
+  while (id !== undefined) {
     descendants.add(id);
     const children = childrenMap.get(id) ?? [];
     stack.push(...children);
+    id = stack.pop();
   }
 
   return descendants;
 }
 
 /**
- * Build nodes and edges from tasks, respecting collapsed state
+ * Build nodes and edges from tasks, respecting collapsed state.
+ * NOTE: focusedId and onToggleCollapse are applied separately to avoid
+ * expensive dagre re-layout on every focus change.
  */
 function buildGraphElements(
   tasks: Task[],
-  collapsedIds: Set<TaskId>,
-  focusedId: TaskId | null,
-  onToggleCollapse: (id: TaskId) => void
+  collapsedIds: Set<TaskId>
 ): {
   nodes: TaskNode[];
   edges: TaskEdge[];
 } {
   // Build lookup maps
-  const taskMap = new Map<TaskId, Task>(tasks.map((t) => [t.id, t]));
   const childrenMap = new Map<TaskId, TaskId[]>();
 
   for (const task of tasks) {
@@ -224,7 +224,7 @@ function buildGraphElements(
     }
   }
 
-  // Create nodes for visible tasks
+  // Create nodes for visible tasks (isFocused and onToggleCollapse applied later)
   const nodes: TaskNode[] = visibleTasks.map((task) => ({
     id: task.id,
     type: "task",
@@ -235,8 +235,8 @@ function buildGraphElements(
       completedChildCount: completedChildCounts.get(task.id) ?? 0,
       isCollapsed: collapsedIds.has(task.id),
       hiddenDescendantCount: hiddenDescendantCounts.get(task.id) ?? 0,
-      isFocused: task.id === focusedId,
-      onToggleCollapse,
+      isFocused: false, // Applied in separate memo
+      onToggleCollapse: () => {}, // Applied in separate memo
     },
   }));
 
@@ -424,7 +424,7 @@ const TaskNodeComponent = memo(function TaskNodeComponent({
             <span
               className={`
                 w-2.5 h-2.5 rounded-full flex-shrink-0
-                ${isInProgress ? "animate-pulse" : ""}
+                ${isInProgress ? "animate-pulse motion-reduce:animate-none" : ""}
               `}
               style={{
                 backgroundColor:
@@ -513,7 +513,6 @@ function buildFlatTaskList(
   tasks: Task[],
   collapsedIds: Set<TaskId>
 ): TaskId[] {
-  const taskMap = new Map<TaskId, Task>(tasks.map((t) => [t.id, t]));
   const childrenMap = new Map<TaskId, TaskId[]>();
 
   for (const task of tasks) {
@@ -536,30 +535,24 @@ function buildFlatTaskList(
   // Build flat list in tree order
   const result: TaskId[] = [];
 
-  function traverse(parentId: TaskId | null): void {
-    const children = childrenMap.get(parentId as TaskId) ?? [];
-    // Also get root tasks (parentId = null)
-    if (parentId === null) {
-      for (const task of tasks) {
-        if (
-          task.parentId === null &&
-          !hiddenIds.has(task.id)
-        ) {
-          result.push(task.id);
-          traverse(task.id);
-        }
-      }
-    } else {
-      for (const childId of children) {
-        if (!hiddenIds.has(childId)) {
-          result.push(childId);
-          traverse(childId);
-        }
+  function traverseChildren(parentId: TaskId): void {
+    const children = childrenMap.get(parentId) ?? [];
+    for (const childId of children) {
+      if (!hiddenIds.has(childId)) {
+        result.push(childId);
+        traverseChildren(childId);
       }
     }
   }
 
-  traverse(null);
+  // Start with root tasks (parentId = null)
+  for (const task of tasks) {
+    if (task.parentId === null && !hiddenIds.has(task.id)) {
+      result.push(task.id);
+      traverseChildren(task.id);
+    }
+  }
+
   return result;
 }
 
@@ -573,6 +566,7 @@ function GraphNavigation({
   collapsedIds,
   setCollapsedIds,
   onSelect,
+  onToggleMinimap,
 }: {
   tasks: Task[];
   focusedId: TaskId | null;
@@ -580,8 +574,9 @@ function GraphNavigation({
   collapsedIds: Set<TaskId>;
   setCollapsedIds: React.Dispatch<React.SetStateAction<Set<TaskId>>>;
   onSelect: (id: TaskId) => void;
+  onToggleMinimap: () => void;
 }) {
-  const { fitView, setCenter } = useReactFlow();
+  const { fitView } = useReactFlow();
   const { setActiveScope } = useKeyboardContext();
 
   // Build flat task list for j/k navigation
@@ -608,13 +603,10 @@ function GraphNavigation({
     return map;
   }, [tasks]);
 
-  // Center view on focused node
+  // Center view on focused node - use fitView directly without DOM check
+  // (node may be offscreen due to onlyRenderVisibleElements virtualization)
   const centerOnNode = useCallback(
     (id: TaskId) => {
-      // Get node element to find position
-      const nodeEl = document.querySelector(`[data-task-id="${id}"]`);
-      if (!nodeEl) return;
-      // Use fitView with specific nodes
       fitView({
         nodes: [{ id }],
         duration: 150,
@@ -781,8 +773,14 @@ function GraphNavigation({
         scope: "graph",
         handler: selectFocused,
       },
+      {
+        key: "m",
+        description: "Toggle minimap",
+        scope: "graph",
+        handler: onToggleMinimap,
+      },
     ],
-    [moveDown, moveUp, moveToParent, moveToChild, toggleCollapse, selectFocused]
+    [moveDown, moveUp, moveToParent, moveToChild, toggleCollapse, selectFocused, onToggleMinimap]
   );
 
   // Set active scope when graph is rendered
@@ -845,10 +843,10 @@ export function TaskGraph({
     }
   }, [tasks, focusedId]);
 
-  // Compute layout only when tasks or collapsed state changes
+  // Compute layout only when tasks or collapsed state changes (expensive dagre layout)
   const { nodes: layoutedNodes, edges: allEdges } = useMemo(
-    () => buildGraphElements(tasks, collapsedIds, focusedId, handleToggleCollapse),
-    [tasks, collapsedIds, focusedId, handleToggleCollapse]
+    () => buildGraphElements(tasks, collapsedIds),
+    [tasks, collapsedIds]
   );
 
   // Filter edges based on showBlockers toggle
@@ -860,14 +858,19 @@ export function TaskGraph({
     [allEdges, showBlockers]
   );
 
-  // Apply selection separately (cheap, no Dagre re-run)
+  // Apply focus, selection, and onToggleCollapse separately (cheap, no Dagre re-run)
   const nodes = useMemo(
     () =>
       layoutedNodes.map((n) => ({
         ...n,
         selected: selectedId !== null && n.data.task.id === selectedId,
+        data: {
+          ...n.data,
+          isFocused: n.data.task.id === focusedId,
+          onToggleCollapse: handleToggleCollapse,
+        },
       })),
-    [layoutedNodes, selectedId]
+    [layoutedNodes, selectedId, focusedId, handleToggleCollapse]
   );
 
   // Handle node click via onNodeClick (not stored in node data)
@@ -919,6 +922,7 @@ export function TaskGraph({
           collapsedIds={collapsedIds}
           setCollapsedIds={setCollapsedIds}
           onSelect={onSelect}
+          onToggleMinimap={() => setShowMinimap((prev) => !prev)}
         />
         <Background
           variant={BackgroundVariant.Dots}
@@ -934,9 +938,8 @@ export function TaskGraph({
           <MiniMap
             nodeStrokeWidth={3}
             nodeColor={(node) => {
-              const data = node.data as TaskNodeData;
-              if (!data?.task) return "var(--color-border)";
-              const variant = getStatusVariant(data.task);
+              if (!isTaskNodeData(node.data)) return "var(--color-border)";
+              const variant = getStatusVariant(node.data.task);
               switch (variant) {
                 case "done":
                   return "var(--color-status-done)";

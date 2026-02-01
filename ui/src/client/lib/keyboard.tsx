@@ -19,6 +19,30 @@ import {
 
 export type ShortcutScope = "global" | "list" | "graph" | "detail";
 
+/**
+ * A scope claim represents a component's ownership of a keyboard scope.
+ * Multiple components can claim the same scope; activeScope is derived
+ * from the most recently activated claim.
+ */
+export interface ScopeClaim {
+  /** Unique claim ID (e.g., "graph-main", "detail-panel") */
+  id: string;
+  /** The scope this claim is for */
+  scope: ShortcutScope;
+  /** Monotonic sequence number when activated (0 = not activated, higher = more recent) */
+  activatedAt: number;
+}
+
+/**
+ * Token returned by claimScope() for managing scope ownership.
+ */
+export interface ScopeClaimToken {
+  /** Mark this claim as the active one (updates activatedAt) */
+  activate: () => void;
+  /** Release this claim entirely */
+  release: () => void;
+}
+
 export interface Shortcut {
   /** Unique identifier */
   id: string;
@@ -33,9 +57,17 @@ export interface Shortcut {
 }
 
 interface KeyboardContextValue {
-  /** Currently active scope (in addition to global) */
+  /** Currently active scope (derived from most recently activated claim) */
   activeScope: ShortcutScope;
+  /**
+   * @deprecated Use claimScope() instead. Direct scope setting causes race conditions.
+   */
   setActiveScope: (scope: ShortcutScope) => void;
+  /**
+   * Claim ownership of a scope. Returns token with activate/release methods.
+   * Multiple claims can exist; activeScope is derived from most recently activated.
+   */
+  claimScope: (id: string, scope: ShortcutScope) => ScopeClaimToken;
   /** Register a shortcut, returns unregister function */
   register: (shortcut: Shortcut) => () => void;
   /** Get all registered shortcuts */
@@ -122,9 +154,77 @@ interface KeyboardProviderProps {
 }
 
 export function KeyboardProvider({ children }: KeyboardProviderProps): ReactNode {
-  const [activeScope, setActiveScope] = useState<ShortcutScope>("global");
+  const [scopeClaims, setScopeClaims] = useState<Map<string, ScopeClaim>>(new Map());
   const [helpOpen, setHelpOpen] = useState(false);
   const [shortcuts, setShortcuts] = useState<Map<string, Shortcut>>(new Map());
+
+  // Monotonic counter for deterministic activation ordering (avoids Date.now() ties)
+  const activationSeqRef = useRef(0);
+
+  // Derive activeScope from the most recently activated claim
+  const activeScope = useMemo((): ShortcutScope => {
+    let maxActivatedAt = 0;
+    let activeScope: ShortcutScope = "global";
+
+    for (const claim of scopeClaims.values()) {
+      if (claim.activatedAt > maxActivatedAt) {
+        maxActivatedAt = claim.activatedAt;
+        activeScope = claim.scope;
+      }
+    }
+
+    return activeScope;
+  }, [scopeClaims]);
+
+  /**
+   * @deprecated Direct scope setting causes race conditions. Use claimScope() instead.
+   */
+  const setActiveScope = useCallback((scope: ShortcutScope): void => {
+    // Legacy support: create an ephemeral claim with the given scope
+    // This is deprecated but keeps existing code working during migration
+    const id = `__legacy_${scope}__`;
+    setScopeClaims((prev) => {
+      const next = new Map(prev);
+      next.set(id, { id, scope, activatedAt: ++activationSeqRef.current });
+      return next;
+    });
+  }, []);
+
+  /**
+   * Claim ownership of a scope. Returns token with activate/release methods.
+   *
+   * ⚠️ LOW-LEVEL API: Do not call during render. Call in useEffect and store
+   * the returned token. Always call release() on cleanup. Prefer the
+   * useKeyboardScope() hook (once available) for automatic lifecycle management.
+   */
+  const claimScope = useCallback((id: string, scope: ShortcutScope): ScopeClaimToken => {
+    // Create the claim with activatedAt = 0 (not yet activated)
+    setScopeClaims((prev) => {
+      const next = new Map(prev);
+      next.set(id, { id, scope, activatedAt: 0 });
+      return next;
+    });
+
+    return {
+      activate: () => {
+        setScopeClaims((prev) => {
+          const next = new Map(prev);
+          const existing = next.get(id);
+          if (existing) {
+            next.set(id, { ...existing, activatedAt: ++activationSeqRef.current });
+          }
+          return next;
+        });
+      },
+      release: () => {
+        setScopeClaims((prev) => {
+          const next = new Map(prev);
+          next.delete(id);
+          return next;
+        });
+      },
+    };
+  }, []);
 
   const register = useCallback((shortcut: Shortcut): (() => void) => {
     setShortcuts((prev) => {
@@ -214,12 +314,13 @@ export function KeyboardProvider({ children }: KeyboardProviderProps): ReactNode
     () => ({
       activeScope,
       setActiveScope,
+      claimScope,
       register,
       getShortcuts,
       helpOpen,
       setHelpOpen,
     }),
-    [activeScope, register, getShortcuts, helpOpen]
+    [activeScope, setActiveScope, claimScope, register, getShortcuts, helpOpen]
   );
 
   return (
