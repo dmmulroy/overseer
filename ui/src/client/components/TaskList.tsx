@@ -3,6 +3,7 @@ import type { Task, TaskId } from "../../types.js";
 import { Badge } from "./ui/Badge.js";
 import { useKeyboardShortcuts } from "../lib/keyboard.js";
 import { useKeyboardScope } from "../lib/use-keyboard-scope.js";
+import { useChangedTasks } from "../lib/use-changed-tasks.js";
 
 type FilterType = "all" | "active" | "completed" | "blocked" | "ready";
 
@@ -61,6 +62,7 @@ export function TaskList({ tasks, selectedId, onSelect }: TaskListProps) {
   const listRef = useRef<HTMLDivElement>(null);
   const itemRefs = useRef<Map<number, HTMLButtonElement>>(new Map());
   const scopeProps = useKeyboardScope("list");
+  const changedTaskIds = useChangedTasks(tasks);
 
   // Build parent->children map for hierarchy
   const tasksByParent = useMemo(() => {
@@ -321,6 +323,7 @@ export function TaskList({ tasks, selectedId, onSelect }: TaskListProps) {
                 selectedId={selectedId}
                 focusedIndex={focusedIndex}
                 indexById={indexById}
+                changedTaskIds={changedTaskIds}
                 onSelect={onSelect}
                 onFocus={setFocusedIndex}
                 itemRefs={itemRefs}
@@ -347,6 +350,7 @@ interface TaskTreeNodeProps {
   selectedId: TaskId | null;
   focusedIndex: number;
   indexById: Map<TaskId, number>;
+  changedTaskIds: Set<TaskId>;
   onSelect: (id: TaskId) => void;
   onFocus: (index: number) => void;
   itemRefs: React.MutableRefObject<Map<number, HTMLButtonElement>>;
@@ -360,6 +364,7 @@ function TaskTreeNode({
   selectedId,
   focusedIndex,
   indexById,
+  changedTaskIds,
   onSelect,
   onFocus,
   itemRefs,
@@ -371,6 +376,7 @@ function TaskTreeNode({
   const taskIndex = indexById.get(task.id) ?? -1;
   const isFocused = taskIndex === focusedIndex;
   const isSelected = selectedId === task.id;
+  const isChanged = changedTaskIds.has(task.id);
 
   return (
     <div>
@@ -378,6 +384,7 @@ function TaskTreeNode({
         task={task}
         isSelected={isSelected}
         isFocused={isFocused}
+        isChanged={isChanged}
         taskIndex={taskIndex}
         onSelect={onSelect}
         onFocus={onFocus}
@@ -395,6 +402,7 @@ function TaskTreeNode({
               selectedId={selectedId}
               focusedIndex={focusedIndex}
               indexById={indexById}
+              changedTaskIds={changedTaskIds}
               onSelect={onSelect}
               onFocus={onFocus}
               itemRefs={itemRefs}
@@ -411,6 +419,7 @@ interface TaskItemProps {
   task: Task;
   isSelected: boolean;
   isFocused: boolean;
+  isChanged: boolean;
   taskIndex: number;
   onSelect: (id: TaskId) => void;
   onFocus: (index: number) => void;
@@ -422,6 +431,7 @@ function TaskItem({
   task,
   isSelected,
   isFocused,
+  isChanged,
   taskIndex,
   onSelect,
   onFocus,
@@ -454,6 +464,7 @@ function TaskItem({
       className={`
         w-full text-left p-2 rounded transition-colors motion-reduce:transition-none
         ${isSelected ? "bg-surface-secondary" : "hover:bg-surface-primary"}
+        ${isChanged ? "animate-flash-change" : ""}
         focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-1 focus-visible:ring-offset-bg-primary
       `}
     >
@@ -474,7 +485,7 @@ function TaskItem({
         </span>
 
         {/* Status badge */}
-        <Badge variant={statusVariant}>
+        <Badge variant={statusVariant} pulsing={statusVariant === "active"}>
           {statusLabel}
         </Badge>
 

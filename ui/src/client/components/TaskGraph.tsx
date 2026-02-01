@@ -425,7 +425,7 @@ const TaskNodeComponent = memo(function TaskNodeComponent({
             <span
               className={`
                 w-2.5 h-2.5 rounded-full flex-shrink-0
-                ${isInProgress ? "animate-pulse motion-reduce:animate-none" : ""}
+                ${isInProgress ? "animate-pulse-active motion-reduce:animate-none" : ""}
               `}
               style={{
                 backgroundColor:
@@ -464,7 +464,7 @@ const TaskNodeComponent = memo(function TaskNodeComponent({
 
         {/* Footer: Status badge + Progress indicator */}
         <div className="flex items-center justify-between">
-          <Badge variant={statusVariant}>{statusLabel}</Badge>
+          <Badge variant={statusVariant} pulsing={statusVariant === "active"}>{statusLabel}</Badge>
 
           {/* Progress indicator for parent tasks */}
           {hasChildren && !isCollapsed && (

@@ -1,9 +1,10 @@
 /**
  * Header component with logo, view tabs, and status.
  *
- * Layout: [OVERSEER logo] [Graph|Kanban|List tabs] [spacer] [last-update] [⌘?]
+ * Layout: [OVERSEER logo] [Graph|Kanban|List tabs] [spacer] [connection] [last-update] [⌘?]
  */
 
+import { useState, useEffect } from "react";
 import { tv } from "tailwind-variants";
 import { useUIStore, type ViewMode } from "../lib/store.js";
 import { useKeyboardContext } from "../lib/keyboard.js";
@@ -33,24 +34,46 @@ const tab = tv({
 interface HeaderProps {
   /** ISO timestamp of last data update */
   lastUpdated?: string;
+  /** Whether API fetch is currently in error state */
+  isError?: boolean;
+  /** Whether fetch is currently loading/refetching */
+  isLoading?: boolean;
 }
 
-export function Header({ lastUpdated }: HeaderProps) {
+/**
+ * Format a timestamp as relative time (e.g., "2s ago", "5m ago")
+ */
+function formatRelativeTime(date: Date): string {
+  const now = new Date();
+  const diffMs = now.getTime() - date.getTime();
+  const diffSec = Math.floor(diffMs / 1000);
+
+  if (diffSec < 5) return "just now";
+  if (diffSec < 60) return `${diffSec}s ago`;
+  if (diffSec < 3600) return `${Math.floor(diffSec / 60)}m ago`;
+  if (diffSec < 86400) return `${Math.floor(diffSec / 3600)}h ago`;
+  return date.toLocaleDateString();
+}
+
+/**
+ * Hook to force re-render at intervals for live-updating timestamps
+ */
+function useInterval(intervalMs: number) {
+  const [, setTick] = useState(0);
+
+  useEffect(() => {
+    const id = setInterval(() => setTick((t) => t + 1), intervalMs);
+    return () => clearInterval(id);
+  }, [intervalMs]);
+}
+
+export function Header({ lastUpdated, isError, isLoading }: HeaderProps) {
   const viewMode = useUIStore((s) => s.viewMode);
   const setViewMode = useUIStore((s) => s.setViewMode);
   const { setHelpOpen } = useKeyboardContext();
 
-  const formatLastUpdated = (iso: string): string => {
-    const date = new Date(iso);
-    const now = new Date();
-    const diffMs = now.getTime() - date.getTime();
-    const diffSec = Math.floor(diffMs / 1000);
-
-    if (diffSec < 60) return "just now";
-    if (diffSec < 3600) return `${Math.floor(diffSec / 60)}m ago`;
-    if (diffSec < 86400) return `${Math.floor(diffSec / 3600)}h ago`;
-    return date.toLocaleDateString();
-  };
+  // Re-render every second to keep timestamp current
+  useInterval(1000);
 
   return (
     <header className="flex items-center gap-4 px-4 h-12 border-b border-border bg-bg-secondary shrink-0">
@@ -83,10 +106,33 @@ export function Header({ lastUpdated }: HeaderProps) {
       {/* Spacer */}
       <div className="flex-1" />
 
+      {/* Screen reader announcement for connection status (H1 fix) */}
+      <span role="status" aria-live="polite" className="sr-only">
+        {isError ? "Connection lost" : isLoading ? "Syncing data" : "Connected"}
+      </span>
+
+      {/* Connection status indicator */}
+      {isError && (
+        <div className="flex items-center gap-1.5 px-2 py-1 rounded bg-status-blocked/10 border border-status-blocked/30">
+          <span
+            className="w-2 h-2 rounded-full bg-status-blocked animate-pulse-error motion-reduce:animate-none"
+            aria-hidden="true"
+          />
+          <span className="text-xs text-status-blocked font-mono uppercase">
+            Disconnected
+          </span>
+        </div>
+      )}
+
+      {/* Loading indicator */}
+      {isLoading && !isError && (
+        <span className="text-xs text-text-dim font-mono">syncing...</span>
+      )}
+
       {/* Last updated */}
-      {lastUpdated && (
+      {lastUpdated && !isError && !isLoading && (
         <span className="text-xs text-text-dim font-mono">
-          updated {formatLastUpdated(lastUpdated)}
+          {formatRelativeTime(new Date(lastUpdated))}
         </span>
       )}
 

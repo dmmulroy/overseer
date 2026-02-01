@@ -3,7 +3,7 @@ import { forwardRef, type HTMLAttributes } from "react";
 
 const badge = tv({
   base: [
-    "inline-flex items-center justify-center",
+    "inline-flex items-center justify-center gap-1.5",
     "font-mono text-xs font-medium uppercase tracking-wider",
     "px-2 py-0.5 rounded",
   ],
@@ -22,12 +22,23 @@ const badge = tv({
 
 type BadgeVariants = VariantProps<typeof badge>;
 
-interface BadgeProps extends HTMLAttributes<HTMLSpanElement>, BadgeVariants {}
+interface BadgeProps extends HTMLAttributes<HTMLSpanElement>, BadgeVariants {
+  /** Show pulsing indicator (for active tasks) */
+  pulsing?: boolean;
+}
 
 export const Badge = forwardRef<HTMLSpanElement, BadgeProps>(
-  ({ className, variant, ...props }, ref) => {
+  ({ className, variant, pulsing, children, ...props }, ref) => {
     return (
-      <span ref={ref} className={badge({ variant, className })} {...props} />
+      <span ref={ref} className={badge({ variant, className })} {...props}>
+        {pulsing && (
+          <span
+            className="w-1.5 h-1.5 rounded-full bg-current animate-pulse-active motion-reduce:animate-none"
+            aria-hidden="true"
+          />
+        )}
+        {children}
+      </span>
     );
   }
 );

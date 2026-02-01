@@ -30,7 +30,7 @@ function AppContent() {
   const toggleDetailPanel = useUIStore((s) => s.toggleDetailPanel);
   const clearIfMissing = useUIStore((s) => s.clearIfMissing);
 
-  const { data: tasks, isLoading, error, dataUpdatedAt } = useTasks();
+  const { data: tasks, isLoading, isFetching, error, dataUpdatedAt } = useTasks();
 
   // Clear selection if task no longer exists after refetch
   const taskIds = useMemo(() => {
@@ -87,7 +87,11 @@ function AppContent() {
       <KeyboardHelp />
       <div className="flex flex-col h-screen bg-bg-primary">
         {/* Header */}
-        <Header lastUpdated={lastUpdated} />
+        <Header
+          lastUpdated={lastUpdated}
+          isError={error !== null}
+          isLoading={isFetching}
+        />
 
         {/* Main content area */}
         <main className="flex-1 flex flex-col min-h-0">

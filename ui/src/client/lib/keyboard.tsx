@@ -157,6 +157,10 @@ export function KeyboardProvider({ children }: KeyboardProviderProps): ReactNode
   // Monotonic counter for deterministic activation ordering (avoids Date.now() ties)
   const activationSeqRef = useRef(0);
 
+  // Refs for keydown handler to avoid re-registering listener on every state change
+  const shortcutsRef = useRef(shortcuts);
+  shortcutsRef.current = shortcuts;
+
   // Derive activeScope from the most recently activated claim
   const activeScope = useMemo((): ShortcutScope => {
     let maxActivatedAt = 0;
@@ -171,6 +175,9 @@ export function KeyboardProvider({ children }: KeyboardProviderProps): ReactNode
 
     return activeScope;
   }, [scopeClaims]);
+
+  const activeScopeRef = useRef(activeScope);
+  activeScopeRef.current = activeScope;
 
   /**
    * Claim ownership of a scope. Returns token with activate/release methods.
@@ -210,6 +217,22 @@ export function KeyboardProvider({ children }: KeyboardProviderProps): ReactNode
 
   const register = useCallback((shortcut: Shortcut): (() => void) => {
     setShortcuts((prev) => {
+      // Check for key+scope collision (different id, same key+scope)
+      for (const existing of prev.values()) {
+        if (
+          existing.id !== shortcut.id &&
+          existing.key === shortcut.key &&
+          existing.scope === shortcut.scope
+        ) {
+          if (process.env.NODE_ENV !== "production") {
+            console.warn(
+              `[Keyboard] Shortcut collision: "${shortcut.key}" in scope "${shortcut.scope}" ` +
+                `already registered by "${existing.id}", overwriting with "${shortcut.id}"`
+            );
+          }
+        }
+      }
+
       const next = new Map(prev);
       next.set(shortcut.id, shortcut);
       return next;
@@ -228,13 +251,14 @@ export function KeyboardProvider({ children }: KeyboardProviderProps): ReactNode
     return Array.from(shortcuts.values());
   }, [shortcuts]);
 
-  // Global keyboard listener
+  // Global keyboard listener (uses refs to avoid re-registering on state changes)
   useEffect(() => {
     function handleKeyDown(e: KeyboardEvent): void {
       // Don't fire shortcuts during IME composition
       if (e.isComposing) return;
 
-      // Don't fire shortcuts when typing in inputs (allow Escape)
+      // Don't fire shortcuts when typing in inputs
+      // Allow: Escape, and modifier shortcuts (Cmd/Ctrl/Alt+key)
       const t = e.target;
       const target = t instanceof HTMLElement ? t : null;
       const isTypingTarget =
@@ -243,16 +267,19 @@ export function KeyboardProvider({ children }: KeyboardProviderProps): ReactNode
           target.tagName === "TEXTAREA" ||
           target.tagName === "SELECT" ||
           target.isContentEditable);
-      if (isTypingTarget && e.key !== "Escape") return;
+      const hasModifier = e.metaKey || e.ctrlKey || e.altKey;
+      if (isTypingTarget && e.key !== "Escape" && !hasModifier) return;
 
       const normalized = normalizeKey(e);
+      const currentShortcuts = shortcutsRef.current;
+      const currentActiveScope = activeScopeRef.current;
 
       // Two-pass dispatch: scoped shortcuts take precedence over global
       // Pass 1: Find match in active scope (non-global)
       let matched: Shortcut | undefined;
-      for (const shortcut of shortcuts.values()) {
+      for (const shortcut of currentShortcuts.values()) {
         if (shortcut.key !== normalized) continue;
-        if (shortcut.scope === activeScope && shortcut.scope !== "global") {
+        if (shortcut.scope === currentActiveScope && shortcut.scope !== "global") {
           matched = shortcut;
           break;
         }
@@ -260,7 +287,7 @@ export function KeyboardProvider({ children }: KeyboardProviderProps): ReactNode
 
       // Pass 2: If no scoped match, find global match
       if (!matched) {
-        for (const shortcut of shortcuts.values()) {
+        for (const shortcut of currentShortcuts.values()) {
           if (shortcut.key !== normalized) continue;
           if (shortcut.scope === "global") {
             matched = shortcut;
@@ -282,7 +309,7 @@ export function KeyboardProvider({ children }: KeyboardProviderProps): ReactNode
 
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [shortcuts, activeScope]);
+  }, []); // Empty deps - listener registered once, reads current state from refs
 
   // Built-in "?" shortcut to toggle help
   useEffect(() => {

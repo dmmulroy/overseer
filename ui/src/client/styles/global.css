@@ -132,9 +132,56 @@ pre,
   }
 }
 
+/* Active status pulse animation */
+@keyframes pulse-active {
+  0%, 100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.6;
+    transform: scale(1.15);
+  }
+}
+
+.animate-pulse-active {
+  animation: pulse-active 2s ease-in-out infinite;
+}
+
+/* Task change flash animation (M1 fix: use theme token) */
+@keyframes flash-change {
+  0% {
+    background-color: var(--color-accent-subtle);
+  }
+  100% {
+    background-color: transparent;
+  }
+}
+
+.animate-flash-change {
+  animation: flash-change 1s ease-out forwards;
+}
+
+/* Connection status pulse for disconnected state */
+@keyframes pulse-error {
+  0%, 100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.5;
+  }
+}
+
+.animate-pulse-error {
+  animation: pulse-error 1.5s ease-in-out infinite;
+}
+
 /* Reduced motion: disable animations */
 @media (prefers-reduced-motion: reduce) {
-  .graph-edge-blocker {
+  .graph-edge-blocker,
+  .animate-pulse-active,
+  .animate-flash-change,
+  .animate-pulse-error {
     animation: none;
   }
 }

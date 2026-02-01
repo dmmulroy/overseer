@@ -1,4 +1,4 @@
-import { useEffect, useId, useRef } from "react";
+import { useId, useLayoutEffect, useRef } from "react";
 import { useKeyboardContext, type ShortcutScope } from "./keyboard";
 
 export interface UseKeyboardScopeOptions {
@@ -51,7 +51,8 @@ export function useKeyboardScope(
   // Store token ref to call activate() in event handlers
   const tokenRef = useRef<ReturnType<typeof claimScope> | null>(null);
 
-  useEffect(() => {
+  // useLayoutEffect ensures token is set before browser delivers pointer/focus events
+  useLayoutEffect(() => {
     if (!enabled) return;
 
     const token = claimScope(claimId, scope);
