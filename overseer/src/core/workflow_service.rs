@@ -91,7 +91,7 @@ impl<'a> TaskWorkflowService<'a> {
             let blockers: Vec<TaskId> = task
                 .blocked_by
                 .iter()
-                .filter(|b| !task_repo::is_task_completed(self.conn, b).unwrap_or(true))
+                .filter(|b| !task_repo::is_task_completed(self.conn, b).unwrap_or(false))
                 .cloned()
                 .collect();
 
@@ -226,6 +226,16 @@ impl<'a> TaskWorkflowService<'a> {
             .task_service
             .complete_with_learnings(id, result, learnings)?;
 
+        // 3. Best-effort cleanup: delete task's bookmark
+        if let Some(ref bookmark) = task.bookmark {
+            if let Err(e) = self.vcs.delete_bookmark(bookmark) {
+                eprintln!("warn: failed to delete bookmark {}: {}", bookmark, e);
+            } else {
+                // Clear bookmark field in DB after successful VCS deletion
+                let _ = task_repo::clear_bookmark(self.conn, id);
+            }
+        }
+
         // Bubble up: auto-complete parents if all children done and unblocked
         self.bubble_up_completion(id)?;
 
@@ -322,28 +332,20 @@ impl<'a> TaskWorkflowService<'a> {
             .task_service
             .complete_with_learnings(id, result, learnings)?;
 
-        // Best-effort cleanup: delete child bookmarks
-        let children = task_repo::get_children(self.conn, id)?;
-        for child in children.iter() {
-            if let Some(ref child_bookmark) = child.bookmark {
-                let _ = self.vcs.delete_bookmark(child_bookmark);
+        // Best-effort cleanup: delete ALL descendant bookmarks (not just direct children)
+        let descendants = task_repo::get_all_descendants(self.conn, id)?;
+        for descendant in descendants.iter() {
+            if let Some(ref bookmark) = descendant.bookmark {
+                if let Err(e) = self.vcs.delete_bookmark(bookmark) {
+                    eprintln!("warn: failed to delete bookmark {}: {}", bookmark, e);
+                } else {
+                    // Clear bookmark field in DB after successful VCS deletion
+                    let _ = task_repo::clear_bookmark(self.conn, &descendant.id);
+                }
             }
         }
 
         Ok(completed_task)
-    }
-
-    /// Best-effort bookmark cleanup on task delete.
-    /// VCS errors are logged but don't fail the operation.
-    pub fn cleanup_bookmark(&self, id: &TaskId) -> Result<()> {
-        if let Ok(Some(task)) = task_repo::get_task(self.conn, id) {
-            if let Some(ref bookmark) = task.bookmark {
-                if let Err(e) = self.vcs.delete_bookmark(bookmark) {
-                    eprintln!("warn: failed to delete bookmark {}: {}", bookmark, e);
-                }
-            }
-        }
-        Ok(())
     }
 }
 

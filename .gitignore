@@ -23,6 +23,13 @@ npm-debug.log*
 
 # Local data/state
 .overseer/
+.overseer.db
+.overseer.bak/
+
+# Test artifacts
+test-results/
+ui/test-results/
+ui-test-*.png
 
 # OpenCode
 .opencode/

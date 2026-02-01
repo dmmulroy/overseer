@@ -386,6 +386,48 @@ pub fn clear_vcs_fields(conn: &Connection, id: &TaskId) -> Result<()> {
     Ok(())
 }
 
+/// Clear bookmark field after VCS bookmark deletion
+pub fn clear_bookmark(conn: &Connection, id: &TaskId) -> Result<()> {
+    let now_str = now().to_rfc3339();
+    conn.execute(
+        "UPDATE tasks SET bookmark = NULL, updated_at = ?1 WHERE id = ?2",
+        params![now_str, id],
+    )?;
+    Ok(())
+}
+
+/// Get bookmark for a task (lightweight query for delete cleanup)
+pub fn get_bookmark(conn: &Connection, id: &TaskId) -> Result<Option<String>> {
+    conn.query_row(
+        "SELECT bookmark FROM tasks WHERE id = ?1",
+        params![id],
+        |row| row.get(0),
+    )
+    .optional()
+    .map(|opt| opt.flatten())
+    .map_err(OsError::from)
+}
+
+/// Get bookmarks for task and all descendants (for delete cleanup)
+pub fn get_all_bookmarks(conn: &Connection, id: &TaskId) -> Result<Vec<String>> {
+    let mut bookmarks = Vec::new();
+
+    // Get the task's own bookmark
+    if let Some(bookmark) = get_bookmark(conn, id)? {
+        bookmarks.push(bookmark);
+    }
+
+    // Get all descendant bookmarks
+    let descendants = get_all_descendants(conn, id)?;
+    for desc in descendants {
+        if let Some(bookmark) = desc.bookmark {
+            bookmarks.push(bookmark);
+        }
+    }
+
+    Ok(bookmarks)
+}
+
 pub fn get_children(conn: &Connection, parent_id: &TaskId) -> Result<Vec<Task>> {
     let mut stmt = conn.prepare("SELECT * FROM tasks WHERE parent_id = ?1")?;
     let mut tasks: Vec<Task> = stmt
@@ -398,6 +440,23 @@ pub fn get_children(conn: &Connection, parent_id: &TaskId) -> Result<Vec<Task>> 
     }
 
     Ok(tasks)
+}
+
+/// Get all descendants (children, grandchildren, etc.) recursively.
+/// Used for cleanup operations like bookmark deletion on milestone complete.
+pub fn get_all_descendants(conn: &Connection, root_id: &TaskId) -> Result<Vec<Task>> {
+    let mut all_descendants = Vec::new();
+    let mut stack = vec![root_id.clone()];
+
+    while let Some(parent_id) = stack.pop() {
+        let children = get_children(conn, &parent_id)?;
+        for child in children {
+            stack.push(child.id.clone());
+            all_descendants.push(child);
+        }
+    }
+
+    Ok(all_descendants)
 }
 
 /// List root tasks (milestones) ordered by priority DESC, created_at ASC, id ASC

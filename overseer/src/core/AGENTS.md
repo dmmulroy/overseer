@@ -64,8 +64,10 @@ On task completion with learnings:
 
 ### VCS Integration (workflow_service.rs)
 - `start()`: VCS required - creates bookmark, records start commit
-- `complete_with_learnings()`: VCS required - commits changes (NothingToCommit = success), adds learnings
+- `complete_with_learnings()`: VCS required - commits changes (NothingToCommit = success), adds learnings, deletes bookmark (best-effort)
+- `complete_milestone_with_learnings()`: Same + deletes ALL descendant bookmarks recursively
 - Transaction order: VCS ops first, then DB state update
+- Bookmark cleanup: best-effort deletion, logs warning on failure, clears DB field on success
 - Errors: `NotARepository` (no jj/git), `DirtyWorkingCopy` (uncommitted changes)
 - WorkflowService.new() takes `Box<dyn VcsBackend>` (not Option)
 
@@ -78,3 +80,5 @@ On task completion with learnings:
 5. Learnings bubble to immediate parent only (preserves source_task_id)
 6. VCS required for start/complete - CRUD ops work without VCS
 7. VCS cleanup on delete is best-effort (logs warning, doesn't fail)
+8. VCS bookmark lifecycle: created on start, deleted on complete (best-effort), DB field cleared on success
+9. Milestone completion cleans ALL descendant bookmarks (depth-1 and depth-2), not just direct children

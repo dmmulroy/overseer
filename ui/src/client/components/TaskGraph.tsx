@@ -468,9 +468,18 @@ const TaskNodeComponent = memo(function TaskNodeComponent({
 
           {/* Progress indicator for parent tasks */}
           {hasChildren && !isCollapsed && (
-            <span className="text-[10px] font-mono text-text-muted">
-              {completedChildCount}/{childCount} tasks
-            </span>
+            <div className="flex items-center gap-2">
+              <div className="w-16 h-1.5 bg-surface-secondary rounded-full overflow-hidden">
+                <div 
+                  aria-hidden="true"
+                  className="h-full bg-accent transition-all duration-300 motion-reduce:transition-none"
+                  style={{ width: `${childCount > 0 ? (completedChildCount / childCount) * 100 : 0}%` }}
+                />
+              </div>
+              <span className="text-[10px] font-mono text-text-muted">
+                {completedChildCount}/{childCount}
+              </span>
+            </div>
           )}
 
           {/* Collapsed indicator showing hidden count */}
@@ -884,8 +893,10 @@ export function TaskGraph({
 
   if (tasks.length === 0) {
     return (
-      <div className="flex-1 flex items-center justify-center text-text-muted font-mono">
-        <p>NO TASKS TO DISPLAY</p>
+      <div className="flex-1 flex flex-col items-center justify-center gap-4 text-text-muted">
+        <div className="text-4xl select-none" aria-hidden="true">&#9044;</div>
+        <p className="font-mono uppercase tracking-wider">NO TASKS IN STORE</p>
+        <p className="text-text-dim text-sm font-mono">Run `os task create -d "Your task"` to begin</p>
       </div>
     );
   }

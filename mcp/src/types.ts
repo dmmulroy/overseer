@@ -42,11 +42,15 @@ export interface TaskContext {
 }
 
 /**
- * Inherited learnings from parent/milestone
+ * Inherited learnings (own task + ancestors)
  */
 export interface InheritedLearnings {
-  milestone: Learning[];
+  /** Learnings attached directly to this task (bubbled from completed children) */
+  own: Learning[];
+  /** Learnings from parent task (depth > 0) */
   parent: Learning[];
+  /** Learnings from root milestone (depth > 1) */
+  milestone: Learning[];
 }
 
 /**

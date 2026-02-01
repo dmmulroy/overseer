@@ -8,15 +8,15 @@ import { Hono, type Context } from "hono";
 import type { StatusCode } from "hono/utils/http-status";
 import { callCli } from "../cli.js";
 import {
-  CliError,
-  isTaskId,
-  type Task,
-  type TaskWithContext,
-  type UpdateTaskRequest,
-  type CompleteTaskRequest,
-  type ApiError,
-  type Learning,
-} from "../../types.js";
+  decodeTask,
+  decodeTasks,
+  decodeTaskWithContext,
+  decodeTaskWithContextOrNull,
+  decodeLearnings,
+  decodeUpdateTaskRequest,
+  decodeCompleteTaskRequest,
+} from "../../decoder.js";
+import { CliError, isTaskId, type ApiError } from "../../types.js";
 
 /**
  * Handle CLI errors and return appropriate HTTP status
@@ -74,7 +74,7 @@ const tasks = new Hono()
     if (completed === "true") args.push("--completed");
 
     try {
-      const result = (await callCli(args)) as Task[];
+      const result = decodeTasks(await callCli(args)).unwrap("GET /api/tasks");
       return c.json(result);
     } catch (err) {
       return handleCliError(c, err);
@@ -98,7 +98,9 @@ const tasks = new Hono()
     }
 
     try {
-      const result = (await callCli(args)) as TaskWithContext | null;
+      const result = decodeTaskWithContextOrNull(await callCli(args)).unwrap(
+        "GET /api/tasks/next-ready"
+      );
       if (result === null) {
         return c.json(null, 200);
       }
@@ -119,7 +121,9 @@ const tasks = new Hono()
     }
 
     try {
-      const result = (await callCli(["task", "get", id])) as TaskWithContext;
+      const result = decodeTaskWithContext(await callCli(["task", "get", id])).unwrap(
+        "GET /api/tasks/:id"
+      );
       return c.json(result);
     } catch (err) {
       return handleCliError(c, err);
@@ -136,9 +140,11 @@ const tasks = new Hono()
       return c.json({ error: `Invalid task ID: ${id}` }, 400);
     }
 
-    let body: UpdateTaskRequest;
+    let body;
     try {
-      body = (await c.req.json()) as UpdateTaskRequest;
+      body = decodeUpdateTaskRequest(await c.req.json()).unwrap(
+        "PUT /api/tasks/:id body"
+      );
     } catch {
       return c.json({ error: "Invalid JSON body" }, 400);
     }
@@ -154,7 +160,7 @@ const tasks = new Hono()
     }
 
     try {
-      const result = (await callCli(args)) as Task;
+      const result = decodeTask(await callCli(args)).unwrap("PUT /api/tasks/:id");
       return c.json(result);
     } catch (err) {
       return handleCliError(c, err);
@@ -189,11 +195,15 @@ const tasks = new Hono()
       return c.json({ error: `Invalid task ID: ${id}` }, 400);
     }
 
-    let body: CompleteTaskRequest = {};
+    let body;
     try {
       const text = await c.req.text();
       if (text) {
-        body = JSON.parse(text) as CompleteTaskRequest;
+        body = decodeCompleteTaskRequest(JSON.parse(text)).unwrap(
+          "POST /api/tasks/:id/complete body"
+        );
+      } else {
+        body = {};
       }
     } catch {
       return c.json({ error: "Invalid JSON body" }, 400);
@@ -208,7 +218,7 @@ const tasks = new Hono()
     }
 
     try {
-      const result = (await callCli(args)) as Task;
+      const result = decodeTask(await callCli(args)).unwrap("POST /api/tasks/:id/complete");
       return c.json(result);
     } catch (err) {
       return handleCliError(c, err);
@@ -226,7 +236,9 @@ const tasks = new Hono()
     }
 
     try {
-      const result = (await callCli(["task", "reopen", id])) as Task;
+      const result = decodeTask(await callCli(["task", "reopen", id])).unwrap(
+        "POST /api/tasks/:id/reopen"
+      );
       return c.json(result);
     } catch (err) {
       return handleCliError(c, err);
@@ -245,11 +257,11 @@ const tasks = new Hono()
     }
 
     try {
-      const result = (await callCli([
+      const result = decodeLearnings(await callCli([
         "learning",
         "list",
         taskId,
-      ])) as Learning[];
+      ])).unwrap("GET /api/tasks/:taskId/learnings");
       return c.json(result);
     } catch (err) {
       return handleCliError(c, err);

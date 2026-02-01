@@ -101,7 +101,7 @@ Verification:
 });
 ```
 
-**VCS Required:** Commits changes (NothingToCommit treated as success). Fails with `NotARepository` if no jj/git found.
+**VCS Required:** Commits changes (NothingToCommit treated as success), then deletes the task's bookmark (best-effort) and clears the DB bookmark field on success. Fails with `NotARepository` if no jj/git found.
 
 **Learnings Effect:** Learnings bubble to immediate parent only. `sourceTaskId` is preserved through bubbling, so if this task's learnings later bubble further, the origin is tracked.
 
@@ -114,7 +114,8 @@ VCS operations are **automatically handled** by the tasks API:
 | Task Operation | VCS Effect |
 |----------------|------------|
 | `tasks.start(id)` | **VCS required** - creates bookmark `task/<id>`, records start commit |
-| `tasks.complete(id)` | **VCS required** - commits changes (NothingToCommit = success) |
+| `tasks.complete(id)` | **VCS required** - commits changes, deletes bookmark (best-effort), clears DB bookmark on success |
+| `tasks.complete(milestoneId)` | Same + deletes ALL descendant bookmarks recursively (depth-1 and depth-2) |
 | `tasks.delete(id)` | Best-effort bookmark cleanup (logs warning on failure) |
 
 **Note:** VCS (jj or git) is required for start/complete. CRUD operations work without VCS.

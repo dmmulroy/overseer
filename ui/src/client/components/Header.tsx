@@ -8,6 +8,7 @@ import { useState, useEffect } from "react";
 import { tv } from "tailwind-variants";
 import { useUIStore, type ViewMode } from "../lib/store.js";
 import { useKeyboardContext } from "../lib/keyboard.js";
+import { formatRelativeTime } from "../lib/utils.js";
 import { Kbd } from "./ui/Kbd.js";
 
 const VIEW_TABS: Array<{ mode: ViewMode; label: string; shortcut: string }> = [
@@ -41,21 +42,6 @@ interface HeaderProps {
 }
 
 /**
- * Format a timestamp as relative time (e.g., "2s ago", "5m ago")
- */
-function formatRelativeTime(date: Date): string {
-  const now = new Date();
-  const diffMs = now.getTime() - date.getTime();
-  const diffSec = Math.floor(diffMs / 1000);
-
-  if (diffSec < 5) return "just now";
-  if (diffSec < 60) return `${diffSec}s ago`;
-  if (diffSec < 3600) return `${Math.floor(diffSec / 60)}m ago`;
-  if (diffSec < 86400) return `${Math.floor(diffSec / 3600)}h ago`;
-  return date.toLocaleDateString();
-}
-
-/**
  * Hook to force re-render at intervals for live-updating timestamps
  */
 function useInterval(intervalMs: number) {
@@ -79,7 +65,7 @@ export function Header({ lastUpdated, isError, isLoading }: HeaderProps) {
     <header className="flex items-center gap-4 px-4 h-12 border-b border-border bg-bg-secondary shrink-0">
       {/* Logo */}
       <div className="flex items-center gap-2">
-        <span className="text-accent font-mono font-bold text-lg tracking-tight">
+        <span className="text-accent font-mono font-bold text-lg tracking-[0.15em] uppercase">
           OVERSEER
         </span>
       </div>

@@ -192,7 +192,8 @@ export function TaskList({ tasks, selectedId, onSelect }: TaskListProps) {
   useEffect(() => {
     const el = itemRefs.current.get(focusedIndex);
     if (el) {
-      el.scrollIntoView({ block: "nearest", behavior: "smooth" });
+      const prefersReducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+      el.scrollIntoView({ block: "nearest", behavior: prefersReducedMotion ? "auto" : "smooth" });
     }
   }, [focusedIndex]);
 
@@ -269,8 +270,10 @@ export function TaskList({ tasks, selectedId, onSelect }: TaskListProps) {
 
   if (tasks.length === 0) {
     return (
-      <div className="p-4 text-text-muted text-sm font-mono">
-        NO TASKS FOUND
+      <div className="flex-1 flex flex-col items-center justify-center gap-4 p-8 text-text-muted">
+        <div className="text-4xl select-none" aria-hidden="true">&#9044;</div>
+        <p className="font-mono uppercase tracking-wider">NO TASKS IN STORE</p>
+        <p className="text-text-dim text-sm font-mono">Run `os task create -d "Your task"` to begin</p>
       </div>
     );
   }
@@ -314,7 +317,7 @@ export function TaskList({ tasks, selectedId, onSelect }: TaskListProps) {
           </div>
         ) : (
           <div className="space-y-0.5">
-            {visibleMilestones.map((milestone) => (
+            {visibleMilestones.map((milestone, idx) => (
               <TaskTreeNode
                 key={milestone.id}
                 task={milestone}
@@ -328,6 +331,8 @@ export function TaskList({ tasks, selectedId, onSelect }: TaskListProps) {
                 onFocus={setFocusedIndex}
                 itemRefs={itemRefs}
                 depth={0}
+                isLast={idx === visibleMilestones.length - 1}
+                ancestorHasMore={[]}
               />
             ))}
           </div>
@@ -355,6 +360,31 @@ interface TaskTreeNodeProps {
   onFocus: (index: number) => void;
   itemRefs: React.MutableRefObject<Map<number, HTMLButtonElement>>;
   depth: number;
+  /** Whether this is the last sibling at its level */
+  isLast: boolean;
+  /** Track which ancestor levels have more siblings (for drawing │ lines) */
+  ancestorHasMore: boolean[];
+}
+
+/**
+ * Build the tree prefix string for ASCII tree rendering.
+ * Uses box-drawing characters: ├── │   └──
+ */
+function getTreePrefix(
+  depth: number,
+  isLast: boolean,
+  ancestorHasMore: boolean[]
+): string {
+  if (depth === 0) return "";
+
+  let prefix = "";
+  // Draw vertical lines for ancestors that have more siblings
+  for (let i = 0; i < depth - 1; i++) {
+    prefix += ancestorHasMore[i] ? "│   " : "    ";
+  }
+  // Draw connector for current level
+  prefix += isLast ? "└── " : "├── ";
+  return prefix;
 }
 
 function TaskTreeNode({
@@ -369,6 +399,8 @@ function TaskTreeNode({
   onFocus,
   itemRefs,
   depth,
+  isLast,
+  ancestorHasMore,
 }: TaskTreeNodeProps) {
   const children = (tasksByParent.get(task.id) ?? []).filter((t) =>
     visibleTaskIds.has(t.id)
@@ -377,6 +409,7 @@ function TaskTreeNode({
   const isFocused = taskIndex === focusedIndex;
   const isSelected = selectedId === task.id;
   const isChanged = changedTaskIds.has(task.id);
+  const treePrefix = getTreePrefix(depth, isLast, ancestorHasMore);
 
   return (
     <div>
@@ -390,10 +423,11 @@ function TaskTreeNode({
         onFocus={onFocus}
         itemRefs={itemRefs}
         depth={depth}
+        treePrefix={treePrefix}
       />
       {children.length > 0 && (
-        <div className="ml-4 pl-3 border-l border-border">
-          {children.map((child) => (
+        <div>
+          {children.map((child, idx) => (
             <TaskTreeNode
               key={child.id}
               task={child}
@@ -407,6 +441,8 @@ function TaskTreeNode({
               onFocus={onFocus}
               itemRefs={itemRefs}
               depth={depth + 1}
+              isLast={idx === children.length - 1}
+              ancestorHasMore={[...ancestorHasMore, !isLast]}
             />
           ))}
         </div>
@@ -425,6 +461,7 @@ interface TaskItemProps {
   onFocus: (index: number) => void;
   itemRefs: React.MutableRefObject<Map<number, HTMLButtonElement>>;
   depth: number;
+  treePrefix: string;
 }
 
 function TaskItem({
@@ -437,6 +474,7 @@ function TaskItem({
   onFocus,
   itemRefs,
   depth,
+  treePrefix,
 }: TaskItemProps) {
   const statusVariant = getStatusVariant(task);
   const statusLabel = getStatusLabel(task);
@@ -469,6 +507,16 @@ function TaskItem({
       `}
     >
       <div className="flex items-center gap-2">
+        {/* Tree prefix (box-drawing characters) */}
+        {treePrefix && (
+          <span 
+            className="text-text-dim font-mono text-sm select-none whitespace-pre flex-shrink-0"
+            aria-hidden="true"
+          >
+            {treePrefix}
+          </span>
+        )}
+
         {/* Type label */}
         <span className="text-[10px] font-mono text-text-dim uppercase tracking-wider w-16 flex-shrink-0">
           {depthLabel}

@@ -2,6 +2,7 @@ use clap::{Args, Subcommand};
 use rusqlite::Connection;
 
 use crate::core::{get_task_with_context, TaskService, TaskWithContext, TaskWorkflowService};
+use crate::db::task_repo;
 use crate::error::Result;
 use crate::id::TaskId;
 use crate::types::{CreateTaskInput, ListTasksFilter, Task, UpdateTaskInput};
@@ -267,7 +268,6 @@ pub fn handle_workflow(
     cmd: TaskCommand,
     vcs: Box<dyn VcsBackend>,
 ) -> Result<TaskResult> {
-    let svc = TaskService::new(conn);
     let workflow = TaskWorkflowService::new(conn, vcs);
 
     match cmd {
@@ -279,15 +279,38 @@ pub fn handle_workflow(
             &args.learnings,
         )?)),
 
-        TaskCommand::Delete { id } => {
-            svc.delete(&id)?;
-            workflow.cleanup_bookmark(&id)?;
-            Ok(TaskResult::Deleted)
-        }
-
         // Non-workflow commands delegate to handle()
         _ => handle(conn, cmd),
     }
+}
+
+/// Handle delete command (VCS optional - best-effort bookmark cleanup)
+pub fn handle_delete(
+    conn: &Connection,
+    cmd: TaskCommand,
+    vcs: Option<Box<dyn VcsBackend>>,
+) -> Result<TaskResult> {
+    let TaskCommand::Delete { id } = cmd else {
+        return handle(conn, cmd);
+    };
+
+    // Prefetch bookmarks BEFORE cascade delete removes them
+    let bookmarks = task_repo::get_all_bookmarks(conn, &id)?;
+
+    // Delete task (cascades to children, learnings, blockers)
+    let svc = TaskService::new(conn);
+    svc.delete(&id)?;
+
+    // Best-effort bookmark cleanup if VCS available
+    if let Some(vcs) = vcs {
+        for bookmark in bookmarks {
+            if let Err(e) = vcs.delete_bookmark(&bookmark) {
+                eprintln!("warn: failed to delete bookmark {}: {}", bookmark, e);
+            }
+        }
+    }
+
+    Ok(TaskResult::Deleted)
 }
 
 fn build_tree(conn: &Connection, root_id: Option<&TaskId>) -> Result<TaskTree> {

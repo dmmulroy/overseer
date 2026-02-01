@@ -48,7 +48,7 @@ CREATE TABLE tasks (
     description TEXT NOT NULL,
     context TEXT NOT NULL DEFAULT '',
     result TEXT,                      -- Completion notes
-    priority INTEGER NOT NULL DEFAULT 5,  -- 1-10
+    priority INTEGER NOT NULL DEFAULT 3,  -- 1-5
     status TEXT NOT NULL DEFAULT 'pending',  -- pending|in_progress|completed
     depth INTEGER,                    -- 0=milestone, 1=task, 2=subtask
     commit_sha TEXT,                  -- Auto-populated on complete
@@ -74,7 +74,7 @@ pending → in_progress → completed
 
 ```sql
 CREATE TABLE learnings (
-    id TEXT PRIMARY KEY,              -- ULID (learning_01JQAZ...)
+    id TEXT PRIMARY KEY,              -- ULID (lrn_01JQAZ...)
     task_id TEXT NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
     content TEXT NOT NULL,
     source_task_id TEXT,              -- Optional: which task generated this
@@ -277,12 +277,13 @@ return task;
 **VM sandbox context:**
 ```javascript
 {
-  tasks: { create, get, list, update, ... },
-  learnings: { add, list, delete },
-  vcs: { detect, status, log, diff, commit },
+  tasks: { create, get, list, update, start, complete, ... },
+  learnings: { list },  // Learnings added via tasks.complete()
   console, setTimeout, Promise
 }
 ```
+
+**Note:** VCS operations are integrated into task workflow - no direct API. `start` creates bookmark, `complete` commits changes.
 
 **Security:**
 - 30s execution timeout
@@ -292,13 +293,13 @@ return task;
 
 ## Database Location
 
-SQLite database stored at: `$CWD/.os/tasks.db`
+SQLite database stored at: `$CWD/.overseer/tasks.db`
 
 **Initialization:**
 ```bash
 # Automatic on first command
 os task create "First task"
-# Creates .os/ directory and tasks.db
+# Creates .overseer/ directory and tasks.db
 ```
 
 **Schema versioning:**

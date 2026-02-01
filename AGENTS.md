@@ -125,6 +125,8 @@ Types must stay in sync between `overseer/src/types.rs` and `mcp/src/types.ts`:
 6. Learnings bubble to immediate parent on completion (preserves source_task_id)
 7. VCS required for workflow ops (start/complete) - fails with NotARepository or DirtyWorkingCopy
 8. VCS cleanup on delete is best-effort (logs warning, doesn't fail)
+9. VCS bookmark lifecycle: created on start, deleted on complete (best-effort), DB field cleared on success
+10. Milestone completion cleans ALL descendant bookmarks (depth-1 and depth-2), not just direct children
 
 ## CODEMODE PATTERN
 

@@ -42,7 +42,7 @@ os task create -d "Add login endpoint" --parent task_01JQAZ...
 # Create with priority and blocker
 os task create \
   -d "Deploy to production" \
-  --priority 10 \
+  --priority 1 \
   --blocked-by task_01JQAZ...,task_01JQBA...
 ```
 
@@ -54,18 +54,25 @@ Get task details with inherited context.
 os task get TASK_ID
 ```
 
-**Output:** Task with progressive context:
+**Output:** TaskWithContext (flat structure with inherited context):
 ```json
 {
-  "task": { "id": "...", "description": "...", ... },
+  "id": "task_01JQAZ...",
+  "parentId": "task_01JQAY...",
+  "description": "Implement login endpoint",
+  "priority": 3,
+  "completed": false,
+  "depth": 2,
+  "effectivelyBlocked": false,
   "context": {
     "own": "Task's own context",
     "parent": "Parent task context (if depth > 0)",
     "milestone": "Root milestone context (if depth > 1)"
   },
   "learnings": {
-    "milestone": [...],  // Learnings from root milestone
-    "parent": [...]      // Learnings from parent task
+    "own": [],           // Learnings attached to this task
+    "parent": [...],     // Learnings from parent task
+    "milestone": [...]   // Learnings from root milestone
   }
 }
 ```
@@ -119,7 +126,7 @@ os task update TASK_ID \
 os task update task_01JQAZ... -d "Updated description"
 
 # Update priority
-os task update task_01JQAZ... --priority 8
+os task update task_01JQAZ... --priority 1
 
 # Move to different parent
 os task update task_01JQAZ... --parent task_01JQBA...

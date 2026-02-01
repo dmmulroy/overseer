@@ -17,6 +17,7 @@ import { Badge } from "../ui/Badge.js";
 import { useKeyboardShortcuts } from "../../lib/keyboard.js";
 import { useKeyboardScope } from "../../lib/use-keyboard-scope.js";
 import { useChangedTasks } from "../../lib/use-changed-tasks.js";
+import { formatRelativeTime } from "../../lib/utils.js";
 
 type StatusColumn = "pending" | "active" | "blocked" | "done";
 
@@ -106,6 +107,20 @@ export function KanbanView({ tasks, selectedId, onSelect }: KanbanViewProps) {
     return grouped;
   }, [tasks]);
 
+  // Build child count map for progress bars
+  const childCounts = useMemo(() => {
+    const counts = new Map<TaskId, { total: number; completed: number }>();
+    for (const task of tasks) {
+      if (task.parentId) {
+        const parent = counts.get(task.parentId) ?? { total: 0, completed: 0 };
+        parent.total++;
+        if (task.completed) parent.completed++;
+        counts.set(task.parentId, parent);
+      }
+    }
+    return counts;
+  }, [tasks]);
+
   // Get current column's tasks
   const currentColumnKey = COLUMNS[focusedColumn];
   const currentColumnTasks = currentColumnKey ? tasksByColumn[currentColumnKey] : [];
@@ -147,7 +162,8 @@ export function KanbanView({ tasks, selectedId, onSelect }: KanbanViewProps) {
       const el = cardRefs.current.get(task.id);
       if (el) {
         el.focus({ preventScroll: true });
-        el.scrollIntoView({ block: "nearest", behavior: "smooth" });
+        const prefersReducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+        el.scrollIntoView({ block: "nearest", behavior: prefersReducedMotion ? "auto" : "smooth" });
       }
     }
   }, [focusedColumn, focusedIndexInColumn, tasksByColumn]);
@@ -164,29 +180,33 @@ export function KanbanView({ tasks, selectedId, onSelect }: KanbanViewProps) {
   }, [focusedColumn, tasksByColumn]);
 
   const moveLeft = useCallback(() => {
-    const nextCol = Math.max(0, focusedColumn - 1);
-    const col = COLUMNS[nextCol];
-    const nextColumnTasks = col ? tasksByColumn[col] : [];
-    
-    setFocusedColumn(nextCol);
-    if (nextColumnTasks.length > 0) {
-      setFocusedIndexInColumn((prevIdx) => 
-        Math.min(prevIdx, nextColumnTasks.length - 1)
-      );
+    // Find next non-empty column to the left
+    for (let i = focusedColumn - 1; i >= 0; i--) {
+      const col = COLUMNS[i];
+      if (col && tasksByColumn[col].length > 0) {
+        setFocusedColumn(i);
+        setFocusedIndexInColumn((prevIdx) =>
+          Math.min(prevIdx, tasksByColumn[col].length - 1)
+        );
+        return;
+      }
     }
+    // Stay in current column if no non-empty column found
   }, [focusedColumn, tasksByColumn]);
 
   const moveRight = useCallback(() => {
-    const nextCol = Math.min(COLUMNS.length - 1, focusedColumn + 1);
-    const col = COLUMNS[nextCol];
-    const nextColumnTasks = col ? tasksByColumn[col] : [];
-    
-    setFocusedColumn(nextCol);
-    if (nextColumnTasks.length > 0) {
-      setFocusedIndexInColumn((prevIdx) => 
-        Math.min(prevIdx, nextColumnTasks.length - 1)
-      );
+    // Find next non-empty column to the right
+    for (let i = focusedColumn + 1; i < COLUMNS.length; i++) {
+      const col = COLUMNS[i];
+      if (col && tasksByColumn[col].length > 0) {
+        setFocusedColumn(i);
+        setFocusedIndexInColumn((prevIdx) =>
+          Math.min(prevIdx, tasksByColumn[col].length - 1)
+        );
+        return;
+      }
     }
+    // Stay in current column if no non-empty column found
   }, [focusedColumn, tasksByColumn]);
 
   const selectFocused = useCallback(() => {
@@ -276,15 +296,12 @@ export function KanbanView({ tasks, selectedId, onSelect }: KanbanViewProps) {
     [onSelect]
   );
 
-  const handleTaskFocus = useCallback((columnIndex: number, taskIndex: number) => {
-    setFocusedColumn(columnIndex);
-    setFocusedIndexInColumn(taskIndex);
-  }, []);
-
   if (tasks.length === 0) {
     return (
-      <div className="flex-1 flex items-center justify-center text-text-muted p-8">
-        <div className="text-center font-mono">NO TASKS FOUND</div>
+      <div className="flex-1 flex flex-col items-center justify-center gap-4 text-text-muted p-8">
+        <div className="text-4xl select-none" aria-hidden="true">&#9044;</div>
+        <p className="font-mono uppercase tracking-wider">NO TASKS IN STORE</p>
+        <p className="text-text-dim text-sm font-mono">Run `os task create -d "Your task"` to begin</p>
       </div>
     );
   }
@@ -310,9 +327,9 @@ export function KanbanView({ tasks, selectedId, onSelect }: KanbanViewProps) {
               focusedIndexInColumn={isCurrentColumn ? focusedIndexInColumn : null}
               isCurrentColumn={isCurrentColumn}
               changedTaskIds={changedTaskIds}
+              childCounts={childCounts}
               onCardRef={handleCardRef}
               onClick={handleTaskClick}
-              onFocus={handleTaskFocus}
             />
           );
         })}
@@ -336,9 +353,9 @@ interface KanbanColumnProps {
   focusedIndexInColumn: number | null;
   isCurrentColumn: boolean;
   changedTaskIds: Set<TaskId>;
+  childCounts: Map<TaskId, { total: number; completed: number }>;
   onCardRef: (id: TaskId, el: HTMLButtonElement | null) => void;
   onClick: (task: Task, columnIndex: number, taskIndex: number) => void;
-  onFocus: (columnIndex: number, taskIndex: number) => void;
 }
 
 function KanbanColumn({
@@ -349,9 +366,9 @@ function KanbanColumn({
   focusedIndexInColumn,
   isCurrentColumn,
   changedTaskIds,
+  childCounts,
   onCardRef,
   onClick,
-  onFocus,
 }: KanbanColumnProps) {
   return (
     <div className="flex-1 min-w-[280px] max-w-[360px] flex flex-col min-h-0">
@@ -404,9 +421,9 @@ function KanbanColumn({
                 isFocused={isFocused}
                 isSelected={isSelected}
                 isChanged={isChanged}
+                childCount={childCounts.get(task.id)}
                 onRef={onCardRef}
                 onClick={onClick}
-                onFocus={onFocus}
               />
             );
           })
@@ -424,9 +441,9 @@ interface KanbanCardProps {
   isFocused: boolean;
   isSelected: boolean;
   isChanged: boolean;
+  childCount?: { total: number; completed: number };
   onRef: (id: TaskId, el: HTMLButtonElement | null) => void;
   onClick: (task: Task, columnIndex: number, taskIndex: number) => void;
-  onFocus: (columnIndex: number, taskIndex: number) => void;
 }
 
 function KanbanCard({
@@ -437,11 +454,12 @@ function KanbanCard({
   isFocused,
   isSelected,
   isChanged,
+  childCount,
   onRef,
   onClick,
-  onFocus,
 }: KanbanCardProps) {
   const depthLabel = getDepthLabel(task.depth);
+  const hasChildren = childCount !== undefined && childCount.total > 0;
 
   const handleRef = useCallback(
     (el: HTMLButtonElement | null) => {
@@ -458,7 +476,6 @@ function KanbanCard({
         tabIndex={isFocused ? 0 : -1}
         aria-current={isSelected ? "true" : undefined}
         onClick={() => onClick(task, columnIndex, taskIndex)}
-        onMouseEnter={() => onFocus(columnIndex, taskIndex)}
         className="w-full text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-bg-primary rounded"
       >
       <Card
@@ -469,14 +486,19 @@ function KanbanCard({
           ${isChanged ? "animate-flash-change" : ""}
         `}
       >
-        {/* Type badge */}
+        {/* Type badge + timestamp */}
         <div className="flex items-center justify-between mb-2">
           <span className="text-[10px] font-mono text-text-dim uppercase tracking-wider">
             {depthLabel}
           </span>
-          <span className="text-[10px] font-mono text-text-dim">
-            P{task.priority}
-          </span>
+          <div className="flex items-center gap-2">
+            <span className="text-[10px] font-mono text-text-dim">
+              {formatRelativeTime(new Date(task.updatedAt))}
+            </span>
+            <span className="text-[10px] font-mono text-text-dim">
+              P{task.priority}
+            </span>
+          </div>
         </div>
 
         {/* Description */}
@@ -488,6 +510,22 @@ function KanbanCard({
         >
           {task.description}
         </div>
+
+        {/* Progress bar for parent tasks */}
+        {hasChildren && (
+          <div className="flex items-center gap-2 mb-2">
+            <div className="flex-1 h-1.5 bg-surface-secondary rounded-full overflow-hidden">
+              <div 
+                aria-hidden="true"
+                className="h-full bg-accent transition-all duration-300 motion-reduce:transition-none"
+                style={{ width: `${(childCount.completed / childCount.total) * 100}%` }}
+              />
+            </div>
+            <span className="text-[10px] font-mono text-text-muted">
+              {childCount.completed}/{childCount.total}
+            </span>
+          </div>
+        )}
 
         {/* Status badge (only for active to show pulsing) */}
         {column === "active" && (

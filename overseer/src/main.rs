@@ -118,13 +118,17 @@ fn run(command: &Command, db_path: &PathBuf) -> error::Result<String> {
             let conn = db::open_db(db_path)?;
             let cloned_cmd = clone_task_cmd(cmd);
 
-            // Only workflow commands (start/complete/delete) need VCS
+            // Only workflow commands (start/complete) require VCS
+            // Delete is best-effort VCS cleanup (works without VCS)
             let result = match &cloned_cmd {
-                TaskCommand::Start { .. }
-                | TaskCommand::Complete(_)
-                | TaskCommand::Delete { .. } => {
+                TaskCommand::Start { .. } | TaskCommand::Complete(_) => {
                     let vcs = vcs::get_backend(&std::env::current_dir().unwrap_or_default())?;
                     task::handle_workflow(&conn, cloned_cmd, vcs)?
+                }
+                TaskCommand::Delete { .. } => {
+                    // VCS optional for delete - best effort cleanup
+                    let vcs = vcs::get_backend(&std::env::current_dir().unwrap_or_default()).ok();
+                    task::handle_delete(&conn, cloned_cmd, vcs)?
                 }
                 _ => task::handle(&conn, cloned_cmd)?,
             };

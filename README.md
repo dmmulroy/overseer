@@ -122,8 +122,9 @@ VCS operations are integrated into task workflow - no direct API:
 | Operation | VCS Effect |
 |-----------|-----------|
 | `tasks.start(id)` | **VCS required** - creates bookmark `task/<id>`, records start commit |
-| `tasks.complete(id)` | **VCS required** - commits changes (NothingToCommit = success) |
-| `tasks.delete(id)` | Best-effort bookmark cleanup (logs warning on failure) |
+| `tasks.complete(id)` | **VCS required** - commits changes, deletes bookmark (best-effort) |
+| `tasks.complete(milestone)` | Also cleans ALL descendant bookmarks (depth-1 and depth-2) |
+| `tasks.delete(id)` | Best-effort bookmark cleanup (works without VCS) |
 
 VCS (jj or git) is **required** for start/complete. CRUD operations work without VCS.
 
@@ -172,6 +173,22 @@ os data export [-o file.json]
 os data import <file.json> [--clear]
 ```
 
+## Task Viewer (Dev Only)
+
+Web UI for viewing tasks. Requires cloning the repo:
+
+```bash
+cd ui && npm install && npm run dev
+# Opens http://localhost:5173
+```
+
+Three views:
+- **Graph** - DAG visualization with blocking relationships
+- **List** - Filterable task list
+- **Kanban** - Board by completion status
+
+Keyboard: `g`=graph, `l`=list, `k`=kanban, `?`=help
+
 ## Development
 
 ```bash
@@ -183,6 +200,9 @@ cd overseer && cargo test
 cd mcp && npm install
 cd mcp && npm run build
 cd mcp && npm test
+
+# UI (dev server)
+cd ui && npm install && npm run dev
 ```
 
 ## Storage

@@ -12,11 +12,16 @@
     "prepare": "npm run build",
     "test": "node --test build/tests/**/*.test.js"
   },
-  "keywords": ["mcp", "task-management", "agent"],
+  "keywords": [
+    "mcp",
+    "task-management",
+    "agent"
+  ],
   "author": "",
   "license": "MIT",
   "dependencies": {
-    "@modelcontextprotocol/sdk": "^1.0.4"
+    "@modelcontextprotocol/sdk": "^1.0.4",
+    "better-result": "^2.7.0"
   },
   "devDependencies": {
     "@types/node": "^22.10.5",

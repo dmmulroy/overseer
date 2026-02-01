@@ -2,6 +2,12 @@
  * Tasks API - typed wrapper around os task commands
  */
 import { callCli } from "../cli.js";
+import {
+  decodeTask,
+  decodeTasks,
+  decodeTaskWithContext,
+  decodeTaskWithContextOrNull,
+} from "../decoder.js";
 import type { Depth, Task, TaskWithContext } from "../types.js";
 
 export interface TaskFilter {
@@ -57,14 +63,14 @@ export const tasks = {
       };
       args.push(depthFlags[filter.depth]);
     }
-    return (await callCli(args)) as Task[];
+    return decodeTasks(await callCli(args)).unwrap("tasks.list");
   },
 
   /**
    * Get single task with full context chain and inherited learnings.
    */
   async get(id: string): Promise<TaskWithContext> {
-    return (await callCli(["task", "get", id])) as TaskWithContext;
+    return decodeTaskWithContext(await callCli(["task", "get", id])).unwrap("tasks.get");
   },
 
   /**
@@ -79,7 +85,7 @@ export const tasks = {
     if (input.blockedBy && input.blockedBy.length > 0) {
       args.push("--blocked-by", input.blockedBy.join(","));
     }
-    return (await callCli(args)) as Task;
+    return decodeTask(await callCli(args)).unwrap("tasks.create");
   },
 
   /**
@@ -92,7 +98,7 @@ export const tasks = {
     if (input.context) args.push("--context", input.context);
     if (input.priority) args.push("--priority", String(input.priority));
     if (input.parentId) args.push("--parent", input.parentId);
-    return (await callCli(args)) as Task;
+    return decodeTask(await callCli(args)).unwrap("tasks.update");
   },
 
   /**
@@ -104,7 +110,7 @@ export const tasks = {
    * **Requires VCS**: Must be in a jj or git repository.
    */
   async start(id: string): Promise<Task> {
-    return (await callCli(["task", "start", id])) as Task;
+    return decodeTask(await callCli(["task", "start", id])).unwrap("tasks.start");
   },
 
   /**
@@ -126,14 +132,14 @@ export const tasks = {
         args.push("--learning", learning);
       }
     }
-    return (await callCli(args)) as Task;
+    return decodeTask(await callCli(args)).unwrap("tasks.complete");
   },
 
   /**
    * Reopen completed task.
    */
   async reopen(id: string): Promise<Task> {
-    return (await callCli(["task", "reopen", id])) as Task;
+    return decodeTask(await callCli(["task", "reopen", id])).unwrap("tasks.reopen");
   },
 
   /**
@@ -165,6 +171,6 @@ export const tasks = {
   async nextReady(milestoneId?: string): Promise<TaskWithContext | null> {
     const args = ["task", "next-ready"];
     if (milestoneId) args.push("--milestone", milestoneId);
-    return (await callCli(args)) as TaskWithContext | null;
+    return decodeTaskWithContextOrNull(await callCli(args)).unwrap("tasks.nextReady");
   },
 };

@@ -3,16 +3,16 @@ import { forwardRef, type HTMLAttributes } from "react";
 
 const card = tv({
   base: [
-    "bg-surface-primary border border-border rounded",
-    "transition-colors duration-150 motion-reduce:transition-none",
+    "bg-surface-primary border-2 border-border rounded",
+    "transition-all duration-150 motion-reduce:transition-none",
   ],
   variants: {
     selected: {
-      true: "border-accent bg-accent-subtle/30",
+      true: "border-accent bg-accent-subtle/30 shadow-[0_0_15px_-3px_var(--color-accent)]",
       false: "",
     },
     interactive: {
-      true: "cursor-pointer hover:border-border-hover hover:bg-surface-secondary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-border-focus focus-visible:ring-offset-2 focus-visible:ring-offset-bg-primary",
+      true: "cursor-pointer hover:border-border-hover hover:bg-surface-secondary hover:scale-[1.01] motion-reduce:hover:scale-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-border-focus focus-visible:ring-offset-2 focus-visible:ring-offset-bg-primary",
       false: "",
     },
   },

@@ -18,7 +18,8 @@ tasks (
   id TEXT PRIMARY KEY CHECK (id LIKE 'task_%'),
   parent_id TEXT REFERENCES tasks(id) ON DELETE CASCADE,
   description, context, result, priority, completed,
-  completed_at, created_at, updated_at, commit_sha, started_at
+  completed_at, created_at, updated_at, started_at,
+  bookmark, start_commit, commit_sha
 )
 
 learnings (
@@ -70,3 +71,12 @@ task_metadata (
 
 **Ready filter (task_repo.rs:141-143)**
 - Ready = not completed AND all blockers completed
+
+**VCS field helpers**
+- `set_bookmark()`, `set_start_commit()`: Set on task start
+- `clear_bookmark()`: Clear after successful VCS bookmark deletion
+- `clear_vcs_fields()`: Clear all VCS fields (reserved for reopen)
+
+**Hierarchy helpers**
+- `get_children()`: Direct children only
+- `get_all_descendants()`: Recursive collection of all descendants (used for milestone bookmark cleanup)
