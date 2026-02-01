@@ -60,10 +60,6 @@ interface KeyboardContextValue {
   /** Currently active scope (derived from most recently activated claim) */
   activeScope: ShortcutScope;
   /**
-   * @deprecated Use claimScope() instead. Direct scope setting causes race conditions.
-   */
-  setActiveScope: (scope: ShortcutScope) => void;
-  /**
    * Claim ownership of a scope. Returns token with activate/release methods.
    * Multiple claims can exist; activeScope is derived from most recently activated.
    */
@@ -177,25 +173,11 @@ export function KeyboardProvider({ children }: KeyboardProviderProps): ReactNode
   }, [scopeClaims]);
 
   /**
-   * @deprecated Direct scope setting causes race conditions. Use claimScope() instead.
-   */
-  const setActiveScope = useCallback((scope: ShortcutScope): void => {
-    // Legacy support: create an ephemeral claim with the given scope
-    // This is deprecated but keeps existing code working during migration
-    const id = `__legacy_${scope}__`;
-    setScopeClaims((prev) => {
-      const next = new Map(prev);
-      next.set(id, { id, scope, activatedAt: ++activationSeqRef.current });
-      return next;
-    });
-  }, []);
-
-  /**
    * Claim ownership of a scope. Returns token with activate/release methods.
    *
    * ⚠️ LOW-LEVEL API: Do not call during render. Call in useEffect and store
    * the returned token. Always call release() on cleanup. Prefer the
-   * useKeyboardScope() hook (once available) for automatic lifecycle management.
+   * useKeyboardScope() hook for automatic lifecycle management.
    */
   const claimScope = useCallback((id: string, scope: ShortcutScope): ScopeClaimToken => {
     // Create the claim with activatedAt = 0 (not yet activated)
@@ -313,14 +295,13 @@ export function KeyboardProvider({ children }: KeyboardProviderProps): ReactNode
   const value = useMemo(
     () => ({
       activeScope,
-      setActiveScope,
       claimScope,
       register,
       getShortcuts,
       helpOpen,
       setHelpOpen,
     }),
-    [activeScope, setActiveScope, claimScope, register, getShortcuts, helpOpen]
+    [activeScope, claimScope, register, getShortcuts, helpOpen]
   );
 
   return (

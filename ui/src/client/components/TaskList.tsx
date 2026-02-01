@@ -1,7 +1,8 @@
 import { useState, useMemo, useCallback, useRef, useEffect } from "react";
 import type { Task, TaskId } from "../../types.js";
 import { Badge } from "./ui/Badge.js";
-import { useKeyboardShortcuts, useKeyboardContext } from "../lib/keyboard.js";
+import { useKeyboardShortcuts } from "../lib/keyboard.js";
+import { useKeyboardScope } from "../lib/use-keyboard-scope.js";
 
 type FilterType = "all" | "active" | "completed" | "blocked" | "ready";
 
@@ -59,7 +60,7 @@ export function TaskList({ tasks, selectedId, onSelect }: TaskListProps) {
   const [focusedIndex, setFocusedIndex] = useState<number>(0);
   const listRef = useRef<HTMLDivElement>(null);
   const itemRefs = useRef<Map<number, HTMLButtonElement>>(new Map());
-  const { setActiveScope } = useKeyboardContext();
+  const scopeProps = useKeyboardScope("list");
 
   // Build parent->children map for hierarchy
   const tasksByParent = useMemo(() => {
@@ -256,12 +257,6 @@ export function TaskList({ tasks, selectedId, onSelect }: TaskListProps) {
     [moveDown, moveUp, selectFocused]
   );
 
-  // Set active scope when list is rendered
-  useEffect(() => {
-    setActiveScope("list");
-    return () => setActiveScope("global");
-  }, [setActiveScope]);
-
   const filterButtons: { type: FilterType; label: string }[] = [
     { type: "all", label: "ALL" },
     { type: "active", label: "ACTIVE" },
@@ -279,7 +274,7 @@ export function TaskList({ tasks, selectedId, onSelect }: TaskListProps) {
   }
 
   return (
-    <div className="flex flex-col h-full">
+    <div className="flex flex-col h-full" {...scopeProps}>
       {/* Filter bar */}
       <div className="flex flex-wrap gap-1 p-2 border-b border-border">
         {filterButtons.map(({ type, label }) => (

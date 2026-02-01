@@ -6,7 +6,8 @@ import {
   useDeleteTask,
   useLearnings,
 } from "../lib/queries.js";
-import { useKeyboardShortcuts, useKeyboardContext } from "../lib/keyboard.js";
+import { useKeyboardShortcuts } from "../lib/keyboard.js";
+import { useKeyboardScope } from "../lib/use-keyboard-scope.js";
 import {
   Dialog,
   DialogHeader,
@@ -74,7 +75,7 @@ export function TaskDetail({ task, onDeleted }: TaskDetailProps) {
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
   const [completeResult, setCompleteResult] = useState("");
 
-  const { setActiveScope } = useKeyboardContext();
+  const scopeProps = useKeyboardScope("detail");
   const { data: learnings } = useLearnings(task.id);
   const updateTask = useUpdateTask();
   const completeTask = useCompleteTask();
@@ -84,12 +85,6 @@ export function TaskDetail({ task, onDeleted }: TaskDetailProps) {
     task.depth === 0 ? "Milestone" : task.depth === 1 ? "Task" : "Subtask";
 
   const isBlocked = (task.blockedBy?.length ?? 0) > 0;
-
-  // Set detail scope when mounted and task selected
-  useEffect(() => {
-    setActiveScope("detail");
-    return () => setActiveScope("global");
-  }, [setActiveScope]);
 
   const startEdit = useCallback((mode: EditMode, val: string) => {
     setEditMode(mode);
@@ -218,7 +213,7 @@ export function TaskDetail({ task, onDeleted }: TaskDetailProps) {
         : "Pending";
 
   return (
-    <div className="flex flex-col h-full">
+    <div className="flex flex-col h-full" {...scopeProps}>
       {/* Content - scrollable area with fields */}
       <dl className="flex-1 overflow-y-auto p-4 grid grid-cols-2 gap-x-6 gap-y-4">
         {/* ID */}

@@ -15,7 +15,8 @@ import {
 } from "@xyflow/react";
 import dagre from "@dagrejs/dagre";
 import type { Task, TaskId } from "../../types.js";
-import { useKeyboardShortcuts, useKeyboardContext } from "../lib/keyboard.js";
+import { useKeyboardShortcuts } from "../lib/keyboard.js";
+import { useKeyboardScope } from "../lib/use-keyboard-scope.js";
 import { Badge } from "./ui/Badge.js";
 
 import "@xyflow/react/dist/style.css";
@@ -577,7 +578,6 @@ function GraphNavigation({
   onToggleMinimap: () => void;
 }) {
   const { fitView } = useReactFlow();
-  const { setActiveScope } = useKeyboardContext();
 
   // Build flat task list for j/k navigation
   const flatTasks = useMemo(
@@ -783,12 +783,6 @@ function GraphNavigation({
     [moveDown, moveUp, moveToParent, moveToChild, toggleCollapse, selectFocused, onToggleMinimap]
   );
 
-  // Set active scope when graph is rendered
-  useEffect(() => {
-    setActiveScope("graph");
-    return () => setActiveScope("global");
-  }, [setActiveScope]);
-
   return null; // This component only handles navigation, no UI
 }
 
@@ -802,6 +796,10 @@ export function TaskGraph({
   onSelect,
   showBlockers = false,
 }: TaskGraphProps) {
+  // Claim keyboard scope at TaskGraph level (not GraphNavigation) because
+  // GraphNavigation is renderless and can't receive pointer/focus events
+  const scopeProps = useKeyboardScope("graph");
+
   // Track collapsed node IDs - default to collapsing depth-1 tasks with children
   const [collapsedIds, setCollapsedIds] = useState<Set<TaskId>>(() =>
     getDefaultCollapsedIds(tasks)
@@ -893,7 +891,7 @@ export function TaskGraph({
   }
 
   return (
-    <div className="w-full h-full min-h-0 relative" style={{ minHeight: 0 }}>
+    <div className="w-full h-full min-h-0 relative" style={{ minHeight: 0 }} {...scopeProps}>
       <ReactFlow
         nodes={nodes}
         edges={edges}
