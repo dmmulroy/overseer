@@ -132,22 +132,32 @@ npm/overseer needs (for UI runtime):
 - `better-result` - Already dep of MCP, shared
 - `hono` - Already bundled into server.js
 
-## Questions
+## Design Decisions (Resolved)
 
-1. **Should `os ui` open browser automatically?** 
-   - Could use `open` package, but adds dep
-   - Alternative: just print URL
+### Q1: Auto-open browser → `--open` flag (opt-in)
+- Default: print URL only (script-safe, non-intrusive)
+- `os ui --open` gives dev server convenience when desired
+- No `open` package dependency needed initially
 
-2. **Port configuration?**
-   - `os ui` → default 6969
-   - `os ui 8080` → custom port
-   - `PORT=8080 os ui` → env override
+### Q2: Port configuration → All options with precedence
+Precedence: `--port` > positional > `PORT` env > default (6969)
+```bash
+os ui                    # default 6969
+os ui 8080               # positional (quick)
+os ui --port 8080        # explicit (scripts/docs)
+PORT=8080 os ui          # Node deploy convention
+```
 
-3. **Static file path resolution?**
-   - Use `import.meta.url` to find dist/ui/static relative to server.js
-   - Or embed path at build time
+### Q3: Static path resolution → `import.meta.url`
+Use runtime resolution (works in ESM + global installs):
+```js
+import { fileURLToPath } from "node:url";
+import { dirname, join } from "node:path";
+const __dirname = dirname(fileURLToPath(import.meta.url));
+const staticDir = join(__dirname, "static");
+```
 
-4. **Dev vs prod parity?**
-   - Dev: Vite HMR + API proxy
-   - Prod: Hono serves all
-   - Need to test both flows work identically
+### Q4: Dev/prod parity → CI test + manual smoke
+- CI: Integration test on packed/bundled artifact
+- Manual: Smoke test before publish
+- Catches "works in dev, breaks in prod" bugs
