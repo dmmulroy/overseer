@@ -3,7 +3,6 @@ import {
   ReactFlow,
   Controls,
   Background,
-  MiniMap,
   type Node,
   type Edge,
   type NodeProps,
@@ -17,6 +16,7 @@ import dagre from "@dagrejs/dagre";
 import type { Task, TaskId } from "../../types.js";
 import { useKeyboardShortcuts } from "../lib/keyboard.js";
 import { useKeyboardScope } from "../lib/use-keyboard-scope.js";
+import { getStatusVariant, getStatusLabel } from "../lib/utils.js";
 import { Badge } from "./ui/Badge.js";
 
 import "@xyflow/react/dist/style.css";
@@ -43,7 +43,14 @@ interface TaskNodeData extends Record<string, unknown> {
   onToggleCollapse: (id: TaskId) => void;
 }
 
+// Custom data for external blocker nodes (stub nodes for tasks outside filtered set)
+interface ExternalNodeData extends Record<string, unknown> {
+  task: Task;
+}
+
 type TaskNode = Node<TaskNodeData, "task">;
+type ExternalNode = Node<ExternalNodeData, "external">;
+type GraphNode = TaskNode | ExternalNode;
 type TaskEdge = Edge<TaskEdgeData>;
 
 /** Type guard for TaskNodeData */
@@ -58,6 +65,7 @@ function isTaskNodeData(data: unknown): data is TaskNodeData {
 
 interface TaskGraphProps {
   tasks: Task[];
+  externalBlockers: Map<TaskId, Task>;
   selectedId: TaskId | null;
   onSelect: (id: TaskId) => void;
   showBlockers?: boolean;
@@ -79,9 +87,9 @@ function getNodeHeight(_node: TaskNode): number {
  * Siblings stack vertically, making tree structure clear.
  */
 function getLayoutedElements(
-  nodes: TaskNode[],
+  nodes: GraphNode[],
   edges: TaskEdge[]
-): { nodes: TaskNode[]; edges: TaskEdge[] } {
+): { nodes: GraphNode[]; edges: TaskEdge[] } {
   if (nodes.length === 0) {
     return { nodes: [], edges: [] };
   }
@@ -95,17 +103,19 @@ function getLayoutedElements(
     marginy: 24,
   });
 
-  // Find milestone nodes (depth 0, no parent)
-  const milestones = nodes.filter((n) => n.data.task.depth === 0);
+  // Find milestone nodes (depth 0, no parent) - only task nodes have depth
+  const milestones = nodes.filter(
+    (n) => n.type === "task" && isTaskNodeData(n.data) && n.data.task.depth === 0
+  );
 
   // Add virtual root to connect all milestones (creates single connected graph)
   if (milestones.length > 1) {
     dagreGraph.setNode(VIRTUAL_ROOT_ID, { width: 0, height: 0 });
   }
 
-  // Add all task nodes with fixed dimensions (must match DOM)
+  // Add all nodes with fixed dimensions (must match DOM)
   nodes.forEach((node) => {
-    const height = getNodeHeight(node);
+    const height = node.type === "task" ? getNodeHeight(node as TaskNode) : NODE_HEIGHT;
     dagreGraph.setNode(node.id, { width: NODE_WIDTH, height });
   });
 
@@ -123,6 +133,16 @@ function getLayoutedElements(
       dagreGraph.setEdge(edge.source, edge.target, { weight: 1, minlen: 1 });
     });
 
+  // Add blocker edges to layout for external nodes so they're positioned near their blocked tasks
+  edges
+    .filter((edge) => edge.data?.kind === "blocker")
+    .forEach((edge) => {
+      // Only add if both nodes exist in graph (external nodes are already added)
+      if (dagreGraph.hasNode(edge.source) && dagreGraph.hasNode(edge.target)) {
+        dagreGraph.setEdge(edge.source, edge.target, { weight: 0.5, minlen: 2 });
+      }
+    });
+
   dagre.layout(dagreGraph);
 
   // Get virtual root position to offset all nodes
@@ -132,7 +152,7 @@ function getLayoutedElements(
 
   const layoutedNodes = nodes.map((node) => {
     const nodeWithPosition = dagreGraph.node(node.id);
-    const height = getNodeHeight(node);
+    const height = node.type === "task" ? getNodeHeight(node as TaskNode) : NODE_HEIGHT;
     return {
       ...node,
       // LR layout: handles on left/right instead of top/bottom
@@ -173,12 +193,15 @@ function getDescendantIds(
  * Build nodes and edges from tasks, respecting collapsed state.
  * NOTE: focusedId and onToggleCollapse are applied separately to avoid
  * expensive dagre re-layout on every focus change.
+ * 
+ * externalBlockers: Tasks referenced in blockedBy but not in visible set (for filtered views)
  */
 function buildGraphElements(
   tasks: Task[],
-  collapsedIds: Set<TaskId>
+  collapsedIds: Set<TaskId>,
+  externalBlockers: Map<TaskId, Task>
 ): {
-  nodes: TaskNode[];
+  nodes: GraphNode[];
   edges: TaskEdge[];
 } {
   // Build lookup maps
@@ -246,6 +269,8 @@ function buildGraphElements(
   const edges: TaskEdge[] = [];
   const visibleIds = new Set(visibleTasks.map((t) => t.id));
   const blockerEdgeIds = new Set<string>();
+  // Track which external blockers have edges to visible tasks (for pruning orphan nodes)
+  const neededExternalIds = new Set<TaskId>();
 
   for (const task of visibleTasks) {
     // Parent → child edges (solid, muted)
@@ -312,33 +337,54 @@ function buildGraphElements(
         }
       }
     }
+
+    // External blocker edges - connect to external nodes
+    // Track which external blockers actually have edges (for pruning orphan nodes)
+    if (task.blockedBy) {
+      for (const blockerId of task.blockedBy) {
+        if (externalBlockers.has(blockerId)) {
+          const edgeId = `external-blocker-${blockerId}-${task.id}`;
+          if (!blockerEdgeIds.has(edgeId)) {
+            blockerEdgeIds.add(edgeId);
+            neededExternalIds.add(blockerId);
+            edges.push({
+              id: edgeId,
+              source: blockerId,
+              target: task.id,
+              type: "straight",
+              className: "graph-edge-blocker",
+              style: {
+                stroke: "var(--color-text-dim)",
+                strokeWidth: 2,
+                strokeDasharray: "4,4",
+              },
+              data: { kind: "blocker", label: "external" },
+            });
+          }
+        }
+      }
+    }
   }
 
-  return getLayoutedElements(nodes, edges);
-}
+  // Create external nodes only for blockers that have edges to visible tasks
+  // This prunes orphan nodes when subtrees are collapsed
+  const externalNodes: ExternalNode[] = [];
+  for (const id of neededExternalIds) {
+    const extTask = externalBlockers.get(id);
+    if (extTask) {
+      externalNodes.push({
+        id,
+        type: "external",
+        position: { x: 0, y: 0 }, // Will be set by dagre
+        data: { task: extTask },
+      });
+    }
+  }
 
-/**
- * Get status variant for Badge component
- */
-function getStatusVariant(
-  task: Task
-): "pending" | "active" | "blocked" | "done" {
-  if (task.completed) return "done";
-  const isBlocked = (task.blockedBy?.length ?? 0) > 0;
-  if (isBlocked) return "blocked";
-  if (task.startedAt !== null) return "active";
-  return "pending";
-}
+  // Combine all nodes for layout
+  const allNodes: GraphNode[] = [...nodes, ...externalNodes];
 
-/**
- * Get human-readable status label
- */
-function getStatusLabel(task: Task): string {
-  if (task.completed) return "DONE";
-  const isBlocked = (task.blockedBy?.length ?? 0) > 0;
-  if (isBlocked) return "BLOCKED";
-  if (task.startedAt !== null) return "ACTIVE";
-  return "PENDING";
+  return getLayoutedElements(allNodes, edges);
 }
 
 /**
@@ -358,13 +404,13 @@ const TaskNodeComponent = memo(function TaskNodeComponent({
     onToggleCollapse,
   } = data;
 
-  const isInProgress = task.startedAt !== null && !task.completed;
   const hasChildren = childCount > 0;
 
   const depthLabel =
     task.depth === 0 ? "MILESTONE" : task.depth === 1 ? "TASK" : "SUBTASK";
   const statusVariant = getStatusVariant(task);
   const statusLabel = getStatusLabel(task);
+  const isActive = statusVariant === "active";
 
   const handleToggle = useCallback(
     (e: React.MouseEvent) => {
@@ -426,7 +472,7 @@ const TaskNodeComponent = memo(function TaskNodeComponent({
             <span
               className={`
                 w-2.5 h-2.5 rounded-full shrink-0
-                ${isInProgress ? "animate-pulse-active motion-reduce:animate-none" : ""}
+                ${isActive ? "animate-pulse-active motion-reduce:animate-none" : ""}
               `}
               style={{
                 backgroundColor:
@@ -501,8 +547,61 @@ const TaskNodeComponent = memo(function TaskNodeComponent({
   );
 });
 
+/**
+ * External node component - stub for blockers outside filtered set
+ * Dashed border, muted styling, not selectable
+ */
+const ExternalNodeComponent = memo(function ExternalNodeComponent({
+  data,
+}: NodeProps<ExternalNode>) {
+  const { task } = data;
+
+  return (
+    <>
+      <Handle type="target" position={Position.Left} style={{ opacity: 0 }} />
+      <div
+        className="border-2 border-dashed border-text-dim p-3 bg-surface-primary/50 flex flex-col gap-2 overflow-hidden cursor-default"
+        style={{ width: NODE_WIDTH, height: NODE_HEIGHT }}
+        title="External task (outside current filter)"
+        data-task-id={task.id}
+      >
+        {/* Header */}
+        <div className="flex shrink-0 min-w-0 items-center justify-between gap-2">
+          <div className="flex min-w-0 items-center gap-2">
+            {/* Muted status dot */}
+            <span
+              className="w-2.5 h-2.5 rounded-full shrink-0 bg-text-dim"
+              aria-hidden="true"
+            />
+            {/* External label */}
+            <span className="text-[10px] font-mono uppercase tracking-wider text-text-dim whitespace-nowrap">
+              EXTERNAL
+            </span>
+          </div>
+        </div>
+
+        {/* Body */}
+        <div className="flex-1 min-h-0 overflow-hidden">
+          <p className="text-sm font-mono line-clamp-2 leading-tight text-text-muted">
+            {task.description}
+          </p>
+        </div>
+
+        {/* Footer */}
+        <div className="flex shrink-0 min-w-0 items-center">
+          <Badge variant="pending">
+            External task
+          </Badge>
+        </div>
+      </div>
+      <Handle type="source" position={Position.Right} style={{ opacity: 0 }} />
+    </>
+  );
+});
+
 const nodeTypes = {
   task: TaskNodeComponent,
+  external: ExternalNodeComponent,
 };
 
 /**
@@ -582,7 +681,6 @@ function GraphNavigation({
   collapsedIds,
   setCollapsedIds,
   onSelect,
-  onToggleMinimap,
 }: {
   tasks: Task[];
   focusedId: TaskId | null;
@@ -590,7 +688,6 @@ function GraphNavigation({
   collapsedIds: Set<TaskId>;
   setCollapsedIds: React.Dispatch<React.SetStateAction<Set<TaskId>>>;
   onSelect: (id: TaskId) => void;
-  onToggleMinimap: () => void;
 }) {
   const { fitView } = useReactFlow();
 
@@ -788,14 +885,8 @@ function GraphNavigation({
         scope: "graph",
         handler: selectFocused,
       },
-      {
-        key: "m",
-        description: "Toggle minimap",
-        scope: "graph",
-        handler: onToggleMinimap,
-      },
     ],
-    [moveDown, moveUp, moveToParent, moveToChild, toggleCollapse, selectFocused, onToggleMinimap]
+    [moveDown, moveUp, moveToParent, moveToChild, toggleCollapse, selectFocused]
   );
 
   return null; // This component only handles navigation, no UI
@@ -807,6 +898,7 @@ function GraphNavigation({
  */
 export function TaskGraph({
   tasks,
+  externalBlockers,
   selectedId,
   onSelect,
   showBlockers = false,
@@ -822,9 +914,6 @@ export function TaskGraph({
 
   // Track focused node for keyboard navigation
   const [focusedId, setFocusedId] = useState<TaskId | null>(null);
-
-  // Track minimap visibility
-  const [showMinimap, setShowMinimap] = useState(false);
 
   // Toggle collapse state for a node
   const handleToggleCollapse = useCallback((id: TaskId) => {
@@ -858,8 +947,8 @@ export function TaskGraph({
 
   // Compute layout when tasks or collapsed state changes (expensive dagre layout)
   const { nodes: layoutedNodes, edges: allEdges } = useMemo(
-    () => buildGraphElements(tasks, collapsedIds),
-    [tasks, collapsedIds]
+    () => buildGraphElements(tasks, collapsedIds, externalBlockers),
+    [tasks, collapsedIds, externalBlockers]
   );
 
   // Filter edges based on showBlockers toggle
@@ -872,27 +961,37 @@ export function TaskGraph({
   );
 
   // Apply focus, selection, and onToggleCollapse separately (cheap, no Dagre re-run)
+  // Only apply to task nodes - external nodes don't have these properties
   const nodes = useMemo(
     () =>
-      layoutedNodes.map((n) => ({
-        ...n,
-        selected: selectedId !== null && n.data.task.id === selectedId,
-        data: {
-          ...n.data,
-          isFocused: n.data.task.id === focusedId,
-          onToggleCollapse: handleToggleCollapse,
-        },
-      })),
+      layoutedNodes.map((n) => {
+        if (n.type === "external") {
+          // External nodes don't get selection/focus/collapse
+          return n;
+        }
+        // Task nodes get the full treatment
+        return {
+          ...n,
+          selected: selectedId !== null && n.data.task.id === selectedId,
+          data: {
+            ...n.data,
+            isFocused: n.data.task.id === focusedId,
+            onToggleCollapse: handleToggleCollapse,
+          },
+        };
+      }),
     [layoutedNodes, selectedId, focusedId, handleToggleCollapse]
   );
 
   // Handle node click via onNodeClick (not stored in node data)
-  const handleNodeClick: NodeMouseHandler<TaskNode> = useCallback(
+  // Only select task nodes - external nodes are not selectable
+  const handleNodeClick: NodeMouseHandler<GraphNode> = useCallback(
     (_, node) => {
-      if (isTaskNodeData(node.data)) {
+      if (node.type === "task" && isTaskNodeData(node.data)) {
         onSelect(node.data.task.id);
         setFocusedId(node.data.task.id);
       }
+      // External nodes: no action on click (they're informational stubs)
     },
     [onSelect]
   );
@@ -908,7 +1007,13 @@ export function TaskGraph({
   }
 
   return (
-    <div className="w-full h-full min-h-0 relative" style={{ minHeight: 0 }} {...scopeProps}>
+    <div
+      className="w-full h-full min-h-0 relative"
+      style={{ minHeight: 0 }}
+      role="group"
+      aria-label="Task dependency graph. Press ? for keyboard shortcuts."
+      {...scopeProps}
+    >
       <ReactFlow
         nodes={nodes}
         edges={edges}
@@ -923,7 +1028,7 @@ export function TaskGraph({
         edgesFocusable={false}
         // Viewport settings
         fitView
-        fitViewOptions={{ padding: 0.2 }}
+        fitViewOptions={{ padding: 0.2, minZoom: 0.25 }}
         minZoom={0.1}
         maxZoom={2}
         // Performance: virtualization for large graphs
@@ -937,7 +1042,6 @@ export function TaskGraph({
           collapsedIds={collapsedIds}
           setCollapsedIds={setCollapsedIds}
           onSelect={onSelect}
-          onToggleMinimap={() => setShowMinimap((prev) => !prev)}
         />
         <Background
           variant={BackgroundVariant.Dots}
@@ -949,75 +1053,13 @@ export function TaskGraph({
           showInteractive={false}
           className="react-flow-controls-themed"
         />
-        {showMinimap && (
-          <MiniMap
-            nodeStrokeWidth={3}
-            nodeColor={(node) => {
-              if (!isTaskNodeData(node.data)) return "var(--color-border)";
-              const variant = getStatusVariant(node.data.task);
-              switch (variant) {
-                case "done":
-                  return "var(--color-status-done)";
-                case "blocked":
-                  return "var(--color-status-blocked)";
-                case "active":
-                  return "var(--color-status-active)";
-                default:
-                  return "var(--color-status-pending)";
-              }
-            }}
-            className="react-flow-minimap-themed"
-            maskColor="rgba(0, 0, 0, 0.7)"
-          />
-        )}
       </ReactFlow>
 
-      {/* Minimap toggle button */}
-      <button
-        onClick={() => setShowMinimap((prev) => !prev)}
-        className={`
-          absolute bottom-4 right-14 z-10
-          w-8 h-8 flex items-center justify-center
-          border transition-colors motion-reduce:transition-none
-          ${
-            showMinimap
-              ? "bg-accent text-bg-primary border-accent"
-              : "bg-surface-primary text-text-muted border-border hover:border-border-hover hover:text-text-primary"
-          }
-        `}
-        title="Toggle minimap (m)"
-        aria-label={showMinimap ? "Hide minimap" : "Show minimap"}
-        aria-pressed={showMinimap}
+      {/* Navigation hint - positioned above Controls */}
+      <div
+        className="absolute bottom-28 left-4 z-10 px-2 py-1 whitespace-nowrap pointer-events-none bg-surface-primary/80 border border-border text-xs text-text-dim font-mono"
+        aria-hidden="true"
       >
-        <svg
-          width="16"
-          height="16"
-          viewBox="0 0 16 16"
-          fill="none"
-          aria-hidden="true"
-        >
-          <rect
-            x="1"
-            y="1"
-            width="14"
-            height="14"
-            rx="1"
-            stroke="currentColor"
-            strokeWidth="1.5"
-          />
-          <rect
-            x="3"
-            y="3"
-            width="4"
-            height="4"
-            fill="currentColor"
-            opacity="0.5"
-          />
-        </svg>
-      </button>
-
-      {/* Navigation hint */}
-      <div className="absolute bottom-4 left-4 z-10 px-2 py-1 bg-surface-primary/80 border border-border text-xs text-text-dim font-mono">
         <span className="opacity-70">h/l</span> collapse/expand{" "}
         <span className="opacity-70">j/k</span> navigate{" "}
         <span className="opacity-70">Enter</span> select

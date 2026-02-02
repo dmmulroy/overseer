@@ -21,10 +21,19 @@ const PANEL_HEIGHT_KEY = "ui.layout.v1.detailPanelHeight";
 const DEFAULT_PANEL_HEIGHT = 320;
 
 /** Minimum panel height in pixels */
-const MIN_PANEL_HEIGHT = 120;
+export const PANEL_HEIGHT_MIN = 120;
 
 /** Maximum panel height as viewport fraction (converted to px on load) */
-const MAX_PANEL_HEIGHT_VH = 0.6;
+export const PANEL_HEIGHT_MAX_VH = 0.6;
+
+/**
+ * Clamp panel height to valid range (120px min, 60vh max).
+ * Exported for use in drag handlers that need immediate clamping.
+ */
+export function clampPanelHeight(height: number): number {
+  const maxPx = Math.floor(window.innerHeight * PANEL_HEIGHT_MAX_VH);
+  return Math.max(PANEL_HEIGHT_MIN, Math.min(height, maxPx));
+}
 
 /**
  * Load and validate persisted panel height.
@@ -39,8 +48,7 @@ function loadPanelHeight(): number {
     if (Number.isNaN(value)) return DEFAULT_PANEL_HEIGHT;
 
     // Clamp to valid range (min 120px, max 60vh)
-    const maxPx = Math.floor(window.innerHeight * MAX_PANEL_HEIGHT_VH);
-    return Math.max(MIN_PANEL_HEIGHT, Math.min(value, maxPx));
+    return clampPanelHeight(value);
   } catch {
     // Private browsing or storage disabled
     return DEFAULT_PANEL_HEIGHT;
@@ -91,7 +99,7 @@ export const useUIStore = create<UIStore>((set) => ({
   viewMode: "graph",
   selectedTaskId: null,
   focusedTaskId: null,
-  detailPanelOpen: true,
+  detailPanelOpen: false,
   panelHeight: loadPanelHeight(),
 
   // Actions
@@ -100,7 +108,7 @@ export const useUIStore = create<UIStore>((set) => ({
   setSelectedTaskId: (id) =>
     set((state) => ({
       selectedTaskId: id,
-      // Auto-open detail panel when selecting, close when clearing
+      // Auto-open detail panel when selecting; preserve state when clearing
       detailPanelOpen: id !== null ? true : state.detailPanelOpen,
     })),
 
@@ -112,9 +120,7 @@ export const useUIStore = create<UIStore>((set) => ({
   setDetailPanelOpen: (open) => set({ detailPanelOpen: open }),
 
   setPanelHeight: (height) => {
-    // Clamp to valid range before saving
-    const maxPx = Math.floor(window.innerHeight * MAX_PANEL_HEIGHT_VH);
-    const clamped = Math.max(MIN_PANEL_HEIGHT, Math.min(height, maxPx));
+    const clamped = clampPanelHeight(height);
     savePanelHeight(clamped);
     set({ panelHeight: clamped });
   },

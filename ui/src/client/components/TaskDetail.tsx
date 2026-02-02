@@ -66,7 +66,7 @@ const editField = tv({
 /**
  * Task detail panel with industrial styling and keyboard shortcuts.
  * 
- * Keyboard: e=edit, c=complete (if unblocked), d=delete (with confirm)
+ * Keyboard: e=edit, c=complete (if unblocked), Backspace=delete (with confirm)
  */
 export function TaskDetail({ task, onDeleted }: TaskDetailProps) {
   const [editMode, setEditMode] = useState<EditMode>("none");
@@ -84,7 +84,7 @@ export function TaskDetail({ task, onDeleted }: TaskDetailProps) {
   const depthLabel =
     task.depth === 0 ? "Milestone" : task.depth === 1 ? "Task" : "Subtask";
 
-  const isBlocked = (task.blockedBy?.length ?? 0) > 0;
+  const isBlocked = task.effectivelyBlocked && !task.completed;
 
   const startEdit = useCallback((mode: EditMode, val: string) => {
     setEditMode(mode);
@@ -166,17 +166,17 @@ export function TaskDetail({ task, onDeleted }: TaskDetailProps) {
         description: "Complete task",
         scope: "detail",
         handler: () => {
-          if (!task.completed && !isBlocked) {
+          if (!task.completed && !isBlocked && !showCompleteDialog && !showDeleteDialog) {
             setShowCompleteDialog(true);
           }
         },
       },
       {
-        key: "d",
+        key: "Backspace",
         description: "Delete task",
         scope: "detail",
         handler: () => {
-          if (!task.completed) {
+          if (!task.completed && !showCompleteDialog && !showDeleteDialog) {
             setShowDeleteDialog(true);
           }
         },
@@ -192,7 +192,7 @@ export function TaskDetail({ task, onDeleted }: TaskDetailProps) {
         },
       },
     ],
-    [task.id, task.completed, task.description, isBlocked, editMode, startEdit, cancelEdit]
+    [task.id, task.completed, task.description, isBlocked, editMode, startEdit, cancelEdit, showCompleteDialog, showDeleteDialog]
   );
 
   // Derive status
@@ -456,7 +456,7 @@ export function TaskDetail({ task, onDeleted }: TaskDetailProps) {
             title="Delete this task"
           >
             Delete
-            <Kbd size="sm" className="ml-1">d</Kbd>
+            <Kbd size="sm" className="ml-1">⌫</Kbd>
           </Button>
         </footer>
       )}

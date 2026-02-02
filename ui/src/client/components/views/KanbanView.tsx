@@ -1,6 +1,6 @@
 /**
  * Kanban view - 4-column board grouped by task status.
- * Columns: PENDING | ACTIVE | BLOCKED | DONE
+ * Columns: PENDING | BLOCKED | ACTIVE | DONE
  *
  * Features:
  * - Column headers with task count
@@ -17,13 +17,17 @@ import { Badge } from "../ui/Badge.js";
 import { useKeyboardShortcuts } from "../../lib/keyboard.js";
 import { useKeyboardScope } from "../../lib/use-keyboard-scope.js";
 import { useChangedTasks } from "../../lib/use-changed-tasks.js";
-import { formatRelativeTime } from "../../lib/utils.js";
+import {
+  formatRelativeTime,
+  getStatusVariant,
+  getDepthLabel,
+  computeExternalBlockerCounts,
+  type StatusVariant,
+} from "../../lib/utils.js";
 
-type StatusColumn = "pending" | "active" | "blocked" | "done";
+const COLUMNS: StatusVariant[] = ["pending", "blocked", "active", "done"];
 
-const COLUMNS: StatusColumn[] = ["pending", "active", "blocked", "done"];
-
-const COLUMN_LABELS: Record<StatusColumn, string> = {
+const COLUMN_LABELS: Record<StatusVariant, string> = {
   pending: "PENDING",
   active: "ACTIVE",
   blocked: "BLOCKED",
@@ -31,7 +35,7 @@ const COLUMN_LABELS: Record<StatusColumn, string> = {
 };
 
 /** Static text color classes for each column (Tailwind can't detect dynamic classes) */
-const COLUMN_TEXT_COLORS: Record<StatusColumn, string> = {
+const COLUMN_TEXT_COLORS: Record<StatusVariant, string> = {
   pending: "text-status-pending",
   active: "text-status-active",
   blocked: "text-status-blocked",
@@ -40,40 +44,25 @@ const COLUMN_TEXT_COLORS: Record<StatusColumn, string> = {
 
 interface KanbanViewProps {
   tasks: Task[];
+  externalBlockers: Map<TaskId, Task>;
   selectedId: TaskId | null;
   onSelect: (id: TaskId) => void;
 }
 
-/**
- * Determine which column a task belongs to based on its status.
- */
-function getTaskColumn(task: Task): StatusColumn {
-  if (task.completed) return "done";
-  const isBlocked = (task.blockedBy?.length ?? 0) > 0;
-  if (isBlocked) return "blocked";
-  if (task.startedAt !== null) return "active";
-  return "pending";
-}
-
-/**
- * Get depth label for task card
- */
-function getDepthLabel(depth: number): string {
-  switch (depth) {
-    case 0:
-      return "MILESTONE";
-    case 1:
-      return "TASK";
-    case 2:
-      return "SUBTASK";
-    default:
-      return "SUBTASK";
-  }
-}
-
-export function KanbanView({ tasks, selectedId, onSelect }: KanbanViewProps) {
+export function KanbanView({
+  tasks,
+  externalBlockers,
+  selectedId,
+  onSelect,
+}: KanbanViewProps) {
   const scopeProps = useKeyboardScope("kanban", { activateOnMount: true });
   const changedTaskIds = useChangedTasks(tasks);
+
+  // Compute external blocker counts using shared utility
+  const externalBlockerCounts = useMemo(
+    () => computeExternalBlockerCounts(tasks, externalBlockers),
+    [tasks, externalBlockers]
+  );
   
   // Focus state: [columnIndex, taskIndexInColumn]
   const [focusedColumn, setFocusedColumn] = useState(0);
@@ -84,7 +73,7 @@ export function KanbanView({ tasks, selectedId, onSelect }: KanbanViewProps) {
 
   // Group tasks by status column
   const tasksByColumn = useMemo(() => {
-    const grouped: Record<StatusColumn, Task[]> = {
+    const grouped: Record<StatusVariant, Task[]> = {
       pending: [],
       active: [],
       blocked: [],
@@ -92,7 +81,7 @@ export function KanbanView({ tasks, selectedId, onSelect }: KanbanViewProps) {
     };
 
     for (const task of tasks) {
-      const column = getTaskColumn(task);
+      const column = getStatusVariant(task);
       grouped[column].push(task);
     }
 
@@ -328,6 +317,7 @@ export function KanbanView({ tasks, selectedId, onSelect }: KanbanViewProps) {
               isCurrentColumn={isCurrentColumn}
               changedTaskIds={changedTaskIds}
               childCounts={childCounts}
+              externalBlockerCounts={externalBlockerCounts}
               onCardRef={handleCardRef}
               onClick={handleTaskClick}
             />
@@ -346,7 +336,7 @@ export function KanbanView({ tasks, selectedId, onSelect }: KanbanViewProps) {
 }
 
 interface KanbanColumnProps {
-  column: StatusColumn;
+  column: StatusVariant;
   columnIndex: number;
   tasks: Task[];
   selectedId: TaskId | null;
@@ -354,6 +344,7 @@ interface KanbanColumnProps {
   isCurrentColumn: boolean;
   changedTaskIds: Set<TaskId>;
   childCounts: Map<TaskId, { total: number; completed: number }>;
+  externalBlockerCounts: Map<TaskId, number>;
   onCardRef: (id: TaskId, el: HTMLButtonElement | null) => void;
   onClick: (task: Task, columnIndex: number, taskIndex: number) => void;
 }
@@ -367,6 +358,7 @@ function KanbanColumn({
   isCurrentColumn,
   changedTaskIds,
   childCounts,
+  externalBlockerCounts,
   onCardRef,
   onClick,
 }: KanbanColumnProps) {
@@ -399,35 +391,41 @@ function KanbanColumn({
         </div>
       </div>
 
-      {/* Column content */}
-      <div className="flex-1 overflow-y-auto space-y-2" role="list" aria-label={`${COLUMN_LABELS[column]} tasks`}>
-        {tasks.length === 0 ? (
-          <div className="text-text-dim text-xs font-mono text-center py-8 opacity-50">
-            No tasks
-          </div>
-        ) : (
-          tasks.map((task, taskIndex) => {
-            const isFocused = isCurrentColumn && focusedIndexInColumn === taskIndex;
-            const isSelected = selectedId === task.id;
-            const isChanged = changedTaskIds.has(task.id);
+      {/* Column content - scroll wrapper */}
+      <div className="flex-1 relative min-h-0">
+        <div className="absolute inset-0 overflow-y-auto scrollbar-hover overscroll-y-contain">
+          {/* Inner content with padding for focus rings + scrollbar clearance */}
+          <div className="space-y-2 p-2 pr-4" role="list" aria-label={`${COLUMN_LABELS[column]} tasks`}>
+          {tasks.length === 0 ? (
+            <div className="text-text-dim text-xs font-mono text-center py-8 opacity-50">
+              No tasks
+            </div>
+          ) : (
+            tasks.map((task, taskIndex) => {
+              const isFocused = isCurrentColumn && focusedIndexInColumn === taskIndex;
+              const isSelected = selectedId === task.id;
+              const isChanged = changedTaskIds.has(task.id);
 
-            return (
-              <KanbanCard
-                key={task.id}
-                task={task}
-                column={column}
-                columnIndex={columnIndex}
-                taskIndex={taskIndex}
-                isFocused={isFocused}
-                isSelected={isSelected}
-                isChanged={isChanged}
-                childCount={childCounts.get(task.id)}
-                onRef={onCardRef}
-                onClick={onClick}
-              />
-            );
-          })
-        )}
+              return (
+                <KanbanCard
+                  key={task.id}
+                  task={task}
+                  column={column}
+                  columnIndex={columnIndex}
+                  taskIndex={taskIndex}
+                  isFocused={isFocused}
+                  isSelected={isSelected}
+                  isChanged={isChanged}
+                  childCount={childCounts.get(task.id)}
+                  externalBlockerCount={externalBlockerCounts.get(task.id) ?? 0}
+                  onRef={onCardRef}
+                  onClick={onClick}
+                />
+              );
+            })
+          )}
+          </div>
+        </div>
       </div>
     </div>
   );
@@ -435,13 +433,14 @@ function KanbanColumn({
 
 interface KanbanCardProps {
   task: Task;
-  column: StatusColumn;
+  column: StatusVariant;
   columnIndex: number;
   taskIndex: number;
   isFocused: boolean;
   isSelected: boolean;
   isChanged: boolean;
   childCount?: { total: number; completed: number };
+  externalBlockerCount: number;
   onRef: (id: TaskId, el: HTMLButtonElement | null) => void;
   onClick: (task: Task, columnIndex: number, taskIndex: number) => void;
 }
@@ -455,6 +454,7 @@ function KanbanCard({
   isSelected,
   isChanged,
   childCount,
+  externalBlockerCount,
   onRef,
   onClick,
 }: KanbanCardProps) {
@@ -537,9 +537,18 @@ function KanbanCard({
         )}
 
         {/* Blocked indicator */}
-        {column === "blocked" && task.blockedBy && task.blockedBy.length > 0 && (
+        {column === "blocked" && (
           <div className="text-[10px] font-mono text-status-blocked mt-1">
-            Blocked by {task.blockedBy.length} task{task.blockedBy.length > 1 ? "s" : ""}
+            {task.blockedBy && task.blockedBy.length > 0
+              ? `Blocked by ${task.blockedBy.length} task${task.blockedBy.length > 1 ? "s" : ""}`
+              : "Blocked (inherited)"}
+          </div>
+        )}
+
+        {/* External blockers badge (shown when filtering by milestone) */}
+        {externalBlockerCount > 0 && (
+          <div className="mt-1 text-[10px] font-mono text-text-dim">
+            +{externalBlockerCount} external
           </div>
         )}
       </Card>

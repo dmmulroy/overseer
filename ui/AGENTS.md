@@ -148,6 +148,43 @@ Tailwind v4 CSS-first config in `global.css`. Industrial aesthetic, dark mode on
 - `useEffect` deps with state used only in guards defeat the guard's purpose - remove from deps
 - O(n) `findIndex` in recursive tree = O(n^2) total - precompute `Map<id, index>` via `useMemo`
 - ReactFlow `fitView()` works for offscreen nodes - don't guard with DOM existence check
+- `useSyncExternalStore` for URL state in React 18 - handles concurrent rendering correctly
+- Separate `isLoading` (no cached data) from `isRefetching` (background refresh) for different UX states
+- React Query's `dataUpdatedAt` updates on every refetch - derive "last updated" from `max(data.updatedAt)` for actual changes
+
+### Domain Model
+- **Use `effectivelyBlocked`, not `blockedBy.length`** - direct blocker edges persist after completion; `effectivelyBlocked` is computed from blocker's completed state
+- Shared status helpers (`getStatusVariant`, `getStatusLabel`) in `lib/utils.ts` - import everywhere for consistent status logic
+- `StatusVariant` type: `pending | active | blocked | done` - reuse instead of local definitions
+
+### Drag & Resize
+- Direct DOM manipulation during drag (`ref.current.style.height`), commit to store on release for 60fps
+- CSS transitions fight drag handlers - disable on pointerdown, re-enable on pointerup
+- Pointer capture (`setPointerCapture`) for smooth cross-element dragging; guard `releasePointerCapture` with `hasPointerCapture()`
+- `onLostPointerCapture` catches edge cases where capture lost without pointercancel/pointerup
+- Cleanup effect when conditionally rendered drag handles unmount mid-drag
+- 8px (h-2) minimum drag target size per Fitts's Law; add `touch-none select-none` for mobile
+- ARIA separator pattern: `role=separator`, `aria-valuenow/min/max`, keyboard (Arrow ±10px, Shift+Arrow ±50px, Home/End)
+
+### CSS Animations
+- Animation end state must match element's base background - use `transparent` for no-bg elements, `surface-primary` for Cards
+- Extract hardcoded colors in `@keyframes` to CSS custom properties for theme consistency
+- Box-shadow glow on small elements (6x6 dots) bleeds into text - create size-specific variants (`animate-pulse-active-sm`)
+- WebKit scrollbar pseudo-elements don't support CSS transitions - remove misleading `transition` properties
+
+### Scroll Containers
+- Flex scroll wrapper pattern: outer (`flex-1 relative min-h-0`), inner (`absolute inset-0 overflow-y-auto`), innermost (padding)
+- `overscroll-behavior: contain` prevents scroll chaining at boundaries
+- Scrollbar clearance: `pr-4` (16px) for 6px scrollbar + buffer
+
+### localStorage
+- Wrap in try/catch for private browsing/quota exceeded
+- Use versioned keys (`ui.layout.v1.xxx`) for future schema migration
+
+### URL State
+- Use custom events (`os:urlchange`) for programmatic URL changes, not synthetic `PopStateEvent`
+- Preserve `history.state` in `replaceState` to avoid clobbering other state
+- Type guards (`isTaskId`) at parse boundary, return null for invalid - never `as Type` casts
 
 ## NOTES
 
@@ -155,3 +192,4 @@ Tailwind v4 CSS-first config in `global.css`. Industrial aesthetic, dark mode on
 - CLI bridge spawns `os --json <command>` 
 - Vite proxies `/api/*` to Hono in dev mode
 - Production: Hono serves `dist/` static files
+- **Code review pattern**: 3 parallel review agents + Oracle deep review catches bugs single reviewers miss (repeatedly proven during UI Feedback Fixes milestone)

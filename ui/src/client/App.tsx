@@ -2,11 +2,12 @@ import { useEffect, useMemo } from "react";
 import { useTasks } from "./lib/queries.js";
 import { useUIStore, type ViewMode } from "./lib/store.js";
 import { KeyboardProvider, useKeyboardShortcuts } from "./lib/keyboard.js";
+import { useMilestoneFilter } from "./lib/use-url-filter.js";
 import { KeyboardHelp } from "./components/KeyboardHelp.js";
 import { Header } from "./components/Header.js";
 import { DetailPanel } from "./components/DetailPanel.js";
 import { GraphView, KanbanView, ListView } from "./components/views/index.js";
-import type { TaskId } from "../types.js";
+import type { Task, TaskId } from "../types.js";
 
 /**
  * Main application layout - multi-view design:
@@ -30,17 +31,101 @@ function AppContent() {
   const toggleDetailPanel = useUIStore((s) => s.toggleDetailPanel);
   const clearIfMissing = useUIStore((s) => s.clearIfMissing);
 
-  const { data: tasks, isLoading, isFetching, error, dataUpdatedAt } = useTasks();
+  const { data: tasks, isLoading, isFetching, error } = useTasks();
 
-  // Clear selection if task no longer exists after refetch
-  const taskIds = useMemo(() => {
-    if (!tasks) return new Set<TaskId>();
-    return new Set(tasks.map((t) => t.id));
+  // URL-based milestone filter
+  const [filterMilestoneId, setFilterMilestoneId] = useMilestoneFilter();
+
+  // Compute milestones (depth-0 tasks)
+  const milestones = useMemo(() => {
+    if (!tasks) return [];
+    return tasks.filter((t) => t.depth === 0);
   }, [tasks]);
 
+  // Validate filter exists (clear if milestone deleted)
   useEffect(() => {
-    clearIfMissing(taskIds);
-  }, [taskIds, clearIfMissing]);
+    if (filterMilestoneId && tasks) {
+      const exists = tasks.some((t) => t.id === filterMilestoneId && t.depth === 0);
+      if (!exists) {
+        setFilterMilestoneId(null);
+      }
+    }
+  }, [filterMilestoneId, tasks, setFilterMilestoneId]);
+
+  // Compute visible tasks via descendant traversal
+  const visibleTasks = useMemo(() => {
+    if (!tasks) return [];
+    if (!filterMilestoneId) return tasks;
+
+    // Build lookup maps for O(1) access
+    const tasksById = new Map<TaskId, Task>(tasks.map((t) => [t.id, t]));
+    const childrenMap = new Map<TaskId | null, Task[]>();
+    for (const task of tasks) {
+      const siblings = childrenMap.get(task.parentId) ?? [];
+      siblings.push(task);
+      childrenMap.set(task.parentId, siblings);
+    }
+
+    // Collect milestone and all descendants using Map for O(1) lookups
+    const result: Task[] = [];
+    const collect = (taskId: TaskId) => {
+      const task = tasksById.get(taskId);
+      if (task) {
+        result.push(task);
+        const children = childrenMap.get(taskId) ?? [];
+        for (const child of children) {
+          collect(child.id);
+        }
+      }
+    };
+    collect(filterMilestoneId);
+    return result;
+  }, [tasks, filterMilestoneId]);
+
+  // Build visible task ID set for quick lookups
+  const visibleTaskIds = useMemo(() => {
+    return new Set(visibleTasks.map((t) => t.id));
+  }, [visibleTasks]);
+
+  // Compute external blockers - tasks referenced in blockedBy but not in visible set
+  const externalBlockers = useMemo(() => {
+    if (!tasks) return new Map<TaskId, Task>();
+
+    const allTasksMap = new Map<TaskId, Task>(tasks.map((t) => [t.id, t]));
+    const external = new Map<TaskId, Task>();
+
+    for (const task of visibleTasks) {
+      if (task.blockedBy) {
+        for (const blockerId of task.blockedBy) {
+          if (!visibleTaskIds.has(blockerId)) {
+            const blockerTask = allTasksMap.get(blockerId);
+            if (blockerTask) external.set(blockerId, blockerTask);
+          }
+        }
+      }
+    }
+
+    return external;
+  }, [tasks, visibleTasks, visibleTaskIds]);
+
+  // Clear selection if task no longer exists or is filtered out
+  useEffect(() => {
+    clearIfMissing(visibleTaskIds);
+  }, [visibleTaskIds, clearIfMissing]);
+
+  // Derive last updated from max(tasks.updatedAt) - reflects actual data changes, not refetch time
+  // Uses Date.parse + Number.isFinite to reject invalid dates (avoids showing 1970 on malformed data)
+  const lastUpdated = useMemo(() => {
+    if (!tasks || tasks.length === 0) return undefined;
+
+    let max = -Infinity;
+    for (const task of tasks) {
+      const ms = Date.parse(task.updatedAt);
+      if (Number.isFinite(ms) && ms > max) max = ms;
+    }
+    if (!Number.isFinite(max)) return undefined;
+    return new Date(max).toISOString();
+  }, [tasks]);
 
   // Register keyboard shortcuts for view switching
   useKeyboardShortcuts(
@@ -77,11 +162,6 @@ function AppContent() {
     setSelectedTaskId(id);
   };
 
-  // Format last updated timestamp
-  const lastUpdated = dataUpdatedAt
-    ? new Date(dataUpdatedAt).toISOString()
-    : undefined;
-
   return (
     <>
       <KeyboardHelp />
@@ -90,7 +170,11 @@ function AppContent() {
         <Header
           lastUpdated={lastUpdated}
           isError={error !== null}
-          isLoading={isFetching}
+          isLoading={isLoading}
+          isRefetching={isFetching && !isLoading}
+          milestones={milestones}
+          filterMilestoneId={filterMilestoneId}
+          onFilterChange={setFilterMilestoneId}
         />
 
         {/* Main content area */}
@@ -108,7 +192,8 @@ function AppContent() {
             ) : (
               <ViewContainer
                 viewMode={viewMode}
-                tasks={tasks ?? []}
+                tasks={visibleTasks}
+                externalBlockers={externalBlockers}
                 selectedId={selectedTaskId}
                 onSelect={handleTaskSelect}
               />
@@ -125,7 +210,8 @@ function AppContent() {
 
 interface ViewContainerProps {
   viewMode: ViewMode;
-  tasks: import("../types.js").Task[];
+  tasks: Task[];
+  externalBlockers: Map<TaskId, Task>;
   selectedId: TaskId | null;
   onSelect: (id: TaskId) => void;
 }
@@ -133,21 +219,37 @@ interface ViewContainerProps {
 function ViewContainer({
   viewMode,
   tasks,
+  externalBlockers,
   selectedId,
   onSelect,
 }: ViewContainerProps) {
   switch (viewMode) {
     case "graph":
       return (
-        <GraphView tasks={tasks} selectedId={selectedId} onSelect={onSelect} />
+        <GraphView
+          tasks={tasks}
+          externalBlockers={externalBlockers}
+          selectedId={selectedId}
+          onSelect={onSelect}
+        />
       );
     case "kanban":
       return (
-        <KanbanView tasks={tasks} selectedId={selectedId} onSelect={onSelect} />
+        <KanbanView
+          tasks={tasks}
+          externalBlockers={externalBlockers}
+          selectedId={selectedId}
+          onSelect={onSelect}
+        />
       );
     case "list":
       return (
-        <ListView tasks={tasks} selectedId={selectedId} onSelect={onSelect} />
+        <ListView
+          tasks={tasks}
+          externalBlockers={externalBlockers}
+          selectedId={selectedId}
+          onSelect={onSelect}
+        />
       );
   }
 }

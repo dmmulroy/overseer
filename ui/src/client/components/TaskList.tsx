@@ -4,59 +4,31 @@ import { Badge } from "./ui/Badge.js";
 import { useKeyboardShortcuts } from "../lib/keyboard.js";
 import { useKeyboardScope } from "../lib/use-keyboard-scope.js";
 import { useChangedTasks } from "../lib/use-changed-tasks.js";
+import {
+  getStatusVariant,
+  getStatusLabel,
+  getDepthLabel,
+  computeExternalBlockerCounts,
+} from "../lib/utils.js";
 
 type FilterType = "all" | "active" | "completed" | "blocked" | "ready";
 
 interface TaskListProps {
   tasks: Task[];
+  externalBlockers: Map<TaskId, Task>;
   selectedId: TaskId | null;
   onSelect: (id: TaskId) => void;
 }
 
 /**
- * Get the technical label for a task based on depth
- */
-function getDepthLabel(depth: number): string {
-  switch (depth) {
-    case 0:
-      return "MILESTONE";
-    case 1:
-      return "TASK";
-    case 2:
-      return "SUBTASK";
-    default:
-      return "SUBTASK";
-  }
-}
-
-/**
- * Get the status variant for the Badge component
- */
-function getStatusVariant(
-  task: Task
-): "pending" | "active" | "blocked" | "done" {
-  if (task.completed) return "done";
-  const isBlocked = (task.blockedBy?.length ?? 0) > 0;
-  if (isBlocked) return "blocked";
-  if (task.startedAt !== null) return "active";
-  return "pending";
-}
-
-/**
- * Get human-readable status label
- */
-function getStatusLabel(task: Task): string {
-  if (task.completed) return "DONE";
-  const isBlocked = (task.blockedBy?.length ?? 0) > 0;
-  if (isBlocked) return "BLOCKED";
-  if (task.startedAt !== null) return "ACTIVE";
-  return "PENDING";
-}
-
-/**
  * Hierarchical task list with filters, industrial styling, and j/k navigation
  */
-export function TaskList({ tasks, selectedId, onSelect }: TaskListProps) {
+export function TaskList({
+  tasks,
+  externalBlockers,
+  selectedId,
+  onSelect,
+}: TaskListProps) {
   const [filter, setFilter] = useState<FilterType>("all");
   const [focusedIndex, setFocusedIndex] = useState<number>(0);
   const [collapsedIds, setCollapsedIds] = useState<Set<TaskId>>(new Set());
@@ -64,6 +36,12 @@ export function TaskList({ tasks, selectedId, onSelect }: TaskListProps) {
   const itemRefs = useRef<Map<number, HTMLButtonElement>>(new Map());
   const scopeProps = useKeyboardScope("list");
   const changedTaskIds = useChangedTasks(tasks);
+
+  // Compute external blocker counts using shared utility
+  const externalBlockerCounts = useMemo(
+    () => computeExternalBlockerCounts(tasks, externalBlockers),
+    [tasks, externalBlockers]
+  );
 
   // Toggle collapse state for a task
   const toggleCollapse = useCallback((id: TaskId) => {
@@ -93,8 +71,10 @@ export function TaskList({ tasks, selectedId, onSelect }: TaskListProps) {
   // Get all task IDs that match the filter (and their ancestors)
   const visibleTaskIds = useMemo(() => {
     const matchesFilter = (task: Task): boolean => {
-      const isBlocked = (task.blockedBy?.length ?? 0) > 0 && !task.completed;
-      const isReady = !task.completed && !isBlocked && !task.startedAt;
+      // Use effectivelyBlocked for domain-correct blocked state
+      const isBlocked = task.effectivelyBlocked && !task.completed;
+      // Ready = workable (not completed, not blocked) - includes both started and not-started
+      const isWorkable = !task.completed && !isBlocked;
 
       switch (filter) {
         case "all":
@@ -106,7 +86,7 @@ export function TaskList({ tasks, selectedId, onSelect }: TaskListProps) {
         case "blocked":
           return isBlocked;
         case "ready":
-          return isReady || (task.startedAt !== null && !task.completed);
+          return isWorkable;
       }
     };
 
@@ -174,16 +154,16 @@ export function TaskList({ tasks, selectedId, onSelect }: TaskListProps) {
     let ready = 0;
 
     for (const task of tasks) {
-      const isBlocked = (task.blockedBy?.length ?? 0) > 0 && !task.completed;
-      const isReadyOrInProgress =
-        !task.completed && (!isBlocked || task.startedAt !== null);
+      const isBlocked = task.effectivelyBlocked && !task.completed;
+      // Ready = workable (not completed, not blocked) - matches filter logic
+      const isWorkable = !task.completed && !isBlocked;
 
       if (task.completed) {
         completed++;
       } else {
         active++;
         if (isBlocked) blocked++;
-        if (isReadyOrInProgress) ready++;
+        if (isWorkable) ready++;
       }
     }
 
@@ -390,6 +370,7 @@ export function TaskList({ tasks, selectedId, onSelect }: TaskListProps) {
                 focusedIndex={focusedIndex}
                 indexById={indexById}
                 changedTaskIds={changedTaskIds}
+                externalBlockerCounts={externalBlockerCounts}
                 onSelect={onSelect}
                 onFocus={setFocusedIndex}
                 onToggleCollapse={toggleCollapse}
@@ -422,6 +403,7 @@ interface TaskTreeNodeProps {
   focusedIndex: number;
   indexById: Map<TaskId, number>;
   changedTaskIds: Set<TaskId>;
+  externalBlockerCounts: Map<TaskId, number>;
   onSelect: (id: TaskId) => void;
   onFocus: (index: number) => void;
   onToggleCollapse: (id: TaskId) => void;
@@ -455,6 +437,7 @@ function TaskTreeNode({
   focusedIndex,
   indexById,
   changedTaskIds,
+  externalBlockerCounts,
   onSelect,
   onFocus,
   onToggleCollapse,
@@ -490,6 +473,7 @@ function TaskTreeNode({
         taskIndex={taskIndex}
         hasChildren={hasChildren}
         isCollapsed={isCollapsed}
+        externalBlockerCount={externalBlockerCounts.get(task.id) ?? 0}
         onSelect={onSelect}
         onFocus={onFocus}
         onToggleCollapse={onToggleCollapse}
@@ -509,6 +493,7 @@ function TaskTreeNode({
               focusedIndex={focusedIndex}
               indexById={indexById}
               changedTaskIds={changedTaskIds}
+              externalBlockerCounts={externalBlockerCounts}
               onSelect={onSelect}
               onFocus={onFocus}
               onToggleCollapse={onToggleCollapse}
@@ -532,6 +517,7 @@ interface TaskItemProps {
   taskIndex: number;
   hasChildren: boolean;
   isCollapsed: boolean;
+  externalBlockerCount: number;
   onSelect: (id: TaskId) => void;
   onFocus: (index: number) => void;
   onToggleCollapse: (id: TaskId) => void;
@@ -552,16 +538,17 @@ function TaskItem({
   taskIndex,
   hasChildren,
   isCollapsed,
+  externalBlockerCount,
   onSelect,
   onFocus,
   onToggleCollapse,
   itemRefs,
   treeLineConfig,
 }: TaskItemProps) {
-  const { depth, isLast, verticalLines } = treeLineConfig;
+  const { isLast, verticalLines, depth } = treeLineConfig;
   const statusVariant = getStatusVariant(task);
   const statusLabel = getStatusLabel(task);
-  const depthLabel = getDepthLabel(depth);
+  const depthLabel = getDepthLabel(task.depth);
 
   const handleRef = useCallback(
     (el: HTMLButtonElement | null) => {
@@ -680,6 +667,13 @@ function TaskItem({
         <Badge variant={statusVariant} pulsing={statusVariant === "active"}>
           {statusLabel}
         </Badge>
+
+        {/* External blockers badge (shown when filtering by milestone) */}
+        {externalBlockerCount > 0 && (
+          <span className="text-[10px] font-mono text-text-dim">
+            +{externalBlockerCount} external
+          </span>
+        )}
 
         {/* Priority */}
         <span className="text-xs font-mono text-text-dim">P{task.priority}</span>

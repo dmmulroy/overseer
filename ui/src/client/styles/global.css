@@ -113,12 +113,6 @@ pre,
   fill: currentColor !important;
 }
 
-/* React Flow MiniMap theming */
-.react-flow-minimap-themed {
-  background-color: var(--color-surface-primary) !important;
-  border: 1px solid var(--color-border) !important;
-}
-
 /* Animated blocker edges */
 .graph-edge-blocker {
   animation: dashOffset 1s linear infinite;
@@ -149,6 +143,24 @@ pre,
 
 .animate-pulse-active {
   animation: pulse-active 2s ease-in-out infinite;
+}
+
+/* Active status pulse animation (small variant for Badge dots) */
+@keyframes pulse-active-sm {
+  0%, 100% {
+    opacity: 1;
+    transform: scale(1);
+    box-shadow: none;
+  }
+  50% {
+    opacity: 0.6;
+    transform: scale(1.25);
+    box-shadow: 0 0 4px 0 var(--color-status-active-glow);
+  }
+}
+
+.animate-pulse-active-sm {
+  animation: pulse-active-sm 2s ease-in-out infinite;
 }
 
 /* Task change flash animation */
@@ -197,9 +209,43 @@ pre,
 @media (prefers-reduced-motion: reduce) {
   .graph-edge-blocker,
   .animate-pulse-active,
+  .animate-pulse-active-sm,
   .animate-flash-change,
   .animate-flash-change-transparent,
   .animate-pulse-error {
     animation: none;
   }
+}
+
+/* Hover-reveal scrollbar - hidden until parent is hovered */
+.scrollbar-hover::-webkit-scrollbar {
+  width: 6px;
+}
+
+.scrollbar-hover::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.scrollbar-hover::-webkit-scrollbar-thumb {
+  background: transparent;
+  border-radius: 3px;
+  /* Note: transitions don't work on WebKit scrollbar pseudo-elements */
+}
+
+.scrollbar-hover:hover::-webkit-scrollbar-thumb {
+  background: var(--color-border);
+}
+
+.scrollbar-hover:hover::-webkit-scrollbar-thumb:hover {
+  background: var(--color-border-hover);
+}
+
+/* Firefox fallback */
+.scrollbar-hover {
+  scrollbar-width: thin;
+  scrollbar-color: transparent transparent;
+}
+
+.scrollbar-hover:hover {
+  scrollbar-color: var(--color-border) transparent;
 }

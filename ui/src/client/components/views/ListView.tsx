@@ -8,15 +8,26 @@ import { TaskList } from "../TaskList.js";
 
 interface ListViewProps {
   tasks: Task[];
+  externalBlockers: Map<TaskId, Task>;
   selectedId: TaskId | null;
   onSelect: (id: TaskId) => void;
 }
 
-export function ListView({ tasks, selectedId, onSelect }: ListViewProps) {
+export function ListView({
+  tasks,
+  externalBlockers,
+  selectedId,
+  onSelect,
+}: ListViewProps) {
   return (
     <div className="flex-1 flex bg-bg-primary">
       <div className="flex-1 max-w-4xl mx-auto py-4">
-        <TaskList tasks={tasks} selectedId={selectedId} onSelect={onSelect} />
+        <TaskList
+          tasks={tasks}
+          externalBlockers={externalBlockers}
+          selectedId={selectedId}
+          onSelect={onSelect}
+        />
       </div>
     </div>
   );

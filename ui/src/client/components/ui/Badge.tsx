@@ -33,7 +33,7 @@ export const Badge = forwardRef<HTMLSpanElement, BadgeProps>(
       <span ref={ref} className={badge({ variant, className })} {...props}>
         {pulsing && (
           <span
-            className="w-1.5 h-1.5 rounded-full bg-current animate-pulse-active motion-reduce:animate-none"
+            className="w-1.5 h-1.5 rounded-full bg-current animate-pulse-active-sm motion-reduce:animate-none"
             aria-hidden="true"
           />
         )}
