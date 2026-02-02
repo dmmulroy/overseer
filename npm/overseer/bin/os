@@ -51,7 +51,8 @@ function getBinaryPath() {
 
   if (!pkg) {
     console.error(`Unsupported platform: ${key}`);
-    console.error("Install via cargo: cargo install overseer");
+    console.error("Your platform is not supported. Please open an issue at:");
+    console.error("  https://github.com/dmmulroy/overseer/issues");
     process.exit(1);
   }
 
@@ -109,32 +110,32 @@ else {
 
 /**
  * Start the UI server
- * Usage: os ui [port] [--port PORT] [--open]
+ * Usage: os ui [port] [--port PORT] [--no-open]
  */
 function startUiServer(uiArgs) {
-  // Parse args: positional port, --port flag, --open flag
+  // Parse args: positional port, --port flag, --no-open flag
   let port = null;
-  let openBrowser = false;
+  let openBrowser = true;  // Default: open browser
 
   for (let i = 0; i < uiArgs.length; i++) {
     const arg = uiArgs[i];
     if (arg === "--port" && i + 1 < uiArgs.length) {
       port = parseInt(uiArgs[++i], 10);
-    } else if (arg === "--open") {
-      openBrowser = true;
+    } else if (arg === "--no-open") {
+      openBrowser = false;
     } else if (arg === "--help" || arg === "-h") {
-      console.log(`Usage: os ui [port] [--port PORT] [--open]
+      console.log(`Usage: os ui [port] [--port PORT] [--no-open]
 
 Options:
   port          Port number (positional, default: 6969)
   --port PORT   Port number (explicit flag)
-  --open        Open browser after starting
+  --no-open     Don't open browser automatically
 
 Examples:
-  os ui              # Start on port 6969
-  os ui 8080         # Start on port 8080
-  os ui --port 3000  # Start on port 3000
-  os ui --open       # Start and open browser`);
+  os ui              # Start and open browser
+  os ui 8080         # Port 8080, open browser
+  os ui --port 3000  # Port 3000, open browser
+  os ui --no-open    # Start without opening browser`);
       process.exit(0);
     } else if (/^\d+$/.test(arg) && port === null) {
       // Positional port number
@@ -149,6 +150,15 @@ Examples:
   if (port === null || isNaN(port)) {
     port = 6969;
   }
+
+  // Graceful shutdown handler
+  const shutdown = () => {
+    process.stdout.write('\x1b[0m');  // Reset terminal attributes
+    console.log('\nServer stopped');
+    process.exit(0);
+  };
+  process.on('SIGINT', shutdown);
+  process.on('SIGTERM', shutdown);
 
   // Set up environment for the UI server
   const binaryPath = getBinaryPath();
@@ -171,7 +181,7 @@ Examples:
     process.exit(1);
   }
 
-  // Open browser after server starts (if requested)
+  // Open browser after server starts (default behavior)
   if (openBrowser) {
     // Delay to let server start
     setTimeout(() => {

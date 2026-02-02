@@ -25,7 +25,6 @@ thiserror = "2.0"
 owo-colors = { version = "4", features = ["supports-colors"] }
 chrono = { version = "0.4", features = ["serde"] }
 ulid = "1.2"
-open = "5"
 
 # VCS backends
 # JJ backend (jj-lib) [PRIMARY] - pin exact version due to API instability

@@ -219,9 +219,6 @@ impl Printer {
             Command::Data(DataCommand::Export { .. }) => {
                 self.print_data_export(output);
             }
-            Command::Ui(_) => {
-                // UI command prints interactively during execution, nothing extra needed
-            }
             // PRECONDITION: Completions handled in main() before print() is called
             Command::Completions { .. } => unreachable!("completions handled before print()"),
         }

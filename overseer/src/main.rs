@@ -17,8 +17,8 @@ mod vcs;
 mod testutil;
 
 use commands::{
-    data, learning, task, ui, vcs as vcs_cmd, DataCommand, DataResult, LearningCommand,
-    LearningResult, TaskCommand, TaskResult, UiArgs, VcsCommand,
+    data, learning, task, vcs as vcs_cmd, DataCommand, DataResult, LearningCommand, LearningResult,
+    TaskCommand, TaskResult, VcsCommand,
 };
 use output::Printer;
 
@@ -75,22 +75,6 @@ enum Command {
     /// Data import/export
     #[command(subcommand)]
     Data(DataCommand),
-
-    /// Launch the Task Viewer web UI
-    #[command(
-        about = "Launch Task Viewer web UI",
-        long_about = r#"
-Launch the Task Viewer web UI for visualizing tasks.
-
-Requires npm dependencies: cd ui && npm install
-
-Examples:
-  os ui                 # Start on default port 6969
-  os ui --port 8080     # Start on custom port
-  os ui --no-open       # Don't auto-open browser
-"#
-    )]
-    Ui(UiArgs),
 
     /// Generate shell completions
     #[command(
@@ -261,14 +245,6 @@ fn run(command: &Command, db_path: &PathBuf) -> error::Result<String> {
                 }))?),
             }
         }
-        Command::Ui(args) => {
-            // UI command handles its own output (interactive)
-            match ui::handle(clone_ui_args(args))? {
-                ui::UiResult::Started { port, url } => Ok(
-                    serde_json::json!({ "started": true, "port": port, "url": url }).to_string(),
-                ),
-            }
-        }
         // PRECONDITION: Completions handled in main() before run() is called
         Command::Completions { .. } => unreachable!("completions handled before run()"),
     }
@@ -372,12 +348,5 @@ fn clone_data_cmd(cmd: &DataCommand) -> DataCommand {
         DataCommand::Export { output } => DataCommand::Export {
             output: output.clone(),
         },
-    }
-}
-
-fn clone_ui_args(args: &UiArgs) -> UiArgs {
-    UiArgs {
-        port: args.port,
-        no_open: args.no_open,
     }
 }
