@@ -226,6 +226,7 @@ jobs:
           for platform in darwin-arm64 darwin-x64 linux-arm64 linux-x64 linux-arm64-musl linux-x64-musl; do
             node npm/scripts/generate-platform-package.mjs $platform ${{ needs.validate.outputs.version }}
             cp artifacts/$platform/os npm/overseer-$platform/
+            chmod +x npm/overseer-$platform/os
           done
 
       - name: Publish platform packages
