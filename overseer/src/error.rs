@@ -8,7 +8,8 @@ use crate::vcs::VcsError;
 pub enum NotReadyReason {
     /// Task has incomplete children - must start the next ready child
     HasIncompleteChildren,
-    /// Task is blocked by other tasks
+    /// Task is blocked by other tasks (blockers field used for diagnostics/tests)
+    #[allow(dead_code)]
     Blocked { blockers: Vec<TaskId> },
     /// No ready tasks in subtree (all complete or blocked)
     NoReadyTasksInSubtree,

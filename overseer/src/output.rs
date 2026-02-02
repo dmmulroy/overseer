@@ -213,6 +213,9 @@ impl Printer {
             Command::Vcs(VcsCommand::Commit(_)) => {
                 self.print_vcs_commit(output);
             }
+            Command::Vcs(VcsCommand::Cleanup(_)) => {
+                self.print_vcs_cleanup(output);
+            }
             Command::Data(DataCommand::Export { .. }) => {
                 self.print_data_export(output);
             }
@@ -738,6 +741,50 @@ impl Printer {
     fn print_vcs_commit(&self, output: &str) {
         if let Ok(result) = serde_json::from_str::<crate::vcs::CommitResult>(output) {
             println!("Committed: {} - {}", result.id, result.message);
+        } else {
+            println!("{}", output);
+        }
+    }
+
+    fn print_vcs_cleanup(&self, output: &str) {
+        use crate::commands::vcs::{CleanupResult, OrphanReason};
+
+        if let Ok(result) = serde_json::from_str::<CleanupResult>(output) {
+            if result.orphaned.is_empty() {
+                println!("No orphaned branches found");
+                return;
+            }
+
+            println!("Orphaned branches:");
+            for branch in &result.orphaned {
+                let reason = match branch.reason {
+                    OrphanReason::TaskNotFound => "task deleted",
+                    OrphanReason::TaskCompleted => "task completed",
+                };
+                println!("  {} ({})", branch.name.style(self.colors.pending), reason);
+            }
+
+            if !result.deleted.is_empty() {
+                println!();
+                println!(
+                    "{} branches deleted",
+                    result.deleted.len().style(self.colors.completed)
+                );
+            } else if !result.orphaned.is_empty() {
+                println!();
+                println!(
+                    "Run with {} to delete orphaned branches",
+                    "--delete".style(self.colors.pending)
+                );
+            }
+
+            if !result.failed.is_empty() {
+                println!();
+                println!(
+                    "{} branches failed to delete",
+                    result.failed.len().style(self.colors.blocked)
+                );
+            }
         } else {
             println!("{}", output);
         }

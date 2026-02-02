@@ -75,7 +75,6 @@ task_metadata (
 **VCS field helpers**
 - `set_bookmark()`, `set_start_commit()`: Set on task start
 - `clear_bookmark()`: Clear after successful VCS bookmark deletion
-- `clear_vcs_fields()`: Clear all VCS fields (reserved for reopen)
 
 **Hierarchy helpers**
 - `get_children()`: Direct children only

@@ -24,11 +24,28 @@ use output::Printer;
 
 #[derive(Parser)]
 #[command(name = "os")]
-#[command(about = "Overseer - Agent task management CLI")]
+#[command(version)]
+#[command(
+    about = "Overseer - Agent task management CLI",
+    long_about = r#"
+Overseer (os) - Task orchestration for AI coding agents.
+
+Features:
+  • 3-level task hierarchy: milestone → task → subtask
+  • VCS integration (jj-first, git fallback)
+  • Dependency management with cycle detection
+  • Learning capture and inheritance
+
+Environment:
+  OVERSEER_DB_PATH  Override database location
+  NO_COLOR          Disable colored output
+"#
+)]
 struct Cli {
     #[command(subcommand)]
     command: Command,
 
+    /// Output in JSON format (for programmatic use)
     #[arg(long, global = true)]
     json: bool,
 
@@ -36,41 +53,99 @@ struct Cli {
     #[arg(long, global = true)]
     no_color: bool,
 
+    /// Override database path (default: VCS_ROOT/.overseer/tasks.db)
     #[arg(long, global = true)]
     db: Option<PathBuf>,
 }
 
 #[derive(Subcommand)]
 enum Command {
+    /// Task management (CRUD, workflow, queries)
     #[command(subcommand)]
     Task(TaskCommand),
 
+    /// Learning management
     #[command(subcommand)]
     Learning(LearningCommand),
 
+    /// VCS operations (detect, status, log, diff, commit)
     #[command(subcommand)]
     Vcs(VcsCommand),
 
+    /// Data import/export
     #[command(subcommand)]
     Data(DataCommand),
 
-    /// Launch the UI server
+    /// Launch the Task Viewer web UI
+    #[command(
+        about = "Launch Task Viewer web UI",
+        long_about = r#"
+Launch the Task Viewer web UI for visualizing tasks.
+
+Requires npm dependencies: cd ui && npm install
+
+Examples:
+  os ui                 # Start on default port 6969
+  os ui --port 8080     # Start on custom port
+  os ui --no-open       # Don't auto-open browser
+"#
+    )]
     Ui(UiArgs),
 
     /// Generate shell completions
+    #[command(
+        about = "Generate shell completions",
+        long_about = r#"
+Generate shell completions for os CLI.
+
+Examples:
+  os completions bash > ~/.local/share/bash-completion/completions/os
+  os completions zsh > ~/.zfunc/_os
+  os completions fish > ~/.config/fish/completions/os.fish
+  os completions powershell > os.ps1
+"#
+    )]
     Completions {
-        /// Shell to generate completions for
+        /// Shell to generate completions for (bash, zsh, fish, powershell, elvish)
         shell: Shell,
     },
 
+    /// Initialize database in current directory
+    #[command(
+        about = "Initialize database",
+        long_about = r#"
+Initialize the Overseer database.
+
+The database is created at:
+  1. OVERSEER_DB_PATH (if set)
+  2. VCS_ROOT/.overseer/tasks.db (if in jj/git repo)
+  3. CWD/.overseer/tasks.db (fallback)
+
+Usually runs automatically on first command.
+"#
+    )]
     Init,
 }
 
+/// Determine the default database path, anchored to the VCS root if found.
+///
+/// Resolution order:
+/// 1. OVERSEER_DB_PATH env var (if set)
+/// 2. VCS root (.jj or .git) -> .overseer/tasks.db
+/// 3. Fall back to current working directory -> .overseer/tasks.db
 fn default_db_path() -> PathBuf {
-    std::env::current_dir()
-        .unwrap_or_else(|_| PathBuf::from("."))
-        .join(".overseer")
-        .join("tasks.db")
+    // Check env override first
+    if let Ok(path) = std::env::var("OVERSEER_DB_PATH") {
+        return PathBuf::from(path);
+    }
+
+    let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
+
+    // Use VCS root if available (same detection as VCS module)
+    let (_, vcs_root) = vcs::detect_vcs_type(&cwd);
+    let base = vcs_root.unwrap_or(cwd);
+
+    base.join(".overseer").join("tasks.db")
 }
 
 fn main() {
@@ -152,13 +227,25 @@ fn run(command: &Command, db_path: &PathBuf) -> error::Result<String> {
                 LearningResult::Deleted => Ok(serde_json::json!({ "deleted": true }).to_string()),
             }
         }
-        Command::Vcs(cmd) => match vcs_cmd::handle(clone_vcs_cmd(cmd))? {
-            vcs_cmd::VcsResult::Info(info) => Ok(serde_json::to_string_pretty(&info)?),
-            vcs_cmd::VcsResult::Status(status) => Ok(serde_json::to_string_pretty(&status)?),
-            vcs_cmd::VcsResult::Log(log) => Ok(serde_json::to_string_pretty(&log)?),
-            vcs_cmd::VcsResult::Diff(diff) => Ok(serde_json::to_string_pretty(&diff)?),
-            vcs_cmd::VcsResult::Commit(result) => Ok(serde_json::to_string_pretty(&result)?),
-        },
+        Command::Vcs(cmd) => {
+            // Cleanup needs DB, other commands don't
+            let result = match &cmd {
+                VcsCommand::Cleanup(args) => {
+                    let conn = db::open_db(db_path)?;
+                    vcs_cmd::handle_cleanup(&conn, clone_cleanup_args(args))?
+                }
+                _ => vcs_cmd::handle(clone_vcs_cmd(cmd))?,
+            };
+
+            match result {
+                vcs_cmd::VcsResult::Info(info) => Ok(serde_json::to_string_pretty(&info)?),
+                vcs_cmd::VcsResult::Status(status) => Ok(serde_json::to_string_pretty(&status)?),
+                vcs_cmd::VcsResult::Log(log) => Ok(serde_json::to_string_pretty(&log)?),
+                vcs_cmd::VcsResult::Diff(diff) => Ok(serde_json::to_string_pretty(&diff)?),
+                vcs_cmd::VcsResult::Commit(result) => Ok(serde_json::to_string_pretty(&result)?),
+                vcs_cmd::VcsResult::Cleanup(result) => Ok(serde_json::to_string_pretty(&result)?),
+            }
+        }
         Command::Data(cmd) => {
             let conn = db::open_db(db_path)?;
             match data::handle(&conn, clone_data_cmd(cmd))? {
@@ -202,8 +289,8 @@ fn clone_task_cmd(cmd: &TaskCommand) -> TaskCommand {
             ready: args.ready,
             completed: args.completed,
             milestones: args.milestones,
-            tasks: args.tasks.clone(),
-            subtasks: args.subtasks.clone(),
+            tasks: args.tasks,
+            subtasks: args.subtasks,
             flat: args.flat,
         }),
         TaskCommand::Update(args) => TaskCommand::Update(task::UpdateArgs {
@@ -269,6 +356,14 @@ fn clone_vcs_cmd(cmd: &VcsCommand) -> VcsCommand {
         VcsCommand::Commit(args) => VcsCommand::Commit(vcs_cmd::CommitArgs {
             message: args.message.clone(),
         }),
+        // Cleanup handled separately via handle_cleanup()
+        VcsCommand::Cleanup(_) => unreachable!("cleanup handled separately"),
+    }
+}
+
+fn clone_cleanup_args(args: &vcs_cmd::CleanupArgs) -> vcs_cmd::CleanupArgs {
+    vcs_cmd::CleanupArgs {
+        delete: args.delete,
     }
 }
 

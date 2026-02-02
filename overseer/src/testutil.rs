@@ -45,11 +45,6 @@ pub trait TestRepo {
     fn file_exists(&self, relative_path: &str) -> bool {
         self.path().join(relative_path).exists()
     }
-
-    /// Creates a directory.
-    fn create_dir(&self, relative_path: &str) -> io::Result<()> {
-        fs::create_dir_all(self.path().join(relative_path))
-    }
 }
 
 /// A test jj repository backed by a temporary directory.
@@ -57,6 +52,7 @@ pub struct JjTestRepo {
     #[allow(dead_code)]
     tempdir: TempDir,
     root: PathBuf,
+    #[allow(dead_code)]
     settings: UserSettings,
 }
 
@@ -84,11 +80,13 @@ impl JjTestRepo {
     }
 
     /// Returns a boxed VcsBackend trait object.
+    #[allow(dead_code)]
     pub fn backend_boxed(&self) -> VcsResult<Box<dyn VcsBackend>> {
         Ok(Box::new(self.backend()?))
     }
 
     /// Loads the workspace and repo for direct jj-lib operations.
+    #[allow(dead_code)]
     pub fn load_repo(&self) -> VcsResult<(Workspace, Arc<ReadonlyRepo>)> {
         let workspace = Workspace::load(
             &self.settings,
@@ -191,13 +189,10 @@ impl GitTestRepo {
             .output()?;
 
         if !output.status.success() {
-            return Err(io::Error::new(
-                io::ErrorKind::Other,
-                format!(
-                    "git init failed: {}",
-                    String::from_utf8_lossy(&output.stderr)
-                ),
-            ));
+            return Err(io::Error::other(format!(
+                "git init failed: {}",
+                String::from_utf8_lossy(&output.stderr)
+            )));
         }
 
         // Configure user for commits
@@ -222,13 +217,10 @@ impl GitTestRepo {
             .output()?;
 
         if !output.status.success() {
-            return Err(io::Error::new(
-                io::ErrorKind::Other,
-                format!(
-                    "git add failed: {}",
-                    String::from_utf8_lossy(&output.stderr)
-                ),
-            ));
+            return Err(io::Error::other(format!(
+                "git add failed: {}",
+                String::from_utf8_lossy(&output.stderr)
+            )));
         }
         Ok(())
     }
@@ -243,13 +235,10 @@ impl GitTestRepo {
             .output()?;
 
         if !output.status.success() {
-            return Err(io::Error::new(
-                io::ErrorKind::Other,
-                format!(
-                    "git commit failed: {}",
-                    String::from_utf8_lossy(&output.stderr)
-                ),
-            ));
+            return Err(io::Error::other(format!(
+                "git commit failed: {}",
+                String::from_utf8_lossy(&output.stderr)
+            )));
         }
 
         // Get the commit hash
@@ -269,10 +258,7 @@ impl GitTestRepo {
             .output()?;
 
         if !output.status.success() {
-            return Err(io::Error::new(
-                io::ErrorKind::Other,
-                "git rev-parse HEAD failed",
-            ));
+            return Err(io::Error::other("git rev-parse HEAD failed"));
         }
 
         Ok(String::from_utf8_lossy(&output.stdout).trim().to_string())

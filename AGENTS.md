@@ -87,6 +87,7 @@ overseer/
 | Storage | SQLite | Concurrent access, queries |
 | VCS primary | jj-lib | Native perf, no spawn |
 | VCS fallback | gix | Pure Rust, no C deps |
+| VCS semantics | Unified stacking | Both jj & git behave identically |
 | IDs | ULID | Sortable, coordination-free |
 | Task hierarchy | 3 levels max | Milestone(0) -> Task(1) -> Subtask(2) |
 | Error pattern | `thiserror` | Ergonomic error handling |
@@ -128,8 +129,12 @@ Types must stay in sync between `overseer/src/types.rs`, `overseer/src/core/cont
 6. Learnings bubble to immediate parent on completion (preserves source_task_id)
 7. VCS required for workflow ops (start/complete) - fails with NotARepository or DirtyWorkingCopy
 8. VCS cleanup on delete is best-effort (logs warning, doesn't fail)
-9. VCS bookmark lifecycle: created on start, deleted on complete (best-effort), DB field cleared on success
-10. Milestone completion cleans ALL descendant bookmarks (depth-1 and depth-2), not just direct children
+9. VCS bookmark/branch lifecycle (unified stacking semantics):
+   - `start`: Create bookmark/branch at HEAD, checkout
+   - `complete`: Commit changes → checkout start_commit → delete bookmark/branch
+   - Both jj and git get identical behavior
+10. Milestone completion cleans ALL descendant bookmarks/branches (depth-1 and depth-2) PLUS milestone's own bookmark
+11. Blocker edges preserved on completion (not removed) - readiness computed from blocker's completed state
 
 ## CODEMODE PATTERN
 

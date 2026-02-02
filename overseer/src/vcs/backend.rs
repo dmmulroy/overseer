@@ -28,9 +28,6 @@ pub enum VcsError {
     #[error("Working copy has uncommitted changes")]
     DirtyWorkingCopy,
 
-    #[error("Rebase conflict")]
-    RebaseConflict,
-
     #[error("JJ error: {0}")]
     Jj(String),
 
@@ -117,10 +114,12 @@ pub struct CommitResult {
 }
 
 /// VCS backend trait - implemented by jj (primary) and git (fallback).
-/// Some methods are reserved for future use or testing only.
-#[allow(dead_code)]
 pub trait VcsBackend: Send + Sync {
+    /// Returns the VCS type (used in tests for backend verification)
+    #[allow(dead_code)]
     fn vcs_type(&self) -> VcsType;
+    /// Returns the repository root path (used in tests)
+    #[allow(dead_code)]
     fn root(&self) -> &str;
     fn status(&self) -> VcsResult<VcsStatus>;
     fn log(&self, limit: usize) -> VcsResult<Vec<LogEntry>>;
@@ -135,10 +134,6 @@ pub trait VcsBackend: Send + Sync {
 
     // Navigation
     fn checkout(&self, target: &str) -> VcsResult<()>;
-
-    // History rewriting (rebase-only, no merges)
-    fn squash(&self, message: &str) -> VcsResult<CommitResult>;
-    fn rebase_onto(&self, target: &str) -> VcsResult<()>;
 
     // Working copy safety
     fn is_clean(&self) -> VcsResult<bool> {

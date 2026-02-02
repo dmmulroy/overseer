@@ -303,17 +303,6 @@ pub fn remove_blocker(conn: &Connection, task_id: &TaskId, blocker_id: &TaskId) 
     )?;
     Ok(())
 }
-
-/// Remove completed task from all blocking relationships.
-/// Called when a task is completed to unblock dependent tasks.
-pub fn remove_blocker_from_all(conn: &Connection, blocker_id: &TaskId) -> Result<usize> {
-    let count = conn.execute(
-        "DELETE FROM task_blockers WHERE blocker_id = ?1",
-        params![blocker_id],
-    )?;
-    Ok(count)
-}
-
 pub fn task_exists(conn: &Connection, id: &TaskId) -> Result<bool> {
     let count: i32 = conn.query_row(
         "SELECT COUNT(*) FROM tasks WHERE id = ?1",
@@ -371,17 +360,6 @@ pub fn set_start_commit(conn: &Connection, id: &TaskId, start_commit: &str) -> R
     conn.execute(
         "UPDATE tasks SET start_commit = ?1, updated_at = ?2 WHERE id = ?3",
         params![start_commit, now_str, id],
-    )?;
-    Ok(())
-}
-
-/// Clear VCS fields when reopening a task (reserved for future use)
-#[allow(dead_code)]
-pub fn clear_vcs_fields(conn: &Connection, id: &TaskId) -> Result<()> {
-    let now_str = now().to_rfc3339();
-    conn.execute(
-        "UPDATE tasks SET bookmark = NULL, start_commit = NULL, commit_sha = NULL, updated_at = ?1 WHERE id = ?2",
-        params![now_str, id],
     )?;
     Ok(())
 }

@@ -58,11 +58,7 @@ fn find_ui_dir() -> Result<PathBuf> {
         }
     }
 
-    Err(IoError::new(
-        ErrorKind::NotFound,
-        "ui directory not found - ensure you're in the overseer workspace",
-    )
-    .into())
+    Err(IoError::new(ErrorKind::NotFound, "ui directory not found").into())
 }
 
 /// Spawn the UI dev server
@@ -72,15 +68,24 @@ fn spawn_server(ui_dir: &PathBuf, port: u16) -> Result<Child> {
     if !node_modules.exists() {
         return Err(IoError::new(
             ErrorKind::NotFound,
-            "ui/node_modules not found - run `npm install` in ui directory first",
+            "ui/node_modules not found - run npm install",
         )
         .into());
     }
 
-    // Spawn npm run dev with PORT env var
+    // Pass cwd to UI server so CLI uses correct database
+    // (UI runs from ui/ but should use db from where `os ui` was invoked)
+    let cli_cwd = std::env::current_dir()?;
+
+    // Pass path to this binary so UI uses the same CLI version
+    let cli_path = std::env::current_exe()?;
+
+    // Spawn npm run dev with PORT, OVERSEER_CLI_CWD, and OVERSEER_CLI_PATH env vars
     let child = Command::new("npm")
         .args(["run", "dev"])
         .env("PORT", port.to_string())
+        .env("OVERSEER_CLI_CWD", &cli_cwd)
+        .env("OVERSEER_CLI_PATH", &cli_path)
         .current_dir(ui_dir)
         .stdout(Stdio::piped())
         .stderr(Stdio::inherit())
@@ -94,7 +99,7 @@ fn wait_for_ready(child: &mut Child, port: u16) -> Result<String> {
     let stdout = child
         .stdout
         .take()
-        .ok_or_else(|| IoError::new(ErrorKind::Other, "Failed to capture stdout"))?;
+        .ok_or_else(|| IoError::other("Failed to capture stdout"))?;
 
     let reader = BufReader::new(stdout);
     let url = format!("http://localhost:{port}");
@@ -110,7 +115,7 @@ fn wait_for_ready(child: &mut Child, port: u16) -> Result<String> {
         }
     }
 
-    Err(IoError::new(ErrorKind::Other, "Server exited before becoming ready").into())
+    Err(IoError::other("Server exited before becoming ready").into())
 }
 
 pub fn handle(args: UiArgs) -> Result<UiResult> {

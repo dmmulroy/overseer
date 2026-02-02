@@ -171,6 +171,7 @@ os vcs status
 os vcs log [--limit N]
 os vcs diff [BASE_REV]
 os vcs commit -m "message"
+os vcs cleanup [--delete]  # List/delete orphaned task branches
 
 # Data
 os data export [-o file.json]
@@ -214,7 +215,12 @@ cd ui && npm install && npm run dev
 
 ## Storage
 
-SQLite database at `$CWD/.overseer/tasks.db`. Auto-created on first command.
+SQLite database location (in priority order):
+1. `OVERSEER_DB_PATH` env var (if set)
+2. `VCS_ROOT/.overseer/tasks.db` (if in jj/git repo)
+3. `$CWD/.overseer/tasks.db` (fallback)
+
+Auto-created on first command.
 
 ## VCS Detection
 

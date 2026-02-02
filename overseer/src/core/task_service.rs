@@ -200,8 +200,9 @@ impl<'a> TaskService<'a> {
 
         let mut task = task_repo::complete_task(self.conn, id, result, commit_sha.as_deref())?;
 
-        // Remove this task from all blocking relationships (unblock dependents)
-        task_repo::remove_blocker_from_all(self.conn, id)?;
+        // NOTE: Dependency edges are preserved on completion.
+        // Readiness is computed from completion state (blocker.completed), not edge removal.
+        // This allows reopen() to naturally re-block dependents without edge reconstruction.
 
         // Bubble all learnings (including newly added) to immediate parent
         if let Some(ref parent_id) = task.parent_id {
@@ -1421,7 +1422,7 @@ mod tests {
     }
 
     #[test]
-    fn test_complete_removes_from_blockers() {
+    fn test_complete_preserves_blocker_edges() {
         let conn = setup_db();
         let service = TaskService::new(&conn);
 
@@ -1459,13 +1460,56 @@ mod tests {
         assert_eq!(service.get(&task_b.id).unwrap().blocked_by.len(), 1);
         assert_eq!(service.get(&task_c.id).unwrap().blocked_by.len(), 1);
         assert_eq!(service.get(&blocker.id).unwrap().blocks.len(), 2);
+        assert!(service.get(&task_b.id).unwrap().effectively_blocked);
+        assert!(service.get(&task_c.id).unwrap().effectively_blocked);
 
         // Complete blocker
         service.complete(&blocker.id, None).unwrap();
 
-        // Verify cleanup
-        assert!(service.get(&task_b.id).unwrap().blocked_by.is_empty());
-        assert!(service.get(&task_c.id).unwrap().blocked_by.is_empty());
-        assert!(service.get(&blocker.id).unwrap().blocks.is_empty());
+        // Edges are preserved (for historical DAG and reopen semantics)
+        assert_eq!(service.get(&task_b.id).unwrap().blocked_by.len(), 1);
+        assert_eq!(service.get(&task_c.id).unwrap().blocked_by.len(), 1);
+        assert_eq!(service.get(&blocker.id).unwrap().blocks.len(), 2);
+
+        // But tasks are no longer effectively blocked (blocker is completed)
+        assert!(!service.get(&task_b.id).unwrap().effectively_blocked);
+        assert!(!service.get(&task_c.id).unwrap().effectively_blocked);
+    }
+
+    #[test]
+    fn test_reopen_reblocks_dependents() {
+        let conn = setup_db();
+        let service = TaskService::new(&conn);
+
+        let blocker = service
+            .create(&CreateTaskInput {
+                description: "Blocker".to_string(),
+                context: None,
+                parent_id: None,
+                priority: Some(5),
+                blocked_by: vec![],
+            })
+            .unwrap();
+
+        let dependent = service
+            .create(&CreateTaskInput {
+                description: "Dependent".to_string(),
+                context: None,
+                parent_id: None,
+                priority: Some(5),
+                blocked_by: vec![blocker.id.clone()],
+            })
+            .unwrap();
+
+        // Initially blocked
+        assert!(service.get(&dependent.id).unwrap().effectively_blocked);
+
+        // Complete blocker - dependent becomes unblocked
+        service.complete(&blocker.id, None).unwrap();
+        assert!(!service.get(&dependent.id).unwrap().effectively_blocked);
+
+        // Reopen blocker - dependent becomes blocked again (edge preserved!)
+        service.reopen(&blocker.id).unwrap();
+        assert!(service.get(&dependent.id).unwrap().effectively_blocked);
     }
 }

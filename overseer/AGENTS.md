@@ -20,8 +20,8 @@ src/
 ├── vcs/
 │   ├── detection.rs     # Detect .jj/ vs .git/
 │   ├── backend.rs       # VcsBackend trait, types
-│   ├── jj.rs            # jj-lib (primary, 754 lines)
-│   └── git.rs           # gix (fallback, 854 lines)
+│   ├── jj.rs            # jj-lib (primary, ~650 lines)
+│   └── git.rs           # gix (fallback, ~730 lines)
 ├── error.rs          # OsError enum (thiserror)
 ├── types.rs          # Task, CreateTaskInput, filters
 └── id.rs             # TaskId, LearningId (prefixed ULIDs)

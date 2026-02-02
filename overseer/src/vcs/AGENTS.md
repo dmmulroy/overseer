@@ -9,20 +9,34 @@ Native VCS backends: jj-lib (primary), gix (fallback). No subprocess spawning fo
 | `mod.rs` | - | Public API: `get_backend()`, `detect()`, re-exports |
 | `backend.rs` | - | `VcsBackend` trait, error types, data structs |
 | `detection.rs` | - | `detect_vcs_type()`: walks up dirs, `.jj/` before `.git/` |
-| `jj.rs` | 754 | `JjBackend`: jj-lib native, sync via pollster |
-| `git.rs` | 854 | `GixBackend`: gix for read ops, git CLI for commits |
+| `jj.rs` | ~650 | `JjBackend`: jj-lib native, sync via pollster |
+| `git.rs` | ~730 | `GixBackend`: gix for read ops, git CLI for commits |
 
 ## KEY OPERATIONS
 
-### jj.rs
-- `commit()`: Rewrite commit + rebase descendants + new working copy (lines 197-259)
-- `squash()`: Parent rewrite with tree from working copy (lines 377-435)
-- `resolve_to_commit_id()`: Bookmark/change ID resolution (lines 487-523)
+### Common (both backends)
+- `status()`: Working copy status (modified, added, deleted files)
+- `log()`: Commit history with change IDs
+- `commit()`: Snapshot working copy changes
+- `create_bookmark()` / `delete_bookmark()`: Branch/bookmark management
+- `checkout()`: Switch working copy to target
+- `current_commit_id()`: Get HEAD/working copy commit ID
+- `list_bookmarks()`: List branches/bookmarks with optional prefix filter
 
-### git.rs
+### jj.rs specifics
+- `commit()`: Rewrite commit + rebase descendants + new working copy
+- `resolve_to_commit_id()`: Bookmark/change ID resolution
+
+### git.rs specifics
 - `status()`: gix status API with staged/worktree change detection
-- `squash()`: Git reset --soft + recommit workflow (lines 458-542)
-- `rebase_onto()`: Rebase with conflict detection/abort (lines 544-581)
+- Uses git CLI for `commit()` - gix staging API unstable
+
+## UNIFIED STACKING SEMANTICS
+
+Both jj and git backends implement identical workflow behavior:
+- **start**: Create bookmark/branch at HEAD, checkout
+- **complete**: Commit → checkout start_commit → delete bookmark/branch
+- This solves git's "cannot delete checked-out branch" error
 
 ## CONVENTIONS
 

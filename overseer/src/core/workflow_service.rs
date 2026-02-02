@@ -188,6 +188,8 @@ impl<'a> TaskWorkflowService<'a> {
         self.start(&target)
     }
 
+    /// Convenience method for completing without learnings.
+    #[allow(dead_code)] // Used in tests
     pub fn complete(&self, id: &TaskId, result: Option<&str>) -> Result<Task> {
         self.complete_with_learnings(id, result, &[])
     }
@@ -226,13 +228,33 @@ impl<'a> TaskWorkflowService<'a> {
             .task_service
             .complete_with_learnings(id, result, learnings)?;
 
-        // 3. Best-effort cleanup: delete task's bookmark
+        // 3. Best-effort cleanup: checkout safe target then delete bookmark/branch
+        // Unified stacking semantics: both jj and git get same behavior
+        // Checkout first solves git's "cannot delete checked-out branch" error
         if let Some(ref bookmark) = task.bookmark {
-            if let Err(e) = self.vcs.delete_bookmark(bookmark) {
-                eprintln!("warn: failed to delete bookmark {}: {}", bookmark, e);
+            // Find checkout target: prefer start_commit, fallback to current HEAD
+            let checkout_target = task
+                .start_commit
+                .clone()
+                .or_else(|| self.vcs.current_commit_id().ok());
+
+            if let Some(ref target) = checkout_target {
+                if let Err(e) = self.vcs.checkout(target) {
+                    eprintln!(
+                        "warn: failed to checkout {}: {} - skipping branch cleanup",
+                        target, e
+                    );
+                } else if let Err(e) = self.vcs.delete_bookmark(bookmark) {
+                    eprintln!("warn: failed to delete bookmark {}: {}", bookmark, e);
+                } else {
+                    // Clear bookmark field in DB after successful VCS deletion
+                    let _ = task_repo::clear_bookmark(self.conn, id);
+                }
             } else {
-                // Clear bookmark field in DB after successful VCS deletion
-                let _ = task_repo::clear_bookmark(self.conn, id);
+                eprintln!(
+                    "warn: no checkout target available - skipping branch cleanup for {}",
+                    bookmark
+                );
             }
         }
 
@@ -332,8 +354,33 @@ impl<'a> TaskWorkflowService<'a> {
             .task_service
             .complete_with_learnings(id, result, learnings)?;
 
-        // Best-effort cleanup: delete ALL descendant bookmarks (not just direct children)
+        // Best-effort cleanup: delete ALL descendant bookmarks
+        // Unified stacking semantics: both jj and git get same behavior
+        // For milestone, we need to checkout a safe commit first, then clean all descendants
         let descendants = task_repo::get_all_descendants(self.conn, id)?;
+
+        // Find checkout target: prefer milestone's start_commit, then descendant's, then HEAD
+        let checkout_target = task
+            .start_commit
+            .clone()
+            .or_else(|| descendants.iter().find_map(|d| d.start_commit.clone()))
+            .or_else(|| self.vcs.current_commit_id().ok());
+
+        if let Some(ref target) = checkout_target {
+            if let Err(e) = self.vcs.checkout(target) {
+                eprintln!(
+                    "warn: failed to checkout {}: {} - skipping branch cleanup",
+                    target, e
+                );
+                return Ok(completed_task);
+            }
+        } else {
+            // No checkout target available - skip branch cleanup entirely
+            // This matches single-task behavior for consistency
+            eprintln!("warn: no checkout target available - skipping milestone branch cleanup");
+            return Ok(completed_task);
+        }
+
         for descendant in descendants.iter() {
             if let Some(ref bookmark) = descendant.bookmark {
                 if let Err(e) = self.vcs.delete_bookmark(bookmark) {
@@ -342,6 +389,18 @@ impl<'a> TaskWorkflowService<'a> {
                     // Clear bookmark field in DB after successful VCS deletion
                     let _ = task_repo::clear_bookmark(self.conn, &descendant.id);
                 }
+            }
+        }
+
+        // Also clean up milestone's own bookmark (if started as leaf before children added)
+        if let Some(ref bookmark) = task.bookmark {
+            if let Err(e) = self.vcs.delete_bookmark(bookmark) {
+                eprintln!(
+                    "warn: failed to delete milestone bookmark {}: {}",
+                    bookmark, e
+                );
+            } else {
+                let _ = task_repo::clear_bookmark(self.conn, id);
             }
         }
 
@@ -404,15 +463,6 @@ mod tests {
             Ok(vec![])
         }
         fn checkout(&self, _target: &str) -> VcsResult<()> {
-            Ok(())
-        }
-        fn squash(&self, message: &str) -> VcsResult<CommitResult> {
-            Ok(CommitResult {
-                id: "mock-squash-id".to_string(),
-                message: message.to_string(),
-            })
-        }
-        fn rebase_onto(&self, _target: &str) -> VcsResult<()> {
             Ok(())
         }
     }
@@ -1176,7 +1226,7 @@ mod tests {
         // Start task
         let first_start = service.start(&task.id).unwrap();
         assert!(first_start.started_at.is_some());
-        let first_started_at = first_start.started_at.clone();
+        let first_started_at = first_start.started_at;
 
         // Start again - should be idempotent
         let second_start = service.start(&task.id).unwrap();

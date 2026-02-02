@@ -542,6 +542,46 @@ os vcs commit -m "Commit message"
 }
 ```
 
+### `os vcs cleanup`
+
+Clean up orphaned task branches/bookmarks.
+
+```bash
+os vcs cleanup [--delete]
+```
+
+**Options:**
+- `--delete`: Actually delete orphaned branches (default is dry-run/list only)
+
+**Behavior:**
+- Lists branches matching `task/*` pattern where:
+  - Task no longer exists in database, OR
+  - Task is completed (branch wasn't cleaned up)
+- Validates branch names against TaskId format (skips invalid)
+- Without `--delete`: reports orphaned branches only
+- With `--delete`: attempts deletion, reports failures
+
+**Output:**
+```json
+{
+  "orphaned": [
+    { "name": "task/task_01JQAZ...", "reason": "taskNotFound" },
+    { "name": "task/task_01JQBA...", "reason": "taskCompleted" }
+  ],
+  "deleted": ["task/task_01JQAZ..."],
+  "failed": []
+}
+```
+
+**Examples:**
+```bash
+# List orphaned branches (dry-run)
+os vcs cleanup
+
+# Delete orphaned branches
+os vcs cleanup --delete
+```
+
 ## JSON Output Mode
 
 All commands support `--json` flag for machine-readable output:

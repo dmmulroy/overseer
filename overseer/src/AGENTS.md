@@ -48,7 +48,7 @@ main.rs (clap parse)
 
 | File | Lines | Key Algorithms |
 |------|-------|----------------|
-| `core/task_service.rs` | 1471 | DFS cycles, next_ready, resolve_start_target |
-| `core/workflow_service.rs` | 1208 | Complete with learnings, bubble_up_completion |
-| `vcs/git.rs` | 854 | squash(), rebase_onto() |
-| `vcs/jj.rs` | 754 | commit(), squash() with rebase_descendants |
+| `core/task_service.rs` | ~1500 | DFS cycles, next_ready, resolve_start_target |
+| `core/workflow_service.rs` | ~1250 | Complete with learnings, bubble_up_completion, unified VCS cleanup |
+| `vcs/git.rs` | ~730 | status(), commit(), bookmark management |
+| `vcs/jj.rs` | ~650 | commit() with rebase_descendants, bookmark resolution |
