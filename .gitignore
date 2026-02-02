@@ -21,10 +21,6 @@ Thumbs.db
 *.log
 npm-debug.log*
 
-# Local data/state
-.overseer/
-.overseer.db
-.overseer.bak/
 
 # Test artifacts
 test-results/
