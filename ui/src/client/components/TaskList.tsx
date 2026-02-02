@@ -59,10 +59,24 @@ function getStatusLabel(task: Task): string {
 export function TaskList({ tasks, selectedId, onSelect }: TaskListProps) {
   const [filter, setFilter] = useState<FilterType>("all");
   const [focusedIndex, setFocusedIndex] = useState<number>(0);
+  const [collapsedIds, setCollapsedIds] = useState<Set<TaskId>>(new Set());
   const listRef = useRef<HTMLDivElement>(null);
   const itemRefs = useRef<Map<number, HTMLButtonElement>>(new Map());
   const scopeProps = useKeyboardScope("list");
   const changedTaskIds = useChangedTasks(tasks);
+
+  // Toggle collapse state for a task
+  const toggleCollapse = useCallback((id: TaskId) => {
+    setCollapsedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) {
+        next.delete(id);
+      } else {
+        next.add(id);
+      }
+      return next;
+    });
+  }, []);
 
   // Build parent->children map for hierarchy
   const tasksByParent = useMemo(() => {
@@ -120,6 +134,7 @@ export function TaskList({ tasks, selectedId, onSelect }: TaskListProps) {
   }, [tasks, filter]);
 
   // Build flat list of visible tasks in tree order for keyboard navigation
+  // Respects collapsed state - children of collapsed nodes are not traversed
   const flatVisibleTasks = useMemo(() => {
     const result: Task[] = [];
 
@@ -128,14 +143,17 @@ export function TaskList({ tasks, selectedId, onSelect }: TaskListProps) {
       for (const child of children) {
         if (visibleTaskIds.has(child.id)) {
           result.push(child);
-          traverse(child.id);
+          // Only traverse children if this node is not collapsed
+          if (!collapsedIds.has(child.id)) {
+            traverse(child.id);
+          }
         }
       }
     }
 
     traverse(null);
     return result;
-  }, [tasksByParent, visibleTaskIds]);
+  }, [tasksByParent, visibleTaskIds, collapsedIds]);
 
   // Precompute taskId -> index map for O(1) lookup in TaskTreeNode
   const indexById = useMemo(
@@ -223,6 +241,26 @@ export function TaskList({ tasks, selectedId, onSelect }: TaskListProps) {
     }
   }, [flatVisibleTasks, focusedIndex, onSelect]);
 
+  // Collapse focused task (h key)
+  const collapseFocused = useCallback(() => {
+    const task = flatVisibleTasks[focusedIndex];
+    if (task && !collapsedIds.has(task.id)) {
+      // Only collapse if it has children
+      const children = tasksByParent.get(task.id);
+      if (children && children.length > 0) {
+        toggleCollapse(task.id);
+      }
+    }
+  }, [flatVisibleTasks, focusedIndex, collapsedIds, tasksByParent, toggleCollapse]);
+
+  // Expand focused task (l key)
+  const expandFocused = useCallback(() => {
+    const task = flatVisibleTasks[focusedIndex];
+    if (task && collapsedIds.has(task.id)) {
+      toggleCollapse(task.id);
+    }
+  }, [flatVisibleTasks, focusedIndex, collapsedIds, toggleCollapse]);
+
   // Register keyboard shortcuts (j/k for vim users, arrows for accessibility)
   useKeyboardShortcuts(
     () => [
@@ -256,8 +294,32 @@ export function TaskList({ tasks, selectedId, onSelect }: TaskListProps) {
         scope: "list",
         handler: selectFocused,
       },
+      {
+        key: "h",
+        description: "Collapse subtree",
+        scope: "list",
+        handler: collapseFocused,
+      },
+      {
+        key: "l",
+        description: "Expand subtree",
+        scope: "list",
+        handler: expandFocused,
+      },
+      {
+        key: "ArrowLeft",
+        description: "Collapse subtree",
+        scope: "list",
+        handler: collapseFocused,
+      },
+      {
+        key: "ArrowRight",
+        description: "Expand subtree",
+        scope: "list",
+        handler: expandFocused,
+      },
     ],
-    [moveDown, moveUp, selectFocused]
+    [moveDown, moveUp, selectFocused, collapseFocused, expandFocused]
   );
 
   const filterButtons: { type: FilterType; label: string }[] = [
@@ -316,19 +378,21 @@ export function TaskList({ tasks, selectedId, onSelect }: TaskListProps) {
             No tasks match filter
           </div>
         ) : (
-          <div className="space-y-0.5">
+          <div>
             {visibleMilestones.map((milestone, idx) => (
               <TaskTreeNode
                 key={milestone.id}
                 task={milestone}
                 tasksByParent={tasksByParent}
                 visibleTaskIds={visibleTaskIds}
+                collapsedIds={collapsedIds}
                 selectedId={selectedId}
                 focusedIndex={focusedIndex}
                 indexById={indexById}
                 changedTaskIds={changedTaskIds}
                 onSelect={onSelect}
                 onFocus={setFocusedIndex}
+                onToggleCollapse={toggleCollapse}
                 itemRefs={itemRefs}
                 depth={0}
                 isLast={idx === visibleMilestones.length - 1}
@@ -342,6 +406,7 @@ export function TaskList({ tasks, selectedId, onSelect }: TaskListProps) {
       {/* Navigation hint */}
       <div className="px-2 py-1 border-t border-border text-xs text-text-dim font-mono">
         <span className="opacity-70">j/k</span> navigate{" "}
+        <span className="opacity-70">h/l</span> collapse/expand{" "}
         <span className="opacity-70">Enter</span> select
       </div>
     </div>
@@ -352,12 +417,14 @@ interface TaskTreeNodeProps {
   task: Task;
   tasksByParent: Map<TaskId | null, Task[]>;
   visibleTaskIds: Set<TaskId>;
+  collapsedIds: Set<TaskId>;
   selectedId: TaskId | null;
   focusedIndex: number;
   indexById: Map<TaskId, number>;
   changedTaskIds: Set<TaskId>;
   onSelect: (id: TaskId) => void;
   onFocus: (index: number) => void;
+  onToggleCollapse: (id: TaskId) => void;
   itemRefs: React.MutableRefObject<Map<number, HTMLButtonElement>>;
   depth: number;
   /** Whether this is the last sibling at its level */
@@ -367,36 +434,30 @@ interface TaskTreeNodeProps {
 }
 
 /**
- * Build the tree prefix string for ASCII tree rendering.
- * Uses box-drawing characters: ├── │   └──
+ * Configuration for CSS-based tree line rendering.
+ * Returns data about which lines to draw at each depth level.
  */
-function getTreePrefix(
-  depth: number,
-  isLast: boolean,
-  ancestorHasMore: boolean[]
-): string {
-  if (depth === 0) return "";
-
-  let prefix = "";
-  // Draw vertical lines for ancestors that have more siblings
-  for (let i = 0; i < depth - 1; i++) {
-    prefix += ancestorHasMore[i] ? "│   " : "    ";
-  }
-  // Draw connector for current level
-  prefix += isLast ? "└── " : "├── ";
-  return prefix;
+interface TreeLineConfig {
+  /** Which depth levels need a continuous vertical line (ancestor has more siblings) */
+  verticalLines: boolean[];
+  /** Is this the last sibling at its level (use └ instead of ├) */
+  isLast: boolean;
+  /** Depth of this node */
+  depth: number;
 }
 
 function TaskTreeNode({
   task,
   tasksByParent,
   visibleTaskIds,
+  collapsedIds,
   selectedId,
   focusedIndex,
   indexById,
   changedTaskIds,
   onSelect,
   onFocus,
+  onToggleCollapse,
   itemRefs,
   depth,
   isLast,
@@ -409,7 +470,15 @@ function TaskTreeNode({
   const isFocused = taskIndex === focusedIndex;
   const isSelected = selectedId === task.id;
   const isChanged = changedTaskIds.has(task.id);
-  const treePrefix = getTreePrefix(depth, isLast, ancestorHasMore);
+  const hasChildren = children.length > 0;
+  const isCollapsed = collapsedIds.has(task.id);
+  
+  // Tree line config for CSS-based rendering
+  const treeLineConfig: TreeLineConfig = {
+    verticalLines: ancestorHasMore,
+    isLast,
+    depth,
+  };
 
   return (
     <div>
@@ -419,13 +488,15 @@ function TaskTreeNode({
         isFocused={isFocused}
         isChanged={isChanged}
         taskIndex={taskIndex}
+        hasChildren={hasChildren}
+        isCollapsed={isCollapsed}
         onSelect={onSelect}
         onFocus={onFocus}
+        onToggleCollapse={onToggleCollapse}
         itemRefs={itemRefs}
-        depth={depth}
-        treePrefix={treePrefix}
+        treeLineConfig={treeLineConfig}
       />
-      {children.length > 0 && (
+      {hasChildren && !isCollapsed && (
         <div>
           {children.map((child, idx) => (
             <TaskTreeNode
@@ -433,12 +504,14 @@ function TaskTreeNode({
               task={child}
               tasksByParent={tasksByParent}
               visibleTaskIds={visibleTaskIds}
+              collapsedIds={collapsedIds}
               selectedId={selectedId}
               focusedIndex={focusedIndex}
               indexById={indexById}
               changedTaskIds={changedTaskIds}
               onSelect={onSelect}
               onFocus={onFocus}
+              onToggleCollapse={onToggleCollapse}
               itemRefs={itemRefs}
               depth={depth + 1}
               isLast={idx === children.length - 1}
@@ -457,12 +530,19 @@ interface TaskItemProps {
   isFocused: boolean;
   isChanged: boolean;
   taskIndex: number;
+  hasChildren: boolean;
+  isCollapsed: boolean;
   onSelect: (id: TaskId) => void;
   onFocus: (index: number) => void;
+  onToggleCollapse: (id: TaskId) => void;
   itemRefs: React.MutableRefObject<Map<number, HTMLButtonElement>>;
-  depth: number;
-  treePrefix: string;
+  treeLineConfig: TreeLineConfig;
 }
+
+/** Width of each indent level in pixels (4 characters at ~8px each) */
+const INDENT_WIDTH = 32;
+/** Horizontal offset for the branch line start */
+const BRANCH_OFFSET = 12;
 
 function TaskItem({
   task,
@@ -470,12 +550,15 @@ function TaskItem({
   isFocused,
   isChanged,
   taskIndex,
+  hasChildren,
+  isCollapsed,
   onSelect,
   onFocus,
+  onToggleCollapse,
   itemRefs,
-  depth,
-  treePrefix,
+  treeLineConfig,
 }: TaskItemProps) {
+  const { depth, isLast, verticalLines } = treeLineConfig;
   const statusVariant = getStatusVariant(task);
   const statusLabel = getStatusLabel(task);
   const depthLabel = getDepthLabel(depth);
@@ -491,6 +574,17 @@ function TaskItem({
     [taskIndex]
   );
 
+  const handleToggleCollapse = useCallback(
+    (e: React.MouseEvent) => {
+      e.stopPropagation();
+      onToggleCollapse(task.id);
+    },
+    [onToggleCollapse, task.id]
+  );
+
+  // Calculate total indent width for the tree prefix area
+  const treeWidth = depth > 0 ? depth * INDENT_WIDTH : 0;
+
   return (
     <button
       ref={handleRef}
@@ -500,22 +594,72 @@ function TaskItem({
       onClick={() => onSelect(task.id)}
       onMouseEnter={() => onFocus(taskIndex)}
       className={`
-        w-full text-left p-2 rounded transition-colors motion-reduce:transition-none
-        ${isSelected ? "bg-surface-secondary" : "hover:bg-surface-primary"}
+        relative w-full text-left py-1 px-2 transition-colors motion-reduce:transition-none
+        ${isSelected ? "bg-surface-secondary ring-2 ring-inset ring-accent" : "hover:bg-surface-primary"}
         ${isChanged ? "animate-flash-change" : ""}
-        focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-1 focus-visible:ring-offset-bg-primary
+        focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent
       `}
     >
+      {/* CSS-based tree lines - positioned absolutely to span full row height */}
+      {depth > 0 && (
+        <div 
+          className="absolute left-2 top-0 bottom-0 pointer-events-none"
+          style={{ width: treeWidth + BRANCH_OFFSET }}
+          aria-hidden="true"
+        >
+          {/* Vertical continuation lines for ancestors that have more siblings */}
+          {/* verticalLines[i] = whether ancestor at depth i has more siblings */}
+          {/* Draw at position (i-1)*INDENT to show continuation at that ancestor's branch point */}
+          {verticalLines.slice(1, depth).map((hasMore, i) =>
+            hasMore ? (
+              <div
+                key={i}
+                className="absolute top-0 bottom-0 w-px bg-text-dim"
+                style={{ left: i * INDENT_WIDTH + BRANCH_OFFSET }}
+              />
+            ) : null
+          )}
+          {/* Vertical line for current level - extends from top to center (or bottom if not last) */}
+          <div
+            className="absolute w-px bg-text-dim"
+            style={{
+              left: (depth - 1) * INDENT_WIDTH + BRANCH_OFFSET,
+              top: 0,
+              bottom: isLast ? "50%" : 0,
+            }}
+          />
+          {/* Horizontal branch line from vertical toward chevron (with small gap) */}
+          <div
+            className="absolute h-px bg-text-dim"
+            style={{
+              left: (depth - 1) * INDENT_WIDTH + BRANCH_OFFSET,
+              right: 6,
+              top: "50%",
+            }}
+          />
+        </div>
+      )}
+
       <div className="flex items-center gap-2">
-        {/* Tree prefix (box-drawing characters) */}
-        {treePrefix && (
-          <span 
-            className="text-text-dim font-mono text-sm select-none whitespace-pre flex-shrink-0"
-            aria-hidden="true"
+        {/* Spacer for tree indent + chevron area - chevron centered at treeWidth + BRANCH_OFFSET */}
+        <span
+          className="flex-shrink-0 flex items-center justify-end"
+          style={{ width: treeWidth + BRANCH_OFFSET + 8 }}
+        >
+          <span
+            className={`
+              inline-flex items-center justify-center w-4 h-4 text-text-dim text-sm
+              ${hasChildren ? "cursor-pointer hover:text-text-muted" : ""}
+            `}
+            onClick={hasChildren ? handleToggleCollapse : undefined}
+            role={hasChildren ? "button" : undefined}
+            tabIndex={hasChildren ? -1 : undefined}
+            aria-label={hasChildren ? (isCollapsed ? "Expand subtree" : "Collapse subtree") : undefined}
+            aria-expanded={hasChildren ? !isCollapsed : undefined}
           >
-            {treePrefix}
+            {hasChildren ? (isCollapsed ? "▸" : "▾") : null}
           </span>
-        )}
+        </span>
 
         {/* Type label */}
         <span className="text-[10px] font-mono text-text-dim uppercase tracking-wider w-16 flex-shrink-0">
