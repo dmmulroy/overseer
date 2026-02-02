@@ -21,6 +21,7 @@
   /* Status (semantic) */
   --color-status-pending: oklch(0.55 0 0);    /* Neutral gray */
   --color-status-active: oklch(0.7 0.18 45);  /* Orange - pulsing */
+  --color-status-active-glow: oklch(0.7 0.18 45 / 0.4); /* Active glow (40% opacity) */
   --color-status-blocked: oklch(0.65 0.2 25); /* Red-orange */
   --color-status-done: oklch(0.65 0.12 145);  /* Teal-green */
 
@@ -137,10 +138,12 @@ pre,
   0%, 100% {
     opacity: 1;
     transform: scale(1);
+    box-shadow: none;
   }
   50% {
     opacity: 0.6;
-    transform: scale(1.15);
+    transform: scale(1.25);
+    box-shadow: 0 0 8px 4px var(--color-status-active-glow);
   }
 }
 
@@ -148,8 +151,22 @@ pre,
   animation: pulse-active 2s ease-in-out infinite;
 }
 
-/* Task change flash animation (M1 fix: use theme token) */
+/* Task change flash animation */
 @keyframes flash-change {
+  0% {
+    background-color: var(--color-accent-subtle);
+  }
+  100% {
+    background-color: var(--color-surface-primary);
+  }
+}
+
+.animate-flash-change {
+  animation: flash-change 1s ease-out;
+}
+
+/* Task change flash for transparent-base elements (e.g. list rows) */
+@keyframes flash-change-transparent {
   0% {
     background-color: var(--color-accent-subtle);
   }
@@ -158,8 +175,8 @@ pre,
   }
 }
 
-.animate-flash-change {
-  animation: flash-change 1s ease-out forwards;
+.animate-flash-change-transparent {
+  animation: flash-change-transparent 1s ease-out;
 }
 
 /* Connection status pulse for disconnected state */
@@ -181,6 +198,7 @@ pre,
   .graph-edge-blocker,
   .animate-pulse-active,
   .animate-flash-change,
+  .animate-flash-change-transparent,
   .animate-pulse-error {
     animation: none;
   }

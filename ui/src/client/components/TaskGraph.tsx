@@ -21,10 +21,10 @@ import { Badge } from "./ui/Badge.js";
 
 import "@xyflow/react/dist/style.css";
 
-// Node dimensions - slightly larger for industrial style
+// Node dimensions - fixed sizes that dagre uses for layout
+// Single height for all nodes (collapsed/expanded same) - simpler, no re-layout needed
 const NODE_WIDTH = 300;
-const NODE_HEIGHT = 90;
-const NODE_HEIGHT_COLLAPSED = 70;
+const NODE_HEIGHT = 128;
 
 // Edge data with typed kind
 interface TaskEdgeData extends Record<string, unknown> {
@@ -67,6 +67,13 @@ interface TaskGraphProps {
 const VIRTUAL_ROOT_ID = "__root__";
 
 /**
+ * Get node height - always returns same value for layout stability.
+ */
+function getNodeHeight(_node: TaskNode): number {
+  return NODE_HEIGHT;
+}
+
+/**
  * Apply dagre layout to nodes and edges.
  * Uses LR (left-to-right) layout: milestones on left, tasks in middle, subtasks on right.
  * Siblings stack vertically, making tree structure clear.
@@ -82,7 +89,7 @@ function getLayoutedElements(
   const dagreGraph = new dagre.graphlib.Graph().setDefaultEdgeLabel(() => ({}));
   dagreGraph.setGraph({
     rankdir: "LR", // Left-to-right: shows hierarchy horizontally
-    nodesep: 24, // Vertical spacing between siblings
+    nodesep: 20, // Vertical spacing between siblings
     ranksep: 80, // Horizontal spacing between hierarchy levels
     marginx: 24,
     marginy: 24,
@@ -96,12 +103,9 @@ function getLayoutedElements(
     dagreGraph.setNode(VIRTUAL_ROOT_ID, { width: 0, height: 0 });
   }
 
-  // Add all task nodes with appropriate height
+  // Add all task nodes with fixed dimensions (must match DOM)
   nodes.forEach((node) => {
-    const height =
-      node.data.isCollapsed && node.data.hiddenDescendantCount > 0
-        ? NODE_HEIGHT_COLLAPSED
-        : NODE_HEIGHT;
+    const height = getNodeHeight(node);
     dagreGraph.setNode(node.id, { width: NODE_WIDTH, height });
   });
 
@@ -128,10 +132,7 @@ function getLayoutedElements(
 
   const layoutedNodes = nodes.map((node) => {
     const nodeWithPosition = dagreGraph.node(node.id);
-    const height =
-      node.data.isCollapsed && node.data.hiddenDescendantCount > 0
-        ? NODE_HEIGHT_COLLAPSED
-        : NODE_HEIGHT;
+    const height = getNodeHeight(node);
     return {
       ...node,
       // LR layout: handles on left/right instead of top/bottom
@@ -380,7 +381,7 @@ const TaskNodeComponent = memo(function TaskNodeComponent({
       <div
         className={`
           border p-3 transition-colors motion-reduce:transition-none
-          bg-surface-primary
+          bg-surface-primary flex flex-col gap-2 overflow-hidden
           ${
             selected
               ? "border-accent shadow-[0_0_0_1px_var(--color-accent)]"
@@ -389,17 +390,17 @@ const TaskNodeComponent = memo(function TaskNodeComponent({
                 : "border-border hover:border-border-hover"
           }
         `}
-        style={{ width: NODE_WIDTH }}
+        style={{ width: NODE_WIDTH, height: NODE_HEIGHT }}
         data-task-id={task.id}
       >
-        {/* Header row */}
-        <div className="flex items-center justify-between gap-2 mb-2">
-          <div className="flex items-center gap-2">
+        {/* Header (fixed height, never grows) */}
+        <div className="flex shrink-0 min-w-0 items-center justify-between gap-2">
+          <div className="flex min-w-0 items-center gap-2">
             {/* Collapse/expand button for nodes with children */}
             {hasChildren && (
               <button
                 onClick={handleToggle}
-                className="w-5 h-5 flex items-center justify-center hover:bg-surface-secondary text-text-muted hover:text-text-primary transition-colors motion-reduce:transition-none"
+                className="w-5 h-5 shrink-0 flex items-center justify-center hover:bg-surface-secondary text-text-muted hover:text-text-primary transition-colors motion-reduce:transition-none"
                 title={isCollapsed ? "Expand (→)" : "Collapse (←)"}
                 aria-label={isCollapsed ? "Expand" : "Collapse"}
               >
@@ -424,7 +425,7 @@ const TaskNodeComponent = memo(function TaskNodeComponent({
             {/* Status indicator with pulsing animation for active */}
             <span
               className={`
-                w-2.5 h-2.5 rounded-full flex-shrink-0
+                w-2.5 h-2.5 rounded-full shrink-0
                 ${isInProgress ? "animate-pulse-active motion-reduce:animate-none" : ""}
               `}
               style={{
@@ -440,54 +441,59 @@ const TaskNodeComponent = memo(function TaskNodeComponent({
               aria-hidden="true"
             />
             {/* Depth label */}
-            <span className="text-[10px] font-mono uppercase tracking-wider text-text-muted">
+            <span className="text-[10px] font-mono uppercase tracking-wider text-text-muted whitespace-nowrap">
               {depthLabel}
             </span>
           </div>
-          <div className="flex items-center gap-2">
-            {/* Priority */}
-            <span className="text-[10px] font-mono text-text-dim">
-              P{task.priority}
-            </span>
-          </div>
+          {/* Priority */}
+          <span className="text-[10px] font-mono text-text-dim whitespace-nowrap">
+            P{task.priority}
+          </span>
         </div>
 
-        {/* Description */}
-        <p
-          className={`
-            text-sm font-mono line-clamp-2 leading-tight mb-2
-            ${task.completed ? "text-text-muted line-through" : "text-text-primary"}
-          `}
-        >
-          {task.description}
-        </p>
+        {/* Body (flexible area - only this truncates) */}
+        <div className="flex-1 min-h-0 overflow-hidden">
+          <p
+            className={`
+              text-sm font-mono line-clamp-2 leading-tight
+              ${task.completed ? "text-text-muted line-through" : "text-text-primary"}
+            `}
+          >
+            {task.description}
+          </p>
+        </div>
 
-        {/* Footer: Status badge + Progress indicator */}
-        <div className="flex items-center justify-between">
-          <Badge variant={statusVariant} pulsing={statusVariant === "active"}>{statusLabel}</Badge>
+        {/* Footer (fixed height, never grows) */}
+        <div className="flex shrink-0 min-w-0 items-center justify-between gap-2">
+          <Badge variant={statusVariant} pulsing={statusVariant === "active"} className="shrink-0 whitespace-nowrap">
+            {statusLabel}
+          </Badge>
 
-          {/* Progress indicator for parent tasks */}
-          {hasChildren && !isCollapsed && (
-            <div className="flex items-center gap-2">
-              <div className="w-16 h-1.5 bg-surface-secondary rounded-full overflow-hidden">
-                <div 
-                  aria-hidden="true"
-                  className="h-full bg-accent transition-all duration-300 motion-reduce:transition-none"
-                  style={{ width: `${childCount > 0 ? (completedChildCount / childCount) * 100 : 0}%` }}
-                />
+          {/* Right slot: fixed height container for progress or hidden count */}
+          <div className="flex h-5 shrink-0 items-center justify-end whitespace-nowrap">
+            {/* Progress indicator for expanded parent tasks */}
+            {hasChildren && !isCollapsed && (
+              <div className="flex items-center gap-2">
+                <div className="w-16 h-2 bg-surface-secondary rounded-full overflow-hidden">
+                  <div 
+                    aria-hidden="true"
+                    className="h-full bg-accent transition-all duration-300 motion-reduce:transition-none"
+                    style={{ width: `${childCount > 0 ? (completedChildCount / childCount) * 100 : 0}%` }}
+                  />
+                </div>
+                <span className="text-[10px] font-mono text-text-muted whitespace-nowrap">
+                  {completedChildCount}/{childCount}
+                </span>
               </div>
-              <span className="text-[10px] font-mono text-text-muted">
-                {completedChildCount}/{childCount}
-              </span>
-            </div>
-          )}
+            )}
 
-          {/* Collapsed indicator showing hidden count */}
-          {isCollapsed && hiddenDescendantCount > 0 && (
-            <span className="text-[10px] font-mono text-accent">
-              +{hiddenDescendantCount} hidden
-            </span>
-          )}
+            {/* Collapsed indicator showing hidden count */}
+            {isCollapsed && hiddenDescendantCount > 0 && (
+              <span className="text-[10px] font-mono text-accent whitespace-nowrap">
+                +{hiddenDescendantCount} hidden
+              </span>
+            )}
+          </div>
         </div>
       </div>
       <Handle type="source" position={Position.Right} style={{ opacity: 0 }} />
@@ -850,7 +856,7 @@ export function TaskGraph({
     }
   }, [tasks, focusedId]);
 
-  // Compute layout only when tasks or collapsed state changes (expensive dagre layout)
+  // Compute layout when tasks or collapsed state changes (expensive dagre layout)
   const { nodes: layoutedNodes, edges: allEdges } = useMemo(
     () => buildGraphElements(tasks, collapsedIds),
     [tasks, collapsedIds]
