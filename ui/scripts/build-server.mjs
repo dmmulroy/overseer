@@ -26,14 +26,12 @@ await esbuild.build({
   format: "esm",
   outfile: join(outDir, "server.js"),
   
-  // Externalize runtime deps (will be npm dependencies)
-  external: [
-    "@hono/node-server",
-    "better-result",
-  ],
+  // Bundle all dependencies into single file
+  // Only externalize node builtins
+  external: [],
   
-  // Keep node: protocol imports external
-  packages: "external",
+  // Keep node: protocol imports external (builtins only)
+  packages: "bundle",
   
   // Source maps for debugging
   sourcemap: true,
