@@ -30,8 +30,7 @@ export function TaskList({
   onSelect,
 }: TaskListProps) {
   const [filter, setFilter] = useState<FilterType>("all");
-  // Track focus by ID (stable across list changes) - index derived from flatVisibleTasks
-  const [focusedId, setFocusedId] = useState<TaskId | null>(null);
+  const [focusedIndex, setFocusedIndex] = useState<number>(0);
   const [collapsedIds, setCollapsedIds] = useState<Set<TaskId>>(new Set());
   const listRef = useRef<HTMLDivElement>(null);
   const itemRefs = useRef<Map<number, HTMLButtonElement>>(new Map());
@@ -57,7 +56,7 @@ export function TaskList({
     });
   }, []);
 
-  // Build parent->children map for hierarchy, sorted by createdAt for consistent ordering
+  // Build parent->children map for hierarchy
   const tasksByParent = useMemo(() => {
     const map = new Map<TaskId | null, Task[]>();
     for (const task of tasks) {
@@ -65,13 +64,6 @@ export function TaskList({
       const existing = map.get(parentId) ?? [];
       existing.push(task);
       map.set(parentId, existing);
-    }
-    // Sort children by priority, then createdAt for consistent ordering
-    for (const children of map.values()) {
-      children.sort((a, b) => {
-        if (a.priority !== b.priority) return a.priority - b.priority;
-        return a.createdAt.localeCompare(b.createdAt);
-      });
     }
     return map;
   }, [tasks]);
@@ -149,24 +141,10 @@ export function TaskList({
     [flatVisibleTasks]
   );
 
-  // Build task map for ancestor lookup
-  const taskMap = useMemo(
-    () => new Map(tasks.map((t) => [t.id, t])),
-    [tasks]
-  );
-
-  // Derive focusedIndex from focusedId (ID is stable, index changes with list)
-  const focusedIndex = useMemo(() => {
-    if (!focusedId) return 0;
-    const idx = indexById.get(focusedId);
-    return idx ?? 0;
-  }, [focusedId, indexById]);
-
-  // Get milestones (depth 0) that are visible - use tasksByParent for consistent ordering
+  // Get milestones (depth 0) that are visible
   const visibleMilestones = useMemo(() => {
-    const roots = tasksByParent.get(null) ?? [];
-    return roots.filter((t) => visibleTaskIds.has(t.id));
-  }, [tasksByParent, visibleTaskIds]);
+    return tasks.filter((t) => t.depth === 0 && visibleTaskIds.has(t.id));
+  }, [tasks, visibleTaskIds]);
 
   // Count tasks by filter type for badges
   const counts = useMemo(() => {
@@ -192,42 +170,21 @@ export function TaskList({
     return { all: tasks.length, active, completed, blocked, ready };
   }, [tasks]);
 
-  // When focused task becomes hidden (e.g., parent collapsed), find closest visible ancestor
+  // Keep focusedIndex in bounds when list changes
   useEffect(() => {
-    if (!focusedId) {
-      // Initialize focus to first task
-      if (flatVisibleTasks.length > 0) {
-        const firstTask = flatVisibleTasks[0];
-        if (firstTask) setFocusedId(firstTask.id);
-      }
-      return;
+    if (flatVisibleTasks.length === 0) {
+      setFocusedIndex(0);
+    } else if (focusedIndex >= flatVisibleTasks.length) {
+      setFocusedIndex(flatVisibleTasks.length - 1);
     }
-    // If focused task is still visible, nothing to do
-    if (indexById.has(focusedId)) return;
+  }, [flatVisibleTasks.length, focusedIndex]);
 
-    // Find closest visible ancestor
-    let current = taskMap.get(focusedId);
-    while (current?.parentId) {
-      if (indexById.has(current.parentId)) {
-        setFocusedId(current.parentId);
-        return;
-      }
-      current = taskMap.get(current.parentId);
-    }
-    // No visible ancestor found, focus first task
-    if (flatVisibleTasks.length > 0) {
-      const firstTask = flatVisibleTasks[0];
-      if (firstTask) setFocusedId(firstTask.id);
-    }
-  }, [focusedId, indexById, taskMap, flatVisibleTasks]);
-
-  // Sync focusedId with selectedId when selectedId changes externally
+  // Sync focusedIndex with selectedId when selectedId changes externally
   useEffect(() => {
     if (!selectedId) return;
-    if (indexById.has(selectedId)) {
-      setFocusedId(selectedId);
-    }
-  }, [selectedId, indexById]);
+    const idx = flatVisibleTasks.findIndex((t) => t.id === selectedId);
+    if (idx !== -1) setFocusedIndex(idx);
+  }, [selectedId, flatVisibleTasks]);
 
   // Scroll focused item into view
   useEffect(() => {
@@ -240,81 +197,49 @@ export function TaskList({
 
   // Navigation handlers - move DOM focus for screen reader announcement
   const moveUp = useCallback(() => {
-    if (flatVisibleTasks.length === 0) return;
-    const currentIdx = focusedId ? indexById.get(focusedId) ?? 0 : 0;
-    const nextIdx = Math.max(0, currentIdx - 1);
-    const nextTask = flatVisibleTasks[nextIdx];
-    if (nextTask) {
-      setFocusedId(nextTask.id);
+    setFocusedIndex((prev) => {
+      const next = Math.max(0, prev - 1);
       // Move DOM focus after state update
-      setTimeout(() => itemRefs.current.get(nextIdx)?.focus({ preventScroll: true }), 0);
-    }
-  }, [flatVisibleTasks, focusedId, indexById]);
+      setTimeout(() => itemRefs.current.get(next)?.focus({ preventScroll: true }), 0);
+      return next;
+    });
+  }, []);
 
   const moveDown = useCallback(() => {
-    if (flatVisibleTasks.length === 0) return;
-    const currentIdx = focusedId ? indexById.get(focusedId) ?? 0 : 0;
-    const nextIdx = Math.min(flatVisibleTasks.length - 1, currentIdx + 1);
-    const nextTask = flatVisibleTasks[nextIdx];
-    if (nextTask) {
-      setFocusedId(nextTask.id);
+    setFocusedIndex((prev) => {
+      const next = Math.min(flatVisibleTasks.length - 1, prev + 1);
       // Move DOM focus after state update
-      setTimeout(() => itemRefs.current.get(nextIdx)?.focus({ preventScroll: true }), 0);
-    }
-  }, [flatVisibleTasks, focusedId, indexById]);
+      setTimeout(() => itemRefs.current.get(next)?.focus({ preventScroll: true }), 0);
+      return next;
+    });
+  }, [flatVisibleTasks.length]);
 
   const selectFocused = useCallback(() => {
-    if (focusedId) {
-      onSelect(focusedId);
+    const task = flatVisibleTasks[focusedIndex];
+    if (task) {
+      onSelect(task.id);
     }
-  }, [focusedId, onSelect]);
+  }, [flatVisibleTasks, focusedIndex, onSelect]);
 
-  // h key: collapse OR move to parent (matches TaskGraph behavior)
+  // Collapse focused task (h key)
   const collapseFocused = useCallback(() => {
-    if (!focusedId) return;
-    const task = taskMap.get(focusedId);
-    if (!task) return;
-
-    // Get visible children
-    const children = (tasksByParent.get(focusedId) ?? []).filter((t) =>
-      visibleTaskIds.has(t.id)
-    );
-    const hasVisibleChildren = children.length > 0;
-    const isCollapsed = collapsedIds.has(focusedId);
-
-    // If has children and not collapsed, collapse
-    if (hasVisibleChildren && !isCollapsed) {
-      toggleCollapse(focusedId);
-      return;
-    }
-
-    // Otherwise, move to parent
-    if (task.parentId && indexById.has(task.parentId)) {
-      setFocusedId(task.parentId);
-    }
-  }, [focusedId, taskMap, tasksByParent, visibleTaskIds, collapsedIds, indexById, toggleCollapse]);
-
-  // l key: expand OR move to first child (matches TaskGraph behavior)
-  const expandFocused = useCallback(() => {
-    if (!focusedId) return;
-
-    // If collapsed, expand
-    if (collapsedIds.has(focusedId)) {
-      toggleCollapse(focusedId);
-      return;
-    }
-
-    // Otherwise, move to first visible child
-    const children = (tasksByParent.get(focusedId) ?? []).filter((t) =>
-      visibleTaskIds.has(t.id)
-    );
-    if (children.length > 0) {
-      const firstChild = children[0];
-      if (firstChild) {
-        setFocusedId(firstChild.id);
+    const task = flatVisibleTasks[focusedIndex];
+    if (task && !collapsedIds.has(task.id)) {
+      // Only collapse if it has children
+      const children = tasksByParent.get(task.id);
+      if (children && children.length > 0) {
+        toggleCollapse(task.id);
       }
     }
-  }, [focusedId, collapsedIds, tasksByParent, visibleTaskIds, toggleCollapse]);
+  }, [flatVisibleTasks, focusedIndex, collapsedIds, tasksByParent, toggleCollapse]);
+
+  // Expand focused task (l key)
+  const expandFocused = useCallback(() => {
+    const task = flatVisibleTasks[focusedIndex];
+    if (task && collapsedIds.has(task.id)) {
+      toggleCollapse(task.id);
+    }
+  }, [flatVisibleTasks, focusedIndex, collapsedIds, toggleCollapse]);
 
   // Register keyboard shortcuts (j/k for vim users, arrows for accessibility)
   useKeyboardShortcuts(
@@ -351,25 +276,25 @@ export function TaskList({
       },
       {
         key: "h",
-        description: "Collapse / parent",
+        description: "Collapse subtree",
         scope: "list",
         handler: collapseFocused,
       },
       {
         key: "l",
-        description: "Expand / child",
+        description: "Expand subtree",
         scope: "list",
         handler: expandFocused,
       },
       {
         key: "ArrowLeft",
-        description: "Collapse / parent",
+        description: "Collapse subtree",
         scope: "list",
         handler: collapseFocused,
       },
       {
         key: "ArrowRight",
-        description: "Expand / child",
+        description: "Expand subtree",
         scope: "list",
         handler: expandFocused,
       },
@@ -387,12 +312,10 @@ export function TaskList({
 
   if (tasks.length === 0) {
     return (
-      <div className="flex-1 flex flex-col items-center justify-center gap-6 p-8 text-text-muted registration-mark">
-        <div className="chevron-lg select-none" aria-hidden="true">&gt;&gt;&gt;&gt;</div>
-        <p className="text-display text-2xl text-text-primary">NO TASKS IN STORE</p>
-        <p className="text-text-dim text-sm font-mono uppercase tracking-wider">
-          Run <span className="text-accent">os task create -d "Your task"</span> to begin
-        </p>
+      <div className="flex-1 flex flex-col items-center justify-center gap-4 p-8 text-text-muted">
+        <div className="text-4xl select-none" aria-hidden="true">&#9044;</div>
+        <p className="font-mono uppercase tracking-wider">NO TASKS IN STORE</p>
+        <p className="text-text-dim text-sm font-mono">Run `os task create -d "Your task"` to begin</p>
       </div>
     );
   }
@@ -400,7 +323,7 @@ export function TaskList({
   return (
     <div className="flex flex-col h-full" {...scopeProps}>
       {/* Filter bar */}
-      <div className="flex flex-wrap gap-1 p-2 border-b-2 border-border">
+      <div className="flex flex-wrap gap-1 p-2 border-b border-border">
         {filterButtons.map(({ type, label }) => (
           <button
             key={type}
@@ -408,13 +331,13 @@ export function TaskList({
             onClick={() => setFilter(type)}
             aria-pressed={filter === type}
             className={`
-              px-2 py-1 text-xs font-mono uppercase tracking-[0.15em] rounded-none border-2
+              px-2 py-1 text-xs font-mono uppercase tracking-wider rounded 
               transition-colors motion-reduce:transition-none
               focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-bg-primary
               ${
                 filter === type
-                  ? "bg-accent text-text-inverse border-accent font-bold"
-                  : "bg-surface-primary text-text-muted hover:bg-surface-secondary border-border"
+                  ? "bg-accent text-bg-primary"
+                  : "bg-surface-primary text-text-muted hover:bg-surface-secondary"
               }
             `}
           >
@@ -449,7 +372,7 @@ export function TaskList({
                 changedTaskIds={changedTaskIds}
                 externalBlockerCounts={externalBlockerCounts}
                 onSelect={onSelect}
-                onFocus={setFocusedId}
+                onFocus={setFocusedIndex}
                 onToggleCollapse={toggleCollapse}
                 itemRefs={itemRefs}
                 depth={0}
@@ -462,10 +385,10 @@ export function TaskList({
       </div>
 
       {/* Navigation hint */}
-      <div className="px-2 py-1 border-t-2 border-border text-xs text-text-dim font-mono uppercase tracking-wider">
-        <span className="text-accent">j/k</span> navigate{" "}
-        <span className="text-accent">h/l</span> collapse/expand{" "}
-        <span className="text-accent">Enter</span> select
+      <div className="px-2 py-1 border-t border-border text-xs text-text-dim font-mono">
+        <span className="opacity-70">j/k</span> navigate{" "}
+        <span className="opacity-70">h/l</span> collapse/expand{" "}
+        <span className="opacity-70">Enter</span> select
       </div>
     </div>
   );
@@ -482,7 +405,7 @@ interface TaskTreeNodeProps {
   changedTaskIds: Set<TaskId>;
   externalBlockerCounts: Map<TaskId, number>;
   onSelect: (id: TaskId) => void;
-  onFocus: (id: TaskId) => void;
+  onFocus: (index: number) => void;
   onToggleCollapse: (id: TaskId) => void;
   itemRefs: React.MutableRefObject<Map<number, HTMLButtonElement>>;
   depth: number;
@@ -596,7 +519,7 @@ interface TaskItemProps {
   isCollapsed: boolean;
   externalBlockerCount: number;
   onSelect: (id: TaskId) => void;
-  onFocus: (id: TaskId) => void;
+  onFocus: (index: number) => void;
   onToggleCollapse: (id: TaskId) => void;
   itemRefs: React.MutableRefObject<Map<number, HTMLButtonElement>>;
   treeLineConfig: TreeLineConfig;
@@ -656,10 +579,10 @@ function TaskItem({
       tabIndex={isFocused ? 0 : -1}
       aria-current={isSelected ? "true" : undefined}
       onClick={() => onSelect(task.id)}
-      onMouseEnter={() => onFocus(task.id)}
+      onMouseEnter={() => onFocus(taskIndex)}
       className={`
         relative w-full text-left py-1 px-2 transition-colors motion-reduce:transition-none
-        ${isSelected ? "bg-surface-secondary ring-2 ring-inset ring-accent highlight-bar-active" : "hover:bg-surface-primary"}
+        ${isSelected ? "bg-surface-secondary ring-2 ring-inset ring-accent" : "hover:bg-surface-primary"}
         ${isChanged ? "animate-flash-change-transparent" : ""}
         focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent
       `}

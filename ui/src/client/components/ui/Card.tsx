@@ -8,19 +8,11 @@ const card = tv({
   ],
   variants: {
     selected: {
-      true: "border-accent bg-accent-subtle/30 shadow-[0_0_6px_-2px_var(--color-accent)]",
+      true: "border-accent bg-accent-subtle/30 shadow-[0_0_20px_-8px_var(--color-accent)]",
       false: "",
     },
     interactive: {
       true: "cursor-pointer hover:border-border-hover hover:bg-surface-secondary hover:scale-[1.01] motion-reduce:hover:scale-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-border-focus focus-visible:ring-offset-2 focus-visible:ring-offset-bg-primary",
-      false: "",
-    },
-    highlighted: {
-      true: "highlight-bar-active",
-      false: "",
-    },
-    brutalist: {
-      true: "rounded-none border-[3px]",
       false: "",
     },
   },
@@ -34,8 +26,6 @@ const card = tv({
   defaultVariants: {
     selected: false,
     interactive: false,
-    highlighted: false,
-    brutalist: false,
   },
 });
 
@@ -44,11 +34,11 @@ type CardVariants = VariantProps<typeof card>;
 interface CardProps extends HTMLAttributes<HTMLDivElement>, CardVariants {}
 
 export const Card = forwardRef<HTMLDivElement, CardProps>(
-  ({ className, selected, interactive, highlighted, brutalist, ...props }, ref) => {
+  ({ className, selected, interactive, ...props }, ref) => {
     return (
       <div
         ref={ref}
-        className={card({ selected, interactive, highlighted, brutalist, className })}
+        className={card({ selected, interactive, className })}
         {...props}
       />
     );

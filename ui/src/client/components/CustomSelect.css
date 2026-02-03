@@ -1,0 +1,199 @@
+/* Custom Select - Brutalist Terminal Aesthetic */
+
+.custom-select {
+  position: relative;
+  width: 100%;
+  font-family: var(--font-mono, 'JetBrains Mono', 'Fira Code', 'Courier New', monospace);
+  font-size: 13px;
+  user-select: none;
+}
+
+.custom-select__trigger {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  height: 36px;
+  gap: 10px;
+  padding: 0 12px;
+  background: var(--color-surface-primary);
+  border: 1px solid var(--color-border);
+  border-radius: 4px;
+  color: var(--color-text-primary);
+  cursor: pointer;
+  transition: background-color 150ms, border-color 150ms, color 150ms;
+  font-family: inherit;
+  font-size: inherit;
+  text-align: left;
+  position: relative;
+  overflow: hidden;
+}
+
+.custom-select__trigger:hover {
+  background: var(--color-surface-secondary);
+  border-color: var(--color-border);
+}
+
+.custom-select__trigger:focus-visible {
+  outline: none;
+  border-color: var(--color-border-focus);
+  box-shadow: 0 0 0 2px oklch(0.7 0.18 45 / 0.25);
+}
+
+.custom-select.open .custom-select__trigger {
+  border-color: var(--color-border-focus);
+  background: var(--color-bg-secondary);
+}
+
+.custom-select.disabled .custom-select__trigger {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.custom-select__value {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.custom-select__icon {
+  flex-shrink: 0;
+}
+
+.custom-select__arrow {
+  flex-shrink: 0;
+  color: var(--color-text-muted);
+  font-size: 10px;
+  transition: transform 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  display: inline-block;
+}
+
+.custom-select.open .custom-select__arrow {
+  transform: scaleY(-1);
+}
+
+/* Dropdown */
+
+.custom-select__dropdown {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  right: 0;
+  max-height: 280px;
+  overflow-y: auto;
+  background: var(--color-bg-secondary);
+  border: 1px solid var(--color-border-focus);
+  border-radius: 4px;
+  list-style: none;
+  margin: 0;
+  padding: 4px;
+  z-index: 1000;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.55);
+  
+  animation: dropdown-enter 0.15s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+@keyframes dropdown-enter {
+  from {
+    opacity: 0;
+    transform: translateY(-8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.custom-select__dropdown::-webkit-scrollbar {
+  width: 8px;
+}
+
+.custom-select__dropdown::-webkit-scrollbar-track {
+  background: var(--color-bg-primary);
+  border-left: 1px solid var(--color-border);
+}
+
+.custom-select__dropdown::-webkit-scrollbar-thumb {
+  background: var(--color-accent);
+  border: 1px solid var(--color-bg-secondary);
+}
+
+.custom-select__dropdown::-webkit-scrollbar-thumb:hover {
+  background: var(--color-accent);
+  opacity: 0.8;
+}
+
+/* Options */
+
+.custom-select__option {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 32px;
+  padding: 6px 10px;
+  cursor: pointer;
+  transition: background-color 100ms, border-color 100ms, color 100ms;
+  position: relative;
+  border: 1px solid transparent;
+  border-radius: 3px;
+  margin-bottom: 2px;
+}
+
+.custom-select__option:last-child {
+  margin-bottom: 0;
+}
+
+.custom-select__option.highlighted {
+  background: var(--color-surface-primary);
+  border-color: var(--color-border-focus);
+  color: var(--color-text-primary);
+}
+
+.custom-select__option.selected {
+  background: var(--color-accent-subtle);
+  color: var(--color-accent);
+  font-weight: 600;
+}
+
+.custom-select__option.highlighted.selected {
+  background: var(--color-accent-subtle);
+  border-color: var(--color-border-focus);
+}
+
+.custom-select__option:active {
+  transform: scale(0.98);
+}
+
+.custom-select__option-icon {
+  flex-shrink: 0;
+}
+
+.custom-select__option-label {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.custom-select__check {
+  flex-shrink: 0;
+  font-size: 12px;
+  opacity: 0.8;
+}
+
+
+
+/* Empty state */
+
+.custom-select__dropdown:empty::before {
+  content: 'No options';
+  display: block;
+  padding: 16px;
+  text-align: center;
+  color: var(--color-text-muted);
+  font-style: italic;
+}

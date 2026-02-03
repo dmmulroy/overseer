@@ -10,6 +10,7 @@ import { useUIStore, type ViewMode } from "../lib/store.js";
 import { useKeyboardContext } from "../lib/keyboard.js";
 import { formatRelativeTime } from "../lib/utils.js";
 import { Kbd } from "./ui/Kbd.js";
+import { CustomSelect } from "./CustomSelect.js";
 import { isTaskId, type Task, type TaskId } from "../../types.js";
 
 const VIEW_TABS: Array<{ mode: ViewMode; label: string; shortcut: string }> = [
@@ -20,15 +21,16 @@ const VIEW_TABS: Array<{ mode: ViewMode; label: string; shortcut: string }> = [
 
 const tab = tv({
   base: [
-    "px-3 py-1.5 text-sm font-mono uppercase tracking-wider",
-    "border-2 border-transparent rounded-none",
+    "h-9 px-3 inline-flex items-center justify-center",
+    "text-[13px] leading-none font-mono",
+    "border-0",
     "transition-colors duration-150 motion-reduce:transition-none cursor-pointer",
     "focus:outline-none focus-visible:ring-2 focus-visible:ring-border-focus",
   ],
   variants: {
     active: {
-      true: "bg-accent text-text-inverse border-accent font-bold",
-      false: "text-text-muted hover:text-text-primary hover:bg-surface-primary border-border",
+      true: "bg-accent-subtle text-accent",
+      false: "text-text-muted hover:text-text-primary hover:bg-surface-primary/60",
     },
   },
 });
@@ -84,66 +86,73 @@ export function Header({
     : null;
 
   return (
-    <header className="flex items-center gap-4 px-4 h-12 border-b-2 border-border bg-bg-secondary shrink-0 accent-bar-bottom">
+    <header className="flex items-center h-12 px-4 gap-3 border-b border-border bg-bg-secondary shrink-0">
       {/* Logo */}
-      <div className="flex items-center gap-2">
-        <span className="text-display text-2xl text-accent tracking-[0.05em]">
+      <div className="flex items-center gap-3">
+        <span className="text-accent font-mono font-bold text-base tracking-[0.12em] leading-none uppercase">
           OVERSEER
         </span>
       </div>
 
+      {/* Divider */}
+      <div className="h-6 w-px bg-border/70" aria-hidden="true" />
+
       {/* View buttons */}
-      <nav className="flex items-center gap-1" aria-label="Views">
-        {VIEW_TABS.map(({ mode, label, shortcut }) => (
-          <button
-            key={mode}
-            aria-pressed={viewMode === mode}
-            className={tab({ active: viewMode === mode })}
-            onClick={() => setViewMode(mode)}
-          >
-            <span className="flex items-center gap-2">
-              {label}
-              <Kbd size="sm" aria-hidden="true">
-                {shortcut}
-              </Kbd>
-            </span>
-          </button>
-        ))}
+      <nav aria-label="Views">
+        <div className="inline-flex h-9 rounded border border-border bg-bg-secondary overflow-hidden divide-x divide-border">
+          {VIEW_TABS.map(({ mode, label, shortcut }) => (
+            <button
+              key={mode}
+              aria-pressed={viewMode === mode}
+              className={tab({ active: viewMode === mode })}
+              onClick={() => setViewMode(mode)}
+            >
+              <span className="flex items-center gap-1.5">
+                {label}
+                <span className="hidden md:inline-flex">
+                  <Kbd size="sm" aria-hidden="true">
+                    {shortcut}
+                  </Kbd>
+                </span>
+              </span>
+            </button>
+          ))}
+        </div>
       </nav>
 
       {/* Milestone filter dropdown */}
       <div className="flex items-center gap-2">
-        <select
-          value={filterMilestoneId ?? ""}
-          onChange={(e) => {
-            const value = e.target.value;
-            onFilterChange(value === "" ? null : isTaskId(value) ? value : null);
-          }}
-          className="px-2 py-1 text-sm font-mono uppercase tracking-wider bg-surface-primary border-2 border-border rounded-none text-text-primary focus:outline-none focus-visible:ring-2 focus-visible:ring-border-focus cursor-pointer"
-          aria-label="Filter by milestone"
-        >
-          <option value="">All milestones</option>
-          {milestones.map((m) => (
-            <option key={m.id} value={m.id}>
-              {m.description}
-            </option>
-          ))}
-        </select>
+        <div className="w-[240px] md:w-[280px]">
+          <CustomSelect
+            value={filterMilestoneId ?? ""}
+            onChange={(value) => {
+              onFilterChange(value === "" ? null : isTaskId(value) ? value : null);
+            }}
+            options={[
+              { value: "", label: "All milestones" },
+              ...milestones.map((m) => ({
+                value: m.id,
+                label: m.description,
+              })),
+            ]}
+            placeholder="All milestones"
+          />
+        </div>
 
         {/* Filter active chip with clear button */}
         {selectedMilestone && (
-          <div className="flex items-center gap-1 px-2 py-0.5 rounded-none bg-accent-subtle border-2 border-accent">
-            <span className="text-xs font-mono uppercase tracking-wider text-accent font-bold">Filtered</span>
+          <div className="inline-flex items-center h-9 gap-1.5 px-2.5 rounded bg-accent-subtle border border-accent-muted">
+            <span className="text-[11px] font-mono text-accent uppercase tracking-wide">Filtered</span>
             <button
               onClick={() => onFilterChange(null)}
-              className="ml-1 text-accent hover:text-text-primary focus:outline-none focus-visible:ring-2 focus-visible:ring-border-focus"
+              className="ml-0.5 inline-flex items-center justify-center p-1 text-accent hover:text-accent-muted focus:outline-none focus-visible:ring-2 focus-visible:ring-border-focus rounded"
               aria-label="Clear milestone filter"
             >
               <svg
                 xmlns="http://www.w3.org/2000/svg"
                 viewBox="0 0 16 16"
                 fill="currentColor"
-                className="w-3 h-3"
+                className="w-3.5 h-3.5"
                 aria-hidden="true"
               >
                 <path d="M5.28 4.22a.75.75 0 00-1.06 1.06L6.94 8l-2.72 2.72a.75.75 0 101.06 1.06L8 9.06l2.72 2.72a.75.75 0 101.06-1.06L9.06 8l2.72-2.72a.75.75 0 00-1.06-1.06L8 6.94 5.28 4.22z" />
@@ -163,7 +172,7 @@ export function Header({
 
       {/* Connection status indicator */}
       {isError && (
-        <div className="flex items-center gap-1.5 px-2 py-1 rounded bg-status-blocked/10 border border-status-blocked/30">
+        <div className="inline-flex items-center h-9 gap-2 px-2.5 rounded bg-status-blocked/10 border border-status-blocked/30">
           <span
             className="w-2 h-2 rounded-full bg-status-blocked animate-pulse-error motion-reduce:animate-none"
             aria-hidden="true"
@@ -196,7 +205,7 @@ export function Header({
 
       {/* Help shortcut */}
       <button
-        className="flex items-center gap-1 px-2 py-1 text-text-muted hover:text-text-primary transition-colors duration-150 motion-reduce:transition-none rounded hover:bg-surface-primary focus:outline-none focus-visible:ring-2 focus-visible:ring-border-focus"
+        className="inline-flex items-center h-9 gap-1.5 px-2.5 text-text-muted hover:text-text-primary transition-colors duration-150 motion-reduce:transition-none rounded hover:bg-surface-primary focus:outline-none focus-visible:ring-2 focus-visible:ring-border-focus"
         onClick={() => setHelpOpen(true)}
         aria-label="Show keyboard shortcuts"
       >

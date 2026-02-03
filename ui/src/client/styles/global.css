@@ -2,42 +2,36 @@
 
 /* Theme tokens using Tailwind v4 CSS-first config */
 @theme {
-  /* ============================================
-   * NEO-INDUSTRIAL / TECHNICAL BRUTALISM PALETTE
-   * ============================================ */
-  
-  /* Core backgrounds - darker, more contrast */
-  --color-bg-primary: oklch(0.11 0 0);      /* #1a1a1a - Near black */
-  --color-bg-secondary: oklch(0.14 0 0);    /* #242424 - Panel background */
-  --color-surface-primary: oklch(0.17 0 0); /* #2d2d2d - Cards, inputs */
-  --color-surface-secondary: oklch(0.21 0 0);
+  /* Core palette - OKLCH for perceptual uniformity */
+  --color-bg-primary: oklch(0.13 0 0);      /* Near black */
+  --color-bg-secondary: oklch(0.16 0 0);    /* Panel background */
+  --color-surface-primary: oklch(0.18 0 0); /* Cards, inputs */
+  --color-surface-secondary: oklch(0.22 0 0);
 
-  /* Text - warm off-white for industrial feel */
-  --color-text-primary: oklch(0.96 0.005 80);   /* #f5f3ef - Warm off-white */
-  --color-text-muted: oklch(0.65 0 0);          /* #a0a0a0 */
-  --color-text-dim: oklch(0.45 0 0);            /* #666666 */
-  --color-text-inverse: oklch(0.08 0 0);        /* Near black for light bg */
+  /* Text */
+  --color-text-primary: oklch(0.9 0 0);     /* High contrast */
+  --color-text-muted: oklch(0.55 0 0);
+  --color-text-dim: oklch(0.4 0 0);
 
-  /* Accent - vibrant orange (tuned for WCAG 4.5:1 on dark) */
-  --color-accent: oklch(0.68 0.21 38);          /* #f26522 - Vibrant orange */
-  --color-accent-muted: oklch(0.55 0.16 38);
-  --color-accent-subtle: oklch(0.25 0.08 38);
-  --color-highlight-bar: oklch(0.68 0.21 38);   /* Orange highlight bars */
+  /* Accent - warm orange */
+  --color-accent: oklch(0.7 0.18 45);
+  --color-accent-muted: oklch(0.5 0.12 45);
+  --color-accent-subtle: oklch(0.3 0.08 45);
 
   /* Status (semantic) */
-  --color-status-pending: oklch(0.55 0 0);      /* Neutral gray */
-  --color-status-active: oklch(0.68 0.21 38);   /* Orange - matches accent */
-  --color-status-active-glow: oklch(0.68 0.21 38 / 0.4); /* Active glow (40% opacity) */
-  --color-status-blocked: oklch(0.65 0.2 25);   /* Red-orange */
-  --color-status-done: oklch(0.65 0.12 145);    /* Teal-green */
+  --color-status-pending: oklch(0.55 0 0);    /* Neutral gray */
+  --color-status-active: oklch(0.7 0.18 45);  /* Orange - pulsing */
+  --color-status-active-glow: oklch(0.7 0.18 45 / 0.4); /* Active glow (40% opacity) */
+  --color-status-blocked: oklch(0.65 0.2 25); /* Red-orange */
+  --color-status-done: oklch(0.65 0.12 145);  /* Teal-green */
 
-  /* Borders - slightly warmer */
-  --color-border: oklch(0.30 0.005 80);
-  --color-border-hover: oklch(0.40 0.005 80);
-  --color-border-focus: oklch(0.68 0.21 38);    /* accent */
+  /* Borders */
+  --color-border: oklch(0.28 0 0);
+  --color-border-hover: oklch(0.35 0 0);
+  --color-border-focus: oklch(0.7 0.18 45); /* accent */
 
-  /* Typography - industrial aesthetic */
-  --font-display: "Big Shoulders Display", "Impact", sans-serif;
+  /* Typography - fully monospace (industrial aesthetic) */
+  --font-display: "JetBrains Mono", "SF Mono", ui-monospace, monospace;
   --font-body: "JetBrains Mono", "SF Mono", ui-monospace, monospace;
   --font-mono: "JetBrains Mono", "SF Mono", ui-monospace, monospace;
 }
@@ -90,7 +84,6 @@ pre,
   border: 1px solid var(--color-border) !important;
   border-radius: 8px !important;
   box-shadow: none !important;
-  overflow: hidden !important;
 }
 
 .react-flow-controls-themed button {
@@ -100,25 +93,24 @@ pre,
   color: var(--color-text-muted) !important;
   width: 28px !important;
   height: 28px !important;
-  padding: 4px !important;
-  overflow: hidden !important;
+  padding: 0 !important;
+  border-radius: 0 !important;
+}
+
+.react-flow-controls-themed button:first-child {
+  border-top-left-radius: 8px !important;
+  border-top-right-radius: 8px !important;
 }
 
 .react-flow-controls-themed button:last-child {
   border-bottom: none !important;
+  border-bottom-left-radius: 8px !important;
+  border-bottom-right-radius: 8px !important;
 }
 
 .react-flow-controls-themed button:hover {
   background-color: var(--color-surface-secondary) !important;
   color: var(--color-text-primary) !important;
-}
-
-.react-flow-controls-themed button svg,
-.react-flow-controls-themed button img {
-  width: 16px !important;
-  height: 16px !important;
-  max-width: 100% !important;
-  max-height: 100% !important;
 }
 
 .react-flow-controls-themed button svg {
@@ -264,164 +256,4 @@ pre,
 
 .scrollbar-hover:hover {
   scrollbar-color: var(--color-border) transparent;
-}
-
-/* ============================================
- * NEO-INDUSTRIAL DECORATIVE UTILITIES
- * ============================================ */
-
-/* Display heading utility - bold condensed industrial */
-.text-display {
-  font-family: var(--font-display);
-  font-weight: 900;
-  text-transform: uppercase;
-  letter-spacing: -0.02em;
-  line-height: 0.9;
-}
-
-.text-display-sm {
-  font-family: var(--font-display);
-  font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: 0.02em;
-  line-height: 1;
-}
-
-/* Chevron prefix: ">>>> " before text */
-.chevron-prefix::before {
-  content: ">>>> ";
-  color: var(--color-accent);
-  font-family: var(--font-mono);
-  font-weight: 700;
-}
-
-/* Large decorative chevrons */
-.chevron-lg {
-  color: var(--color-accent);
-  font-family: var(--font-mono);
-  font-weight: 700;
-  font-size: 1.5rem;
-  letter-spacing: -0.15em;
-}
-
-/* Registration mark corners (+ marks) */
-.registration-mark {
-  position: relative;
-}
-
-.registration-mark::before,
-.registration-mark::after {
-  content: "+";
-  position: absolute;
-  font-family: var(--font-mono);
-  font-size: 0.625rem;
-  font-weight: 400;
-  color: var(--color-text-dim);
-  opacity: 0.4;
-  pointer-events: none;
-}
-
-.registration-mark::before {
-  top: 4px;
-  left: 4px;
-}
-
-.registration-mark::after {
-  bottom: 4px;
-  right: 4px;
-}
-
-/* Section number label (01, 02, 03 style) */
-.section-number {
-  font-family: var(--font-mono);
-  font-size: 0.625rem;
-  font-weight: 700;
-  color: var(--color-text-dim);
-  letter-spacing: 0.1em;
-}
-
-/* Status chip (black rectangle, white text) - brutalist */
-.status-chip {
-  display: inline-block;
-  padding: 0.125rem 0.5rem;
-  background: var(--color-text-primary);
-  color: var(--color-bg-primary);
-  font-family: var(--font-mono);
-  font-size: 0.625rem;
-  font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-}
-
-/* Active highlight bar (left edge orange indicator) */
-.highlight-bar-active {
-  position: relative;
-}
-
-.highlight-bar-active::before {
-  content: "";
-  position: absolute;
-  left: 0;
-  top: 0;
-  bottom: 0;
-  width: 4px;
-  background: var(--color-highlight-bar);
-}
-
-/* Bottom accent bar */
-.accent-bar-bottom {
-  position: relative;
-}
-
-.accent-bar-bottom::after {
-  content: "";
-  position: absolute;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  height: 3px;
-  background: var(--color-accent);
-}
-
-/* Industrial border style (thicker, no radius) */
-.border-industrial {
-  border: 2px solid var(--color-border);
-  border-radius: 0;
-}
-
-/* Brutalist button style */
-.btn-brutalist {
-  padding: 0.5rem 1rem;
-  background: var(--color-text-primary);
-  color: var(--color-bg-primary);
-  font-family: var(--font-mono);
-  font-size: 0.75rem;
-  font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: 0.1em;
-  border: none;
-  cursor: pointer;
-  transition: background-color 0.15s ease;
-}
-
-.btn-brutalist:hover {
-  background: var(--color-accent);
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .btn-brutalist {
-    transition: none;
-  }
-}
-
-/* Block-based progress bar (character-style) */
-.progress-blocks {
-  font-family: var(--font-mono);
-  font-size: 0.625rem;
-  letter-spacing: -0.05em;
-  color: var(--color-text-muted);
-}
-
-.progress-blocks-filled {
-  color: var(--color-accent);
 }
