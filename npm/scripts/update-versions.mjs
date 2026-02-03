@@ -31,6 +31,7 @@ const platforms = JSON.parse(
 
 // All packages to update
 const packages = [
+  join(__dirname, "..", "..", "host", "package.json"),
   join(__dirname, "..", "overseer", "package.json"),
   ...Object.keys(platforms).map((p) =>
     join(__dirname, "..", `overseer-${p}`, "package.json")

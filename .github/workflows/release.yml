@@ -80,7 +80,7 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add overseer/Cargo.toml overseer/Cargo.lock npm/
+          git add overseer/Cargo.toml overseer/Cargo.lock npm/ host/package.json
           git commit -m "release: v${{ needs.validate.outputs.version }}" --allow-empty
           git tag "v${{ needs.validate.outputs.version }}"
           git push origin main
