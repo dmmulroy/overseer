@@ -207,19 +207,14 @@ jobs:
         with:
           path: artifacts
 
-      - name: Build MCP dist
-        run: |
-          cd mcp && npm ci && npm run build
-          mkdir -p ../npm/overseer/dist
-          cp -r build/* ../npm/overseer/dist/
+      - name: Build host package
+        run: cd host && npm ci && npm run build
 
-      - name: Build UI
-        run: |
-          cd ui && npm ci
-          node ../npm/scripts/build-ui.mjs
+      - name: Build UI static files
+        run: cd ui && npm ci && npm run build
 
-      - name: Test UI bundle
-        run: node npm/scripts/test-ui-bundle.mjs
+      - name: Prepare npm package
+        run: node npm/scripts/build-npm-package.mjs
 
       - name: Generate platform packages
         run: |
