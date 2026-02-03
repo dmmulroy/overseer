@@ -287,10 +287,12 @@ export function KanbanView({
 
   if (tasks.length === 0) {
     return (
-      <div className="flex-1 flex flex-col items-center justify-center gap-4 text-text-muted p-8">
-        <div className="text-4xl select-none" aria-hidden="true">&#9044;</div>
-        <p className="font-mono uppercase tracking-wider">NO TASKS IN STORE</p>
-        <p className="text-text-dim text-sm font-mono">Run `os task create -d "Your task"` to begin</p>
+      <div className="flex-1 flex flex-col items-center justify-center gap-6 text-text-muted p-8 registration-mark">
+        <div className="chevron-lg select-none" aria-hidden="true">&gt;&gt;&gt;&gt;</div>
+        <p className="text-display text-2xl text-text-primary">NO TASKS IN STORE</p>
+        <p className="text-text-dim text-sm font-mono uppercase tracking-wider">
+          Run <span className="text-accent">os task create -d "Your task"</span> to begin
+        </p>
       </div>
     );
   }
@@ -301,7 +303,7 @@ export function KanbanView({
       {...scopeProps}
     >
       {/* Column container */}
-      <div className="flex-1 flex gap-3 p-4 overflow-x-auto min-h-0">
+      <div className="flex-1 flex justify-center gap-3 p-4 overflow-x-auto min-h-0">
         {COLUMNS.map((column, columnIndex) => {
           const columnTasks = tasksByColumn[column];
           const isCurrentColumn = columnIndex === focusedColumn;
@@ -326,10 +328,10 @@ export function KanbanView({
       </div>
 
       {/* Navigation hint */}
-      <div className="px-4 py-2 border-t border-border text-xs text-text-dim font-mono flex-shrink-0">
-        <span className="opacity-70">h/l</span> columns{" "}
-        <span className="opacity-70">j/k</span> navigate{" "}
-        <span className="opacity-70">Enter</span> select
+      <div className="px-4 py-2 border-t-2 border-border text-xs text-text-dim font-mono flex-shrink-0 uppercase tracking-wider">
+        <span className="text-accent">h/l</span> columns{" "}
+        <span className="text-accent">j/k</span> navigate{" "}
+        <span className="text-accent">Enter</span> select
       </div>
     </div>
   );
@@ -367,14 +369,14 @@ function KanbanColumn({
       {/* Column header */}
       <div
         className={`
-          px-3 py-2 mb-2 rounded border
-          ${isCurrentColumn ? "border-accent bg-accent-subtle/30" : "border-border bg-surface-primary"}
+          px-3 py-2 mb-2 rounded-none border-2
+          ${isCurrentColumn ? "border-accent bg-accent-subtle/30 highlight-bar-active" : "border-border bg-surface-primary"}
         `}
       >
         <div className="flex items-center justify-between">
           <span
             className={`
-              text-xs font-mono uppercase tracking-wider
+              text-display-sm text-sm
               ${isCurrentColumn ? "text-accent" : COLUMN_TEXT_COLORS[column]}
             `}
           >
@@ -382,7 +384,7 @@ function KanbanColumn({
           </span>
           <span
             className={`
-              text-xs font-mono px-2 py-0.5 rounded
+              text-xs font-mono px-2 py-0.5 rounded-none
               ${isCurrentColumn ? "bg-accent/20 text-accent" : "bg-surface-secondary text-text-dim"}
             `}
           >
@@ -481,6 +483,8 @@ function KanbanCard({
       <Card
         selected={isSelected}
         interactive
+        brutalist
+        highlighted={isSelected}
         className={`
           p-3 
           ${isChanged ? "animate-flash-change" : ""}

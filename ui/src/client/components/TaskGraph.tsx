@@ -1,4 +1,4 @@
-import { useState, useMemo, useCallback, memo, useEffect } from "react";
+import { useState, useMemo, useCallback, memo, useEffect, useRef } from "react";
 import {
   ReactFlow,
   Controls,
@@ -205,6 +205,7 @@ function buildGraphElements(
   edges: TaskEdge[];
 } {
   // Build lookup maps
+  const taskMap = new Map<TaskId, Task>(tasks.map((t) => [t.id, t]));
   const childrenMap = new Map<TaskId, TaskId[]>();
 
   for (const task of tasks) {
@@ -213,6 +214,17 @@ function buildGraphElements(
       siblings.push(task.id);
       childrenMap.set(task.parentId, siblings);
     }
+  }
+
+  // Sort children by priority, then createdAt for consistent ordering
+  for (const children of childrenMap.values()) {
+    children.sort((a, b) => {
+      const taskA = taskMap.get(a);
+      const taskB = taskMap.get(b);
+      if (!taskA || !taskB) return 0;
+      if (taskA.priority !== taskB.priority) return taskA.priority - taskB.priority;
+      return taskA.createdAt.localeCompare(taskB.createdAt);
+    });
   }
 
   // Find all hidden task IDs (descendants of collapsed nodes)
@@ -628,6 +640,8 @@ function buildFlatTaskList(
   tasks: Task[],
   collapsedIds: Set<TaskId>
 ): TaskId[] {
+  // Build task lookup for sorting
+  const taskMap = new Map<TaskId, Task>(tasks.map((t) => [t.id, t]));
   const childrenMap = new Map<TaskId, TaskId[]>();
 
   for (const task of tasks) {
@@ -636,6 +650,17 @@ function buildFlatTaskList(
       siblings.push(task.id);
       childrenMap.set(task.parentId, siblings);
     }
+  }
+
+  // Sort children by priority, then createdAt for consistent ordering
+  for (const children of childrenMap.values()) {
+    children.sort((a, b) => {
+      const taskA = taskMap.get(a);
+      const taskB = taskMap.get(b);
+      if (!taskA || !taskB) return 0;
+      if (taskA.priority !== taskB.priority) return taskA.priority - taskB.priority;
+      return taskA.createdAt.localeCompare(taskB.createdAt);
+    });
   }
 
   // Find all hidden task IDs (descendants of collapsed nodes)
@@ -660,12 +685,17 @@ function buildFlatTaskList(
     }
   }
 
-  // Start with root tasks (parentId = null)
-  for (const task of tasks) {
-    if (task.parentId === null && !hiddenIds.has(task.id)) {
-      result.push(task.id);
-      traverseChildren(task.id);
-    }
+  // Start with root tasks (parentId = null), sorted by priority then createdAt
+  const rootTasks = tasks
+    .filter((t) => t.parentId === null && !hiddenIds.has(t.id))
+    .sort((a, b) => {
+      if (a.priority !== b.priority) return a.priority - b.priority;
+      return a.createdAt.localeCompare(b.createdAt);
+    });
+
+  for (const task of rootTasks) {
+    result.push(task.id);
+    traverseChildren(task.id);
   }
 
   return result;
@@ -691,6 +721,23 @@ function GraphNavigation({
 }) {
   const { fitView } = useReactFlow();
 
+  // Fit view when task set changes (e.g., milestone filter change)
+  // Use sorted task IDs as stable key to detect significant changes
+  const taskKey = useMemo(
+    () => tasks.map((t) => t.id).sort().join(","),
+    [tasks]
+  );
+  const prevTaskKeyRef = useRef(taskKey);
+
+  useEffect(() => {
+    if (prevTaskKeyRef.current !== taskKey) {
+      prevTaskKeyRef.current = taskKey;
+      // Instant fit (no animation) to avoid CLS when filter changes
+      // Layout is already computed synchronously via dagre useMemo
+      fitView({ padding: 0.2, duration: 0 });
+    }
+  }, [taskKey, fitView]);
+
   // Build flat task list for j/k navigation
   const flatTasks = useMemo(
     () => buildFlatTaskList(tasks, collapsedIds),
@@ -712,8 +759,42 @@ function GraphNavigation({
         map.set(task.parentId, siblings);
       }
     }
+    // Sort children by priority, then createdAt for consistent ordering
+    for (const children of map.values()) {
+      children.sort((a, b) => {
+        const taskA = taskMap.get(a);
+        const taskB = taskMap.get(b);
+        if (!taskA || !taskB) return 0;
+        if (taskA.priority !== taskB.priority) return taskA.priority - taskB.priority;
+        return taskA.createdAt.localeCompare(taskB.createdAt);
+      });
+    }
     return map;
-  }, [tasks]);
+  }, [tasks, taskMap]);
+
+  // Set for O(1) visibility check
+  const visibleIds = useMemo(() => new Set(flatTasks), [flatTasks]);
+
+  // When focused task becomes hidden (parent collapsed), find closest visible ancestor
+  useEffect(() => {
+    if (!focusedId) return;
+    if (visibleIds.has(focusedId)) return; // Still visible, nothing to do
+
+    // Find closest visible ancestor
+    let current = taskMap.get(focusedId);
+    while (current?.parentId) {
+      if (visibleIds.has(current.parentId)) {
+        setFocusedId(current.parentId);
+        return;
+      }
+      current = taskMap.get(current.parentId);
+    }
+    // No visible ancestor, focus first task
+    if (flatTasks.length > 0) {
+      const firstTask = flatTasks[0];
+      if (firstTask) setFocusedId(firstTask);
+    }
+  }, [focusedId, visibleIds, taskMap, flatTasks, setFocusedId]);
 
   // Center view on focused node - use fitView directly without DOM check
   // (node may be offscreen due to onlyRenderVisibleElements virtualization)
@@ -728,28 +809,30 @@ function GraphNavigation({
     [fitView]
   );
 
-  // Navigation handlers
+  // Navigation handlers - use indexOf for position (effect ensures focusedId is always visible)
   const moveDown = useCallback(() => {
     if (flatTasks.length === 0) return;
-    const currentIdx = focusedId ? flatTasks.indexOf(focusedId) : -1;
+    // If focusedId is not visible (shouldn't happen due to effect, but be safe), start at 0
+    const currentIdx = focusedId && visibleIds.has(focusedId) ? flatTasks.indexOf(focusedId) : -1;
     const nextIdx = currentIdx < flatTasks.length - 1 ? currentIdx + 1 : 0;
     const nextId = flatTasks[nextIdx];
     if (nextId) {
       setFocusedId(nextId);
       centerOnNode(nextId);
     }
-  }, [flatTasks, focusedId, setFocusedId, centerOnNode]);
+  }, [flatTasks, focusedId, visibleIds, setFocusedId, centerOnNode]);
 
   const moveUp = useCallback(() => {
     if (flatTasks.length === 0) return;
-    const currentIdx = focusedId ? flatTasks.indexOf(focusedId) : flatTasks.length;
+    // If focusedId is not visible, start at end so we go to last item
+    const currentIdx = focusedId && visibleIds.has(focusedId) ? flatTasks.indexOf(focusedId) : 0;
     const nextIdx = currentIdx > 0 ? currentIdx - 1 : flatTasks.length - 1;
     const nextId = flatTasks[nextIdx];
     if (nextId) {
       setFocusedId(nextId);
       centerOnNode(nextId);
     }
-  }, [flatTasks, focusedId, setFocusedId, centerOnNode]);
+  }, [flatTasks, focusedId, visibleIds, setFocusedId, centerOnNode]);
 
   const moveToParent = useCallback(() => {
     if (!focusedId) return;

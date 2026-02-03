@@ -72,38 +72,63 @@ npm run test:ui:watch    # Continuous testing
 
 ## THEME
 
-Tailwind v4 CSS-first config in `global.css`. Industrial aesthetic, dark mode only, OKLCH colors.
+Tailwind v4 CSS-first config in `global.css`. **Neo-Industrial / Technical Brutalism** aesthetic. Dark mode only, OKLCH colors.
+
+### Design Language
+- **Aesthetic**: Mission control meets modern dashboard. Government/military classification. Technical brutalism.
+- **Signature Elements**: Vibrant orange accents, condensed display typography, hard edges (no rounded corners), highlight bars, chevrons
+- **Visual Treatment**: Thick borders (2-3px), uppercase labels with wide tracking, registration marks
 
 ### Core Palette (OKLCH)
 | Token | Value | Usage |
 |-------|-------|-------|
-| `--color-bg-primary` | `oklch(0.13 0 0)` | Main background |
-| `--color-bg-secondary` | `oklch(0.16 0 0)` | Panel backgrounds |
-| `--color-surface-primary` | `oklch(0.18 0 0)` | Cards, inputs |
-| `--color-surface-secondary` | `oklch(0.22 0 0)` | Elevated surfaces |
-| `--color-text-primary` | `oklch(0.9 0 0)` | Main text |
-| `--color-text-muted` | `oklch(0.55 0 0)` | Secondary text |
-| `--color-text-dim` | `oklch(0.4 0 0)` | Tertiary text |
-| `--color-accent` | `oklch(0.7 0.18 45)` | Orange accent |
-| `--color-accent-muted` | `oklch(0.5 0.12 45)` | Muted accent |
-| `--color-accent-subtle` | `oklch(0.3 0.08 45)` | Subtle accent bg |
-| `--color-border` | `oklch(0.28 0 0)` | Borders |
-| `--color-border-focus` | `oklch(0.7 0.18 45)` | Focus ring (accent) |
+| `--color-bg-primary` | `oklch(0.11 0 0)` | Main background (#1a1a1a) |
+| `--color-bg-secondary` | `oklch(0.14 0 0)` | Panel backgrounds (#242424) |
+| `--color-surface-primary` | `oklch(0.17 0 0)` | Cards, inputs (#2d2d2d) |
+| `--color-surface-secondary` | `oklch(0.21 0 0)` | Elevated surfaces |
+| `--color-text-primary` | `oklch(0.96 0.005 80)` | Warm off-white (#f5f3ef) |
+| `--color-text-muted` | `oklch(0.65 0 0)` | Secondary text (#a0a0a0) |
+| `--color-text-dim` | `oklch(0.45 0 0)` | Tertiary text (#666666) |
+| `--color-text-inverse` | `oklch(0.08 0 0)` | Text on light bg |
+| `--color-accent` | `oklch(0.68 0.21 38)` | Vibrant orange (#f26522) |
+| `--color-accent-muted` | `oklch(0.55 0.16 38)` | Muted accent |
+| `--color-accent-subtle` | `oklch(0.25 0.08 38)` | Subtle accent bg |
+| `--color-highlight-bar` | `oklch(0.68 0.21 38)` | Orange highlight bars |
+| `--color-border` | `oklch(0.30 0.005 80)` | Borders (warm) |
+| `--color-border-focus` | `oklch(0.68 0.21 38)` | Focus ring (accent) |
 
 ### Status Colors
 | Token | Value | Usage |
 |-------|-------|-------|
 | `--color-status-pending` | `oklch(0.55 0 0)` | Neutral gray |
-| `--color-status-active` | `oklch(0.7 0.18 45)` | Orange (pulsing) |
+| `--color-status-active` | `oklch(0.68 0.21 38)` | Orange (pulsing) |
 | `--color-status-blocked` | `oklch(0.65 0.2 25)` | Red-orange |
 | `--color-status-done` | `oklch(0.65 0.12 145)` | Teal-green |
 
-### Typography (fully monospace)
-| Token | Value |
+### Typography
+| Token | Value | Usage |
+|-------|-------|-------|
+| `--font-display` | Big Shoulders Display, Impact | Headlines, logo |
+| `--font-body` | JetBrains Mono, SF Mono | Body text, labels |
+| `--font-mono` | JetBrains Mono, SF Mono | Code, data |
+
+### Decorative Utilities
+| Class | Usage |
 |-------|-------|
-| `--font-display` | JetBrains Mono, SF Mono, monospace |
-| `--font-body` | JetBrains Mono, SF Mono, monospace |
-| `--font-mono` | JetBrains Mono, SF Mono, monospace |
+| `.text-display` | Bold condensed headlines (900 weight) |
+| `.text-display-sm` | Smaller display text (700 weight) |
+| `.chevron-prefix` | Adds `>>>> ` before text in orange |
+| `.chevron-lg` | Large decorative chevrons |
+| `.registration-mark` | Corner `+` marks on containers |
+| `.highlight-bar-active` | 4px orange left edge indicator |
+| `.accent-bar-bottom` | 3px orange bottom bar |
+| `.status-chip` | Inverted label (white on black) |
+| `.btn-brutalist` | Industrial button style |
+| `.border-industrial` | Thick, square borders |
+
+### Component Variants
+- **Card**: `brutalist` (no radius, thick border), `highlighted` (orange left bar)
+- **Badge**: `appearance="brutalist"` (square, wide tracking)
 
 ## ENVIRONMENT
 

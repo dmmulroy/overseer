@@ -14,9 +14,14 @@ const badge = tv({
       blocked: "bg-status-blocked/20 text-status-blocked border border-status-blocked/30",
       done: "bg-status-done/20 text-status-done border border-status-done/30",
     },
+    appearance: {
+      default: "",
+      brutalist: "rounded-none border-2 tracking-[0.15em] font-bold",
+    },
   },
   defaultVariants: {
     variant: "pending",
+    appearance: "default",
   },
 });
 
@@ -28,9 +33,9 @@ interface BadgeProps extends HTMLAttributes<HTMLSpanElement>, BadgeVariants {
 }
 
 export const Badge = forwardRef<HTMLSpanElement, BadgeProps>(
-  ({ className, variant, pulsing, children, ...props }, ref) => {
+  ({ className, variant, appearance, pulsing, children, ...props }, ref) => {
     return (
-      <span ref={ref} className={badge({ variant, className })} {...props}>
+      <span ref={ref} className={badge({ variant, appearance, className })} {...props}>
         {pulsing && (
           <span
             className="w-1.5 h-1.5 rounded-full bg-current animate-pulse-active-sm motion-reduce:animate-none"

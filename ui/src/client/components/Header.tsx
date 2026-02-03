@@ -20,15 +20,15 @@ const VIEW_TABS: Array<{ mode: ViewMode; label: string; shortcut: string }> = [
 
 const tab = tv({
   base: [
-    "px-3 py-1.5 text-sm font-mono",
-    "border border-transparent rounded",
+    "px-3 py-1.5 text-sm font-mono uppercase tracking-wider",
+    "border-2 border-transparent rounded-none",
     "transition-colors duration-150 motion-reduce:transition-none cursor-pointer",
     "focus:outline-none focus-visible:ring-2 focus-visible:ring-border-focus",
   ],
   variants: {
     active: {
-      true: "bg-accent text-bg-primary border-accent",
-      false: "text-text-muted hover:text-text-primary hover:bg-surface-primary",
+      true: "bg-accent text-text-inverse border-accent font-bold",
+      false: "text-text-muted hover:text-text-primary hover:bg-surface-primary border-border",
     },
   },
 });
@@ -84,10 +84,10 @@ export function Header({
     : null;
 
   return (
-    <header className="flex items-center gap-4 px-4 h-12 border-b border-border bg-bg-secondary shrink-0">
+    <header className="flex items-center gap-4 px-4 h-12 border-b-2 border-border bg-bg-secondary shrink-0 accent-bar-bottom">
       {/* Logo */}
       <div className="flex items-center gap-2">
-        <span className="text-accent font-mono font-bold text-lg tracking-[0.15em] uppercase">
+        <span className="text-display text-2xl text-accent tracking-[0.05em]">
           OVERSEER
         </span>
       </div>
@@ -119,7 +119,7 @@ export function Header({
             const value = e.target.value;
             onFilterChange(value === "" ? null : isTaskId(value) ? value : null);
           }}
-          className="px-2 py-1 text-sm font-mono bg-surface-primary border border-border rounded text-text-primary focus:outline-none focus-visible:ring-2 focus-visible:ring-border-focus cursor-pointer"
+          className="px-2 py-1 text-sm font-mono uppercase tracking-wider bg-surface-primary border-2 border-border rounded-none text-text-primary focus:outline-none focus-visible:ring-2 focus-visible:ring-border-focus cursor-pointer"
           aria-label="Filter by milestone"
         >
           <option value="">All milestones</option>
@@ -132,11 +132,11 @@ export function Header({
 
         {/* Filter active chip with clear button */}
         {selectedMilestone && (
-          <div className="flex items-center gap-1 px-2 py-0.5 rounded bg-accent-subtle border border-accent-muted">
-            <span className="text-xs font-mono text-accent">Filtered</span>
+          <div className="flex items-center gap-1 px-2 py-0.5 rounded-none bg-accent-subtle border-2 border-accent">
+            <span className="text-xs font-mono uppercase tracking-wider text-accent font-bold">Filtered</span>
             <button
               onClick={() => onFilterChange(null)}
-              className="ml-1 text-accent hover:text-accent-muted focus:outline-none focus-visible:ring-2 focus-visible:ring-border-focus rounded"
+              className="ml-1 text-accent hover:text-text-primary focus:outline-none focus-visible:ring-2 focus-visible:ring-border-focus"
               aria-label="Clear milestone filter"
             >
               <svg
