@@ -591,7 +591,12 @@ function TaskItem({
       onMouseEnter={() => onFocus(taskIndex)}
       className={`
         relative w-full text-left py-1 px-2 transition-colors motion-reduce:transition-none
-        ${isSelected ? "bg-surface-secondary ring-2 ring-inset ring-accent" : "hover:bg-surface-primary"}
+        ${isSelected
+          ? "bg-surface-secondary ring-2 ring-inset ring-accent"
+          : isFocused
+            ? "bg-surface-primary"
+            : ""
+        }
         ${isChanged ? "animate-flash-change-transparent" : ""}
         focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent
       `}
