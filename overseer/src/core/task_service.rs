@@ -6,7 +6,8 @@ use crate::db::{self, learning_repo, task_repo};
 use crate::error::{OsError, Result};
 use crate::id::TaskId;
 use crate::types::{
-    CreateTaskInput, InheritedLearnings, ListTasksFilter, Task, TaskContext, UpdateTaskInput,
+    CreateTaskInput, InheritedLearnings, LifecycleState, ListTasksFilter, Task, TaskContext,
+    UpdateTaskInput,
 };
 use crate::vcs;
 
@@ -83,15 +84,14 @@ impl<'a> TaskService<'a> {
         // Post-filter by effective readiness (ancestor-aware) when --ready requested
         // DB layer does direct-blocker pre-filter; this catches ancestor-blocked tasks
         if filter.ready {
-            tasks.retain(|t| !t.completed && !t.effectively_blocked);
+            tasks.retain(|t| t.is_active_for_work() && !t.effectively_blocked);
         }
         Ok(tasks)
     }
 
     pub fn update(&self, id: &TaskId, input: &UpdateTaskInput) -> Result<Task> {
-        if !task_repo::task_exists(self.conn, id)? {
-            return Err(OsError::TaskNotFound(id.clone()));
-        }
+        // Guard: archived tasks cannot be modified
+        self.guard_mutable(id)?;
 
         // Validate priority range (0-2: p0=highest, p1=default, p2=lowest)
         if let Some(priority) = input.priority {
@@ -222,9 +222,25 @@ impl<'a> TaskService<'a> {
     }
 
     pub fn reopen(&self, id: &TaskId) -> Result<Task> {
-        if !task_repo::task_exists(self.conn, id)? {
-            return Err(OsError::TaskNotFound(id.clone()));
+        let task = self.get_task_or_err(id)?;
+
+        match task.lifecycle_state() {
+            LifecycleState::Completed => {
+                // Valid: can reopen completed task
+            }
+            LifecycleState::Cancelled => {
+                return Err(OsError::CannotReopenCancelled);
+            }
+            LifecycleState::Archived => {
+                return Err(OsError::CannotModifyArchived);
+            }
+            LifecycleState::Pending | LifecycleState::InProgress => {
+                return Err(OsError::CannotReopenActive {
+                    state: format!("{:?}", task.lifecycle_state()),
+                });
+            }
         }
+
         let mut task = task_repo::reopen_task(self.conn, id)?;
         task.depth = Some(self.get_depth(id)?);
         task.effectively_blocked = self.is_effectively_blocked(&task)?;
@@ -238,10 +254,68 @@ impl<'a> TaskService<'a> {
         task_repo::delete_task(self.conn, id)
     }
 
-    pub fn add_blocker(&self, task_id: &TaskId, blocker_id: &TaskId) -> Result<Task> {
-        if !task_repo::task_exists(self.conn, task_id)? {
-            return Err(OsError::TaskNotFound(task_id.clone()));
+    /// Cancel a task using lifecycle state validation.
+    ///
+    /// Allowed transitions:
+    /// - Pending | InProgress → Cancelled (valid)
+    /// - Completed → CannotCancelCompleted
+    /// - Cancelled → AlreadyCancelled
+    /// - Archived → CannotModifyArchived
+    pub fn cancel(&self, id: &TaskId) -> Result<Task> {
+        let task = self.get_task_or_err(id)?;
+
+        match task.lifecycle_state() {
+            LifecycleState::Pending | LifecycleState::InProgress => {
+                // Valid: active tasks can be cancelled
+            }
+            LifecycleState::Completed => {
+                return Err(OsError::CannotCancelCompleted);
+            }
+            LifecycleState::Cancelled => {
+                return Err(OsError::AlreadyCancelled);
+            }
+            LifecycleState::Archived => {
+                return Err(OsError::CannotModifyArchived);
+            }
         }
+
+        let mut task = task_repo::cancel_task(self.conn, id)?;
+        task.depth = Some(self.get_depth(id)?);
+        task.effectively_blocked = self.is_effectively_blocked(&task)?;
+        Ok(task)
+    }
+
+    /// Archive a task using lifecycle state validation.
+    ///
+    /// Allowed transitions:
+    /// - Completed | Cancelled → Archived (valid)
+    /// - Pending | InProgress → CannotArchiveActive
+    /// - Archived → AlreadyArchived
+    pub fn archive(&self, id: &TaskId) -> Result<Task> {
+        let task = self.get_task_or_err(id)?;
+
+        match task.lifecycle_state() {
+            LifecycleState::Completed | LifecycleState::Cancelled => {
+                // Valid: finished tasks can be archived
+            }
+            LifecycleState::Pending | LifecycleState::InProgress => {
+                return Err(OsError::CannotArchiveActive);
+            }
+            LifecycleState::Archived => {
+                return Err(OsError::AlreadyArchived);
+            }
+        }
+
+        let mut task = task_repo::archive_task(self.conn, id)?;
+        task.depth = Some(self.get_depth(id)?);
+        task.effectively_blocked = self.is_effectively_blocked(&task)?;
+        Ok(task)
+    }
+
+    pub fn add_blocker(&self, task_id: &TaskId, blocker_id: &TaskId) -> Result<Task> {
+        // Guard: archived tasks cannot be modified
+        self.guard_mutable(task_id)?;
+
         if !task_repo::task_exists(self.conn, blocker_id)? {
             return Err(OsError::BlockerNotFound(blocker_id.clone()));
         }
@@ -282,15 +356,44 @@ impl<'a> TaskService<'a> {
     }
 
     pub fn remove_blocker(&self, task_id: &TaskId, blocker_id: &TaskId) -> Result<Task> {
-        if !task_repo::task_exists(self.conn, task_id)? {
-            return Err(OsError::TaskNotFound(task_id.clone()));
-        }
+        // Guard: archived tasks cannot be modified
+        self.guard_mutable(task_id)?;
+
         task_repo::remove_blocker(self.conn, task_id, blocker_id)?;
         self.get(task_id)
     }
 
     fn get_depth(&self, id: &TaskId) -> Result<i32> {
         task_repo::get_task_depth(self.conn, id)
+    }
+
+    /// Get task with TaskNotFound error, validating lifecycle invariants in debug builds.
+    /// Use this helper for operations that need validated task state.
+    fn get_task_or_err(&self, id: &TaskId) -> Result<Task> {
+        let task =
+            task_repo::get_task(self.conn, id)?.ok_or_else(|| OsError::TaskNotFound(id.clone()))?;
+
+        // Validate lifecycle invariants in debug/test builds
+        #[cfg(debug_assertions)]
+        if let Err(e) = task.validate_lifecycle_invariants() {
+            // Log invariant violation but don't fail - DB state may be from older version
+            eprintln!(
+                "Warning: lifecycle invariant violation for task {}: {}",
+                id, e
+            );
+        }
+
+        Ok(task)
+    }
+
+    /// Guard that task is not archived before allowing mutations.
+    /// Returns the task for further validation if needed.
+    fn guard_mutable(&self, id: &TaskId) -> Result<Task> {
+        let task = self.get_task_or_err(id)?;
+        if task.archived {
+            return Err(OsError::CannotModifyArchived);
+        }
+        Ok(task)
     }
 
     fn assemble_context_chain(&self, task: &Task) -> Result<TaskContext> {
@@ -458,16 +561,15 @@ impl<'a> TaskService<'a> {
         task: &Task,
         ancestors_unblocked: bool,
     ) -> Result<Option<TaskId>> {
-        // If task is completed, no ready work here
-        if task.completed {
+        // If task is not active (completed, cancelled, or archived), no ready work here
+        if !task.is_active_for_work() {
             return Ok(None);
         }
 
-        // Check if this task itself is blocked
-        let task_unblocked = task
-            .blocked_by
-            .iter()
-            .all(|blocker_id| task_repo::is_task_completed(self.conn, blocker_id).unwrap_or(false));
+        // Check if this task itself is blocked (cancelled tasks do NOT satisfy blockers)
+        let task_unblocked = task.blocked_by.iter().all(|blocker_id| {
+            task_repo::is_task_satisfies_blocker(self.conn, blocker_id).unwrap_or(false)
+        });
         let effectively_unblocked = ancestors_unblocked && task_unblocked;
 
         // Get children in priority order (reused for both DFS and all_complete check)
@@ -482,8 +584,8 @@ impl<'a> TaskService<'a> {
             }
         }
 
-        // Check if all children complete before recursing (used after DFS)
-        let all_children_complete = children.iter().all(|c| c.completed);
+        // Check if all children finished (completed or cancelled) before recursing
+        let all_children_complete = children.iter().all(|c| c.is_finished_for_hierarchy());
 
         // Recurse into children (DFS)
         for child in &children {
@@ -577,7 +679,7 @@ impl<'a> TaskService<'a> {
         path: Vec<TaskId>,
         leaves: &mut Vec<Vec<TaskId>>,
     ) -> Result<()> {
-        if task.completed {
+        if task.is_finished_for_hierarchy() {
             return Ok(());
         }
 
@@ -589,17 +691,17 @@ impl<'a> TaskService<'a> {
             return Ok(());
         }
 
-        // Check if all children are complete
-        let all_complete = children.iter().all(|c| c.completed);
+        // Check if all children are finished (completed or cancelled)
+        let all_complete = children.iter().all(|c| c.is_finished_for_hierarchy());
         if all_complete {
             // This node is effectively a leaf (all children done)
             leaves.push(path);
             return Ok(());
         }
 
-        // Recurse into incomplete children
+        // Recurse into unfinished children
         for child in children {
-            if !child.completed {
+            if !child.is_finished_for_hierarchy() {
                 let mut child_path = path.clone();
                 child_path.push(child.id.clone());
                 self.collect_leaves_inner(&child, child_path, leaves)?;
@@ -615,16 +717,16 @@ impl<'a> TaskService<'a> {
         // Walk from root to leaf, checking blockers at each level
         for task_id in leaf_path.iter() {
             let blockers = task_repo::get_blockers(self.conn, task_id)?;
-            // is_task_completed returns false for missing/errored tasks (conservative)
-            // so incomplete blockers are those that are NOT completed
-            let incomplete_blockers: Vec<TaskId> = blockers
+            // is_task_satisfies_blocker returns false for missing/errored/cancelled tasks (conservative)
+            // so unsatisfied blockers are those that do NOT satisfy blockers (completed only)
+            let unsatisfied_blockers: Vec<TaskId> = blockers
                 .into_iter()
-                .filter(|b| !task_repo::is_task_completed(self.conn, b).unwrap_or(false))
+                .filter(|b| !task_repo::is_task_satisfies_blocker(self.conn, b).unwrap_or(false))
                 .collect();
 
-            if !incomplete_blockers.is_empty() {
+            if !unsatisfied_blockers.is_empty() {
                 return Ok(Some(Blockage {
-                    incomplete_blockers,
+                    incomplete_blockers: unsatisfied_blockers,
                 }));
             }
         }
@@ -632,11 +734,13 @@ impl<'a> TaskService<'a> {
         Ok(None)
     }
 
-    /// Check if a task is effectively blocked (itself or any ancestor blocked)
+    /// Check if a task is effectively blocked (itself or any ancestor blocked).
+    /// Uses satisfies_blocker() semantics: completed tasks satisfy blockers,
+    /// but cancelled tasks do NOT (they keep dependents blocked).
     pub fn is_effectively_blocked(&self, task: &Task) -> Result<bool> {
         // Check task's own blockers
         for blocker_id in &task.blocked_by {
-            if !task_repo::is_task_completed(self.conn, blocker_id)? {
+            if !task_repo::is_task_satisfies_blocker(self.conn, blocker_id)? {
                 return Ok(true);
             }
         }
@@ -648,7 +752,7 @@ impl<'a> TaskService<'a> {
                 .ok_or_else(|| OsError::TaskNotFound(parent_id.clone()))?;
 
             for blocker_id in &parent.blocked_by {
-                if !task_repo::is_task_completed(self.conn, blocker_id)? {
+                if !task_repo::is_task_satisfies_blocker(self.conn, blocker_id)? {
                     return Ok(true);
                 }
             }
@@ -1511,5 +1615,322 @@ mod tests {
         // Reopen blocker - dependent becomes blocked again (edge preserved!)
         service.reopen(&blocker.id).unwrap();
         assert!(service.get(&dependent.id).unwrap().effectively_blocked);
+    }
+
+    // =========================================================================
+    // LIFECYCLE TRANSITION TESTS
+    // =========================================================================
+
+    #[test]
+    fn test_cancel_pending_task() {
+        let conn = setup_db();
+        let service = TaskService::new(&conn);
+
+        let task = service
+            .create(&CreateTaskInput {
+                description: "Pending task".to_string(),
+                context: None,
+                parent_id: None,
+                priority: None,
+                blocked_by: vec![],
+            })
+            .unwrap();
+
+        // Pending → Cancelled is valid
+        let cancelled = service.cancel(&task.id).unwrap();
+        assert!(cancelled.cancelled);
+        assert!(cancelled.cancelled_at.is_some());
+    }
+
+    #[test]
+    fn test_cancel_in_progress_task() {
+        let conn = setup_db();
+        let service = TaskService::new(&conn);
+
+        let task = service
+            .create(&CreateTaskInput {
+                description: "Task".to_string(),
+                context: None,
+                parent_id: None,
+                priority: None,
+                blocked_by: vec![],
+            })
+            .unwrap();
+
+        // Start the task to make it InProgress
+        service.start(&task.id).unwrap();
+
+        // InProgress → Cancelled is valid
+        let cancelled = service.cancel(&task.id).unwrap();
+        assert!(cancelled.cancelled);
+    }
+
+    #[test]
+    fn test_cancel_completed_task_fails() {
+        let conn = setup_db();
+        let service = TaskService::new(&conn);
+
+        let task = service
+            .create(&CreateTaskInput {
+                description: "Task".to_string(),
+                context: None,
+                parent_id: None,
+                priority: None,
+                blocked_by: vec![],
+            })
+            .unwrap();
+
+        service.complete(&task.id, None).unwrap();
+
+        // Completed → Cancelled is invalid
+        let result = service.cancel(&task.id);
+        assert!(matches!(result, Err(OsError::CannotCancelCompleted)));
+    }
+
+    #[test]
+    fn test_cancel_already_cancelled_fails() {
+        let conn = setup_db();
+        let service = TaskService::new(&conn);
+
+        let task = service
+            .create(&CreateTaskInput {
+                description: "Task".to_string(),
+                context: None,
+                parent_id: None,
+                priority: None,
+                blocked_by: vec![],
+            })
+            .unwrap();
+
+        service.cancel(&task.id).unwrap();
+
+        // Cancelled → Cancelled is idempotent error
+        let result = service.cancel(&task.id);
+        assert!(matches!(result, Err(OsError::AlreadyCancelled)));
+    }
+
+    #[test]
+    fn test_cancel_archived_task_fails() {
+        let conn = setup_db();
+        let service = TaskService::new(&conn);
+
+        let task = service
+            .create(&CreateTaskInput {
+                description: "Task".to_string(),
+                context: None,
+                parent_id: None,
+                priority: None,
+                blocked_by: vec![],
+            })
+            .unwrap();
+
+        // Complete then archive
+        service.complete(&task.id, None).unwrap();
+        service.archive(&task.id).unwrap();
+
+        // Archived → Cancelled is invalid
+        let result = service.cancel(&task.id);
+        assert!(matches!(result, Err(OsError::CannotModifyArchived)));
+    }
+
+    #[test]
+    fn test_archive_completed_task() {
+        let conn = setup_db();
+        let service = TaskService::new(&conn);
+
+        let task = service
+            .create(&CreateTaskInput {
+                description: "Task".to_string(),
+                context: None,
+                parent_id: None,
+                priority: None,
+                blocked_by: vec![],
+            })
+            .unwrap();
+
+        service.complete(&task.id, None).unwrap();
+
+        // Completed → Archived is valid
+        let archived = service.archive(&task.id).unwrap();
+        assert!(archived.archived);
+        assert!(archived.archived_at.is_some());
+    }
+
+    #[test]
+    fn test_archive_cancelled_task() {
+        let conn = setup_db();
+        let service = TaskService::new(&conn);
+
+        let task = service
+            .create(&CreateTaskInput {
+                description: "Task".to_string(),
+                context: None,
+                parent_id: None,
+                priority: None,
+                blocked_by: vec![],
+            })
+            .unwrap();
+
+        service.cancel(&task.id).unwrap();
+
+        // Cancelled → Archived is valid
+        let archived = service.archive(&task.id).unwrap();
+        assert!(archived.archived);
+    }
+
+    #[test]
+    fn test_archive_pending_task_fails() {
+        let conn = setup_db();
+        let service = TaskService::new(&conn);
+
+        let task = service
+            .create(&CreateTaskInput {
+                description: "Pending task".to_string(),
+                context: None,
+                parent_id: None,
+                priority: None,
+                blocked_by: vec![],
+            })
+            .unwrap();
+
+        // Pending → Archived is invalid
+        let result = service.archive(&task.id);
+        assert!(matches!(result, Err(OsError::CannotArchiveActive)));
+    }
+
+    #[test]
+    fn test_archive_in_progress_task_fails() {
+        let conn = setup_db();
+        let service = TaskService::new(&conn);
+
+        let task = service
+            .create(&CreateTaskInput {
+                description: "Task".to_string(),
+                context: None,
+                parent_id: None,
+                priority: None,
+                blocked_by: vec![],
+            })
+            .unwrap();
+
+        service.start(&task.id).unwrap();
+
+        // InProgress → Archived is invalid
+        let result = service.archive(&task.id);
+        assert!(matches!(result, Err(OsError::CannotArchiveActive)));
+    }
+
+    #[test]
+    fn test_archive_already_archived_fails() {
+        let conn = setup_db();
+        let service = TaskService::new(&conn);
+
+        let task = service
+            .create(&CreateTaskInput {
+                description: "Task".to_string(),
+                context: None,
+                parent_id: None,
+                priority: None,
+                blocked_by: vec![],
+            })
+            .unwrap();
+
+        service.complete(&task.id, None).unwrap();
+        service.archive(&task.id).unwrap();
+
+        // Archived → Archived is idempotent error
+        let result = service.archive(&task.id);
+        assert!(matches!(result, Err(OsError::AlreadyArchived)));
+    }
+
+    /// Cancelled tasks do NOT satisfy blockers - only completed tasks do.
+    /// This keeps dependents blocked when their blocker is cancelled.
+    #[test]
+    fn test_cancelled_task_does_not_satisfy_blocker() {
+        let conn = setup_db();
+        let service = TaskService::new(&conn);
+
+        let blocker = service
+            .create(&CreateTaskInput {
+                description: "Blocker task".to_string(),
+                context: None,
+                parent_id: None,
+                priority: Some(0),
+                blocked_by: vec![],
+            })
+            .unwrap();
+
+        let dependent = service
+            .create(&CreateTaskInput {
+                description: "Dependent task".to_string(),
+                context: None,
+                parent_id: None,
+                priority: Some(0),
+                blocked_by: vec![blocker.id.clone()],
+            })
+            .unwrap();
+
+        // Initially blocked
+        assert!(service.get(&dependent.id).unwrap().effectively_blocked);
+
+        // Cancel the blocker (not complete it)
+        let cancelled_blocker = service.cancel(&blocker.id).unwrap();
+        assert!(cancelled_blocker.cancelled);
+        assert!(!cancelled_blocker.completed);
+
+        // Dependent should STILL be blocked because cancelled tasks don't satisfy blockers
+        assert!(
+            service.get(&dependent.id).unwrap().effectively_blocked,
+            "Dependent should remain blocked when blocker is cancelled"
+        );
+
+        // Verify the blocker itself reports it doesn't satisfy blockers
+        assert!(!cancelled_blocker.satisfies_blocker());
+    }
+
+    /// Cannot reopen Pending or InProgress tasks - they are already "open"
+    #[test]
+    fn test_reopen_active_task_fails() {
+        let conn = setup_db();
+        let service = TaskService::new(&conn);
+
+        let pending_task = service
+            .create(&CreateTaskInput {
+                description: "Pending task".to_string(),
+                context: None,
+                parent_id: None,
+                priority: None,
+                blocked_by: vec![],
+            })
+            .unwrap();
+
+        // Pending → Reopen is invalid (task is already active)
+        let result = service.reopen(&pending_task.id);
+        assert!(
+            matches!(result, Err(OsError::CannotReopenActive { .. })),
+            "Should return CannotReopenActive for pending task, got {:?}",
+            result
+        );
+
+        let in_progress_task = service
+            .create(&CreateTaskInput {
+                description: "In progress task".to_string(),
+                context: None,
+                parent_id: None,
+                priority: None,
+                blocked_by: vec![],
+            })
+            .unwrap();
+
+        // Start the task
+        service.start(&in_progress_task.id).unwrap();
+
+        // InProgress → Reopen is invalid (task is already active)
+        let result = service.reopen(&in_progress_task.id);
+        assert!(
+            matches!(result, Err(OsError::CannotReopenActive { .. })),
+            "Should return CannotReopenActive for in-progress task, got {:?}",
+            result
+        );
     }
 }

@@ -47,6 +47,16 @@ fn row_to_task(row: &Row) -> rusqlite::Result<Task> {
         blocked_by: Vec::new(),
         blocks: Vec::new(),
         effectively_blocked: false, // Computed by TaskService
+        cancelled: row.get::<_, i32>("cancelled")? != 0,
+        cancelled_at: row
+            .get::<_, Option<String>>("cancelled_at")?
+            .and_then(|s| DateTime::parse_from_rfc3339(&s).ok())
+            .map(|dt| dt.with_timezone(&Utc)),
+        archived: row.get::<_, i32>("archived")? != 0,
+        archived_at: row
+            .get::<_, Option<String>>("archived_at")?
+            .and_then(|s| DateTime::parse_from_rfc3339(&s).ok())
+            .map(|dt| dt.with_timezone(&Utc)),
     })
 }
 
@@ -124,17 +134,20 @@ pub fn list_tasks(conn: &Connection, filter: &ListTasksFilter) -> Result<Vec<Tas
             WITH RECURSIVE task_depths AS (
                 SELECT id, parent_id, description, context, result, priority, completed,
                        completed_at, created_at, updated_at, started_at, commit_sha, bookmark, start_commit,
+                       cancelled, cancelled_at, archived, archived_at,
                        0 as depth
                 FROM tasks WHERE parent_id IS NULL
                 UNION ALL
                 SELECT t.id, t.parent_id, t.description, t.context, t.result, t.priority, t.completed,
                        t.completed_at, t.created_at, t.updated_at, t.started_at, t.commit_sha, t.bookmark, t.start_commit,
+                       t.cancelled, t.cancelled_at, t.archived, t.archived_at,
                        td.depth + 1
                 FROM tasks t
                 INNER JOIN task_depths td ON t.parent_id = td.id
             )
             SELECT id, parent_id, description, context, result, priority, completed,
-                   completed_at, created_at, updated_at, started_at, commit_sha, bookmark, start_commit
+                   completed_at, created_at, updated_at, started_at, commit_sha, bookmark, start_commit,
+                   cancelled, cancelled_at, archived, archived_at
             FROM task_depths WHERE 1=1
             "#,
         );
@@ -154,6 +167,11 @@ pub fn list_tasks(conn: &Connection, filter: &ListTasksFilter) -> Result<Vec<Tas
             params_vec.push(Box::new(depth));
         }
 
+        // Archived filter: None or Some(false) -> hide archived, Some(true) -> only archived
+        let show_archived = filter.archived.unwrap_or(false);
+        sql.push_str(" AND archived = ?");
+        params_vec.push(Box::new(if show_archived { 1 } else { 0 }));
+
         sql.push_str(" ORDER BY priority ASC, created_at ASC");
         sql
     } else {
@@ -169,6 +187,11 @@ pub fn list_tasks(conn: &Connection, filter: &ListTasksFilter) -> Result<Vec<Tas
             sql.push_str(" AND completed = ?");
             params_vec.push(Box::new(if completed { 1 } else { 0 }));
         }
+
+        // Archived filter: None or Some(false) -> hide archived, Some(true) -> only archived
+        let show_archived = filter.archived.unwrap_or(false);
+        sql.push_str(" AND archived = ?");
+        params_vec.push(Box::new(if show_archived { 1 } else { 0 }));
 
         sql.push_str(" ORDER BY priority ASC, created_at ASC");
         sql
@@ -186,7 +209,7 @@ pub fn list_tasks(conn: &Connection, filter: &ListTasksFilter) -> Result<Vec<Tas
     }
 
     if filter.ready {
-        tasks.retain(|t| !t.completed && t.blocked_by.iter().all(|b| is_completed(conn, b)));
+        tasks.retain(|t| !t.completed && t.blocked_by.iter().all(|b| satisfies_blocker(conn, b)));
     }
 
     Ok(tasks)
@@ -283,6 +306,24 @@ pub fn reopen_task(conn: &Connection, id: &TaskId) -> Result<Task> {
     get_task(conn, id)?.ok_or_else(|| OsError::TaskNotFound(id.clone()))
 }
 
+pub fn cancel_task(conn: &Connection, id: &TaskId) -> Result<Task> {
+    let now_str = now().to_rfc3339();
+    conn.execute(
+        "UPDATE tasks SET cancelled = 1, cancelled_at = ?1, updated_at = ?1 WHERE id = ?2",
+        params![now_str, id],
+    )?;
+    get_task(conn, id)?.ok_or_else(|| OsError::TaskNotFound(id.clone()))
+}
+
+pub fn archive_task(conn: &Connection, id: &TaskId) -> Result<Task> {
+    let now_str = now().to_rfc3339();
+    conn.execute(
+        "UPDATE tasks SET archived = 1, archived_at = ?1, updated_at = ?1 WHERE id = ?2",
+        params![now_str, id],
+    )?;
+    get_task(conn, id)?.ok_or_else(|| OsError::TaskNotFound(id.clone()))
+}
+
 pub fn delete_task(conn: &Connection, id: &TaskId) -> Result<()> {
     conn.execute("DELETE FROM tasks WHERE id = ?1", params![id])?;
     Ok(())
@@ -338,8 +379,9 @@ pub fn get_task_depth(conn: &Connection, id: &TaskId) -> Result<i32> {
 }
 
 pub fn has_pending_children(conn: &Connection, id: &TaskId) -> Result<bool> {
+    // Cancelled children don't block parent completion (only incomplete, non-cancelled children do)
     let count: i32 = conn.query_row(
-        "SELECT COUNT(*) FROM tasks WHERE parent_id = ?1 AND completed = 0",
+        "SELECT COUNT(*) FROM tasks WHERE parent_id = ?1 AND completed = 0 AND cancelled = 0",
         params![id],
         |row| row.get(0),
     )?;
@@ -477,4 +519,26 @@ pub fn get_children_ordered(conn: &Connection, parent_id: &TaskId) -> Result<Vec
 /// but will always return Ok. Missing/errored tasks are treated as incomplete.
 pub fn is_task_completed(conn: &Connection, id: &TaskId) -> Result<bool> {
     Ok(is_completed(conn, id))
+}
+
+/// Check if task satisfies a blocker (completed AND not cancelled).
+/// Cancelled tasks do NOT satisfy blockers - only completed tasks do.
+/// Returns false if task not found or DB error (conservative default).
+/// Note: This function never errors - the Result wrapper is for API consistency
+/// but will always return Ok. Missing/errored tasks are treated as not satisfying.
+pub fn is_task_satisfies_blocker(conn: &Connection, id: &TaskId) -> Result<bool> {
+    Ok(satisfies_blocker(conn, id))
+}
+
+fn satisfies_blocker(conn: &Connection, id: &TaskId) -> bool {
+    conn.query_row(
+        "SELECT completed, cancelled FROM tasks WHERE id = ?1",
+        params![id],
+        |row| {
+            let completed: i32 = row.get(0)?;
+            let cancelled: i32 = row.get(1)?;
+            Ok(completed != 0 && cancelled == 0)
+        },
+    )
+    .unwrap_or(false) // Missing or errored task treated as not satisfying (blocking)
 }

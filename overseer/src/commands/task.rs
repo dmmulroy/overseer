@@ -226,6 +226,7 @@ pub fn handle(conn: &Connection, cmd: TaskCommand) -> Result<TaskResult> {
                 ready: args.ready,
                 completed: if args.completed { Some(true) } else { None },
                 depth,
+                ..Default::default()
             };
             Ok(TaskResult::Many(svc.list(&filter)?))
         }
@@ -357,6 +358,7 @@ fn build_all_trees(conn: &Connection) -> Result<Vec<TaskTree>> {
         ready: false,
         completed: None,
         depth: Some(0),
+        ..Default::default()
     };
     let mut milestones = svc.list(&filter)?;
 
@@ -382,6 +384,7 @@ fn build_tree_recursive(conn: &Connection, task: Task) -> Result<TaskTree> {
         ready: false,
         completed: None,
         depth: None,
+        ..Default::default()
     };
 
     let children_tasks = svc.list(&filter)?;
@@ -418,6 +421,7 @@ fn calculate_progress(conn: &Connection, root_id: Option<&TaskId>) -> Result<Tas
                 ready: false,
                 completed: None,
                 depth: None,
+                ..Default::default()
             };
             svc.list(&filter)?
         }
@@ -455,6 +459,7 @@ fn get_descendants(conn: &Connection, root_id: &TaskId) -> Result<Vec<Task>> {
             ready: false,
             completed: None,
             depth: None,
+            ..Default::default()
         })?;
 
         for child in children {
@@ -475,6 +480,7 @@ fn search_tasks(conn: &Connection, query: &str) -> Result<Vec<Task>> {
         ready: false,
         completed: None,
         depth: None,
+        ..Default::default()
     })?;
 
     let query_lower = query.to_lowercase();

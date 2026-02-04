@@ -69,6 +69,28 @@ pub enum OsError {
     #[error("Cannot complete task with pending children")]
     PendingChildren,
 
+    // Lifecycle transition errors
+    #[error("Cannot cancel completed task")]
+    CannotCancelCompleted,
+
+    #[error("Task is already cancelled")]
+    AlreadyCancelled,
+
+    #[error("Cannot archive active task (must be completed or cancelled first)")]
+    CannotArchiveActive,
+
+    #[error("Task is already archived")]
+    AlreadyArchived,
+
+    #[error("Cannot modify archived task")]
+    CannotModifyArchived,
+
+    #[error("Cannot reopen cancelled task")]
+    CannotReopenCancelled,
+
+    #[error("Cannot reopen active task (task is {state}, must be completed)")]
+    CannotReopenActive { state: String },
+
     #[error("Invalid priority: {0} (must be 0-2)")]
     InvalidPriority(i32),
 

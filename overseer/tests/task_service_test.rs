@@ -177,6 +177,7 @@ fn test_list_all_tasks() {
             ready: false,
             completed: None,
             depth: None,
+            ..Default::default()
         })
         .unwrap();
 

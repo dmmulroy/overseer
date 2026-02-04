@@ -2,7 +2,7 @@ use rusqlite::Connection;
 
 use crate::error::Result;
 
-const SCHEMA_VERSION: i32 = 4;
+const SCHEMA_VERSION: i32 = 5;
 
 pub fn init_schema(conn: &Connection) -> Result<()> {
     let current_version: i32 = conn.pragma_query_value(None, "user_version", |row| row.get(0))?;
@@ -24,7 +24,11 @@ pub fn init_schema(conn: &Connection) -> Result<()> {
                 commit_sha TEXT,
                 started_at TEXT,
                 bookmark TEXT,
-                start_commit TEXT
+                start_commit TEXT,
+                cancelled INTEGER NOT NULL DEFAULT 0,
+                cancelled_at TEXT,
+                archived INTEGER NOT NULL DEFAULT 0,
+                archived_at TEXT
             );
 
             CREATE TABLE IF NOT EXISTS learnings (
@@ -48,6 +52,8 @@ pub fn init_schema(conn: &Connection) -> Result<()> {
 
             CREATE INDEX IF NOT EXISTS idx_tasks_parent ON tasks(parent_id);
             CREATE INDEX IF NOT EXISTS idx_tasks_completed ON tasks(completed);
+            CREATE INDEX IF NOT EXISTS idx_tasks_cancelled ON tasks(cancelled);
+            CREATE INDEX IF NOT EXISTS idx_tasks_archived ON tasks(archived);
             CREATE INDEX IF NOT EXISTS idx_learnings_task ON learnings(task_id);
             CREATE INDEX IF NOT EXISTS idx_blockers_blocker ON task_blockers(blocker_id);
             CREATE UNIQUE INDEX IF NOT EXISTS idx_learnings_unique 
@@ -115,7 +121,29 @@ pub fn init_schema(conn: &Connection) -> Result<()> {
             "#,
         )?;
         conn.pragma_update(None, "user_version", 4)?;
+        version = 4;
     }
+
+    // Migration for version 4 -> 5: Add cancelled and archived columns
+    // cancelled: marks task as cancelled (incomplete tasks only)
+    // archived: hides completed/cancelled tasks from default views
+    if version == 4 {
+        conn.execute_batch(
+            r#"
+            BEGIN;
+            ALTER TABLE tasks ADD COLUMN cancelled INTEGER NOT NULL DEFAULT 0;
+            ALTER TABLE tasks ADD COLUMN cancelled_at TEXT;
+            ALTER TABLE tasks ADD COLUMN archived INTEGER NOT NULL DEFAULT 0;
+            ALTER TABLE tasks ADD COLUMN archived_at TEXT;
+            COMMIT;
+            "#,
+        )?;
+        conn.pragma_update(None, "user_version", 5)?;
+        version = 5;
+    }
+
+    // Suppress unused variable warning - version is used for sequential migration chaining
+    let _ = version;
 
     Ok(())
 }
