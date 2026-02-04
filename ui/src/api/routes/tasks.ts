@@ -1,8 +1,5 @@
 /**
  * Task API routes
- *
- * Note: No task creation in UI (CLI/MCP only)
- * Note: No start operation (complete only via workflow service)
  */
 import { Hono, type Context } from "hono";
 import type { StatusCode } from "hono/utils/http-status";
@@ -15,6 +12,7 @@ import {
   decodeLearnings,
   decodeUpdateTaskRequest,
   decodeCompleteTaskRequest,
+  decodeCreateTaskRequest,
 } from "../../decoder.js";
 import { CliError, isTaskId, type ApiError } from "../../types.js";
 
@@ -76,6 +74,34 @@ const tasks = new Hono()
     try {
       const result = decodeTasks(await callCli(args)).unwrap("GET /api/tasks");
       return c.json(result);
+    } catch (err) {
+      return handleCliError(c, err);
+    }
+  })
+
+  /**
+   * POST /api/tasks
+   * Create a new task
+   * Body: { description: string, context?: string, parentId?: TaskId, priority?: Priority }
+   */
+  .post("/", async (c) => {
+    let body;
+    try {
+      body = decodeCreateTaskRequest(await c.req.json()).unwrap(
+        "POST /api/tasks body"
+      );
+    } catch {
+      return c.json({ error: "Invalid JSON body" }, 400);
+    }
+
+    const args = ["task", "create", "-d", body.description];
+    if (body.context) args.push("--context", body.context);
+    if (body.parentId) args.push("--parent", body.parentId);
+    if (body.priority !== undefined) args.push("--priority", String(body.priority));
+
+    try {
+      const result = decodeTask(await callCli(args)).unwrap("POST /api/tasks");
+      return c.json(result, 201);
     } catch (err) {
       return handleCliError(c, err);
     }

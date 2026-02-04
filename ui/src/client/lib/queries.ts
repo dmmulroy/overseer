@@ -4,6 +4,7 @@ import type {
   TaskWithContext,
   UpdateTaskRequest,
   CompleteTaskRequest,
+  CreateTaskRequest,
   Learning,
   TaskFilter,
   ApiError,
@@ -218,6 +219,33 @@ export function useDeleteTask() {
       }
 
       return res.json() as Promise<{ deleted: boolean }>;
+    },
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: queryKeys.tasks.all });
+    },
+  });
+}
+
+/**
+ * Create task mutation
+ */
+export function useCreateTask() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async (data: CreateTaskRequest): Promise<Task> => {
+      const res = await fetch(`${API_BASE}/api/tasks`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(data),
+      });
+
+      if (!res.ok) {
+        const err: unknown = await res.json().catch(() => ({}));
+        throw new Error(getErrorMessage(err, "Failed to create task"));
+      }
+
+      return res.json() as Promise<Task>;
     },
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: queryKeys.tasks.all });

@@ -1,4 +1,4 @@
-import { useEffect, useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useTasks, useNextReadyTask } from "./lib/queries.js";
 import { useUIStore, type ViewMode } from "./lib/store.js";
 import { KeyboardProvider, useKeyboardShortcuts } from "./lib/keyboard.js";
@@ -6,6 +6,7 @@ import { useMilestoneFilter } from "./lib/use-url-filter.js";
 import { KeyboardHelp } from "./components/KeyboardHelp.js";
 import { Header } from "./components/Header.js";
 import { DetailPanel } from "./components/DetailPanel.js";
+import { CreateTaskDialog } from "./components/CreateTaskDialog.js";
 import { GraphView, KanbanView, ListView } from "./components/views/index.js";
 import type { Task, TaskId } from "../types.js";
 
@@ -30,6 +31,8 @@ function AppContent() {
   const setSelectedTaskId = useUIStore((s) => s.setSelectedTaskId);
   const toggleDetailPanel = useUIStore((s) => s.toggleDetailPanel);
   const clearIfMissing = useUIStore((s) => s.clearIfMissing);
+
+  const [showCreateDialog, setShowCreateDialog] = useState(false);
 
   const { data: tasks, isLoading, isFetching, error } = useTasks();
 
@@ -158,6 +161,12 @@ function AppContent() {
         scope: "global",
         handler: () => toggleDetailPanel(),
       },
+      {
+        key: "n",
+        description: "Create new task",
+        scope: "global",
+        handler: () => setShowCreateDialog(true),
+      },
     ],
     [setViewMode, toggleDetailPanel]
   );
@@ -169,6 +178,10 @@ function AppContent() {
   return (
     <>
       <KeyboardHelp />
+      <CreateTaskDialog
+        open={showCreateDialog}
+        onOpenChange={setShowCreateDialog}
+      />
       <div className="flex flex-col h-screen bg-bg-primary">
         {/* Header */}
         <Header
@@ -179,6 +192,7 @@ function AppContent() {
           milestones={milestones}
           filterMilestoneId={filterMilestoneId}
           onFilterChange={setFilterMilestoneId}
+          onCreateTask={() => setShowCreateDialog(true)}
         />
 
         {/* Main content area */}

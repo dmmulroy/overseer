@@ -145,6 +145,13 @@ export interface TaskFilter {
   completed?: boolean;
 }
 
+export interface CreateTaskRequest {
+  description: string;
+  context?: string;
+  parentId?: TaskId;
+  priority?: Priority;
+}
+
 export interface ApiError {
   error: string;
   code?: string;

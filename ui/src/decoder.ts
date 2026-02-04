@@ -17,6 +17,7 @@ import {
   type InheritedLearnings,
   type UpdateTaskRequest,
   type CompleteTaskRequest,
+  type CreateTaskRequest,
 } from "./types.js";
 
 /**
@@ -429,6 +430,48 @@ export function decodeCompleteTaskRequest(v: unknown): Result<CompleteTaskReques
       }
     }
     req.learnings = learnings as string[];
+  }
+
+  return Result.ok(req);
+}
+
+/**
+ * Decode CreateTaskRequest from request body
+ */
+export function decodeCreateTaskRequest(v: unknown): Result<CreateTaskRequest, DecodeError> {
+  if (!isObject(v)) {
+    return Result.err(new DecodeError({ message: "CreateTaskRequest must be object" }));
+  }
+
+  const { description, context, parentId, priority } = v;
+
+  // description is required
+  if (!isString(description)) {
+    return Result.err(new DecodeError({ message: "description is required and must be string" }));
+  }
+  if (description.trim() === "") {
+    return Result.err(new DecodeError({ message: "description cannot be empty" }));
+  }
+
+  const req: CreateTaskRequest = { description };
+
+  if (context !== undefined) {
+    if (!isString(context)) {
+      return Result.err(new DecodeError({ message: "context must be string" }));
+    }
+    req.context = context;
+  }
+  if (parentId !== undefined) {
+    if (!isString(parentId) || !isTaskId(parentId)) {
+      return Result.err(new DecodeError({ message: `Invalid parentId: ${parentId}` }));
+    }
+    req.parentId = parentId;
+  }
+  if (priority !== undefined) {
+    if (!isPriority(priority)) {
+      return Result.err(new DecodeError({ message: `Invalid priority: ${priority}` }));
+    }
+    req.priority = priority;
   }
 
   return Result.ok(req);

@@ -1,7 +1,7 @@
 /**
  * Header component with logo, view tabs, and status.
  *
- * Layout: [OVERSEER logo] [Graph|Kanban|List tabs] [Filter dropdown] [spacer] [connection] [last-update] [⌘?]
+ * Layout: [OVERSEER logo] [Graph|Kanban|List tabs] [Filter dropdown] [+ New button] [spacer] [connection] [last-update] [⌘?]
  */
 
 import { useState, useEffect } from "react";
@@ -10,6 +10,7 @@ import { useUIStore, type ViewMode } from "../lib/store.js";
 import { useKeyboardContext } from "../lib/keyboard.js";
 import { formatRelativeTime } from "../lib/utils.js";
 import { Kbd } from "./ui/Kbd.js";
+import { Button } from "./ui/Button.js";
 import { CustomSelect } from "./CustomSelect.js";
 import { isTaskId, type Task, type TaskId } from "../../types.js";
 
@@ -50,6 +51,8 @@ interface HeaderProps {
   filterMilestoneId: TaskId | null;
   /** Callback to change the filter */
   onFilterChange: (id: TaskId | null) => void;
+  /** Callback to open the create task dialog */
+  onCreateTask?: () => void;
 }
 
 /**
@@ -72,6 +75,7 @@ export function Header({
   milestones = [],
   filterMilestoneId,
   onFilterChange,
+  onCreateTask,
 }: HeaderProps) {
   const viewMode = useUIStore((s) => s.viewMode);
   const setViewMode = useUIStore((s) => s.setViewMode);
@@ -161,6 +165,28 @@ export function Header({
           </div>
         )}
       </div>
+
+      {/* New Task button */}
+      {onCreateTask && (
+        <Button
+          variant="primary"
+          size="sm"
+          onClick={onCreateTask}
+          className="shrink-0"
+        >
+          <svg
+            xmlns="http://www.w3.org/2000/svg"
+            viewBox="0 0 16 16"
+            fill="currentColor"
+            className="w-4 h-4"
+            aria-hidden="true"
+          >
+            <path d="M8.75 3.75a.75.75 0 0 0-1.5 0v3.5h-3.5a.75.75 0 0 0 0 1.5h3.5v3.5a.75.75 0 0 0 1.5 0v-3.5h3.5a.75.75 0 0 0 0-1.5h-3.5v-3.5Z" />
+          </svg>
+          New
+          <Kbd size="sm">n</Kbd>
+        </Button>
+      )}
 
       {/* Spacer */}
       <div className="flex-1" />
