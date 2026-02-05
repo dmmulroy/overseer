@@ -34,6 +34,10 @@ interface Task {
   bookmark?: string;            // VCS bookmark name (if started)
   startCommit?: string;         // Commit SHA at start
   effectivelyBlocked: boolean;  // True if task OR ancestor has incomplete blockers
+  cancelled: boolean;           // Task was cancelled (does NOT satisfy blockers)
+  cancelledAt: string | null;
+  archived: boolean;            // Task is archived (hidden from default list)
+  archivedAt: string | null;
 }
 
 interface TaskWithContext extends Task {
@@ -66,7 +70,7 @@ type TaskType = "milestone" | "task" | "subtask";
 // Tasks API
 // Note: VCS (jj or git) is REQUIRED for start/complete. CRUD ops work without VCS.
 declare const tasks: {
-  list(filter?: { parentId?: string; ready?: boolean; completed?: boolean; depth?: 0 | 1 | 2; type?: TaskType }): Promise<Task[]>;
+  list(filter?: { parentId?: string; ready?: boolean; completed?: boolean; depth?: 0 | 1 | 2; type?: TaskType; archived?: boolean }): Promise<Task[]>;
   get(id: string): Promise<TaskWithContext>;
   create(input: {
     description: string;
@@ -84,6 +88,8 @@ declare const tasks: {
   start(id: string): Promise<Task>;  // VCS required: creates bookmark, records start commit
   complete(id: string, options?: { result?: string; learnings?: string[] }): Promise<Task>;  // VCS required: commits changes (NothingToCommit = success)
   reopen(id: string): Promise<Task>;
+  cancel(id: string): Promise<Task>;  // Cancel task (does NOT satisfy blockers)
+  archive(id: string): Promise<Task>;  // Archive completed/cancelled task (hides from default list)
   delete(id: string): Promise<void>;  // Best-effort VCS bookmark cleanup
   block(taskId: string, blockerId: string): Promise<void>;
   unblock(taskId: string, blockerId: string): Promise<void>;
@@ -143,6 +149,15 @@ console.log(task.context.milestone); // inherited from root
 
 // Complete task (VCS required - commits changes)
 await tasks.complete(task.id, { result: "Implemented using jose library" });
+
+// Cancel task if abandoning (does NOT satisfy blockers)
+await tasks.cancel(taskId);
+
+// Archive finished tasks (hides from default list)
+await tasks.archive(completedTaskId);
+
+// Include archived tasks in list
+const allTasks = await tasks.list({ archived: true });
 \`\`\`
 `.trim();
 
@@ -153,7 +168,7 @@ export function createMcpServer(): Server {
   const server = new Server(
     {
       name: "overseer-mcp",
-      version: "0.7.0",
+      version: "0.10.0",
     },
     {
       capabilities: {

@@ -25,6 +25,10 @@ interface Task {
   bookmark?: string;            // VCS bookmark name (if started)
   startCommit?: string;         // Commit SHA at start
   effectivelyBlocked: boolean;  // True if task OR ancestor has incomplete blockers
+  cancelled: boolean;           // Task was cancelled (does NOT satisfy blockers)
+  cancelledAt: string | null;
+  archived: boolean;            // Task is archived (hidden from default list)
+  archivedAt: string | null;
 }
 
 // Task with full context - returned by get(), nextReady()
@@ -81,6 +85,7 @@ declare const tasks: {
     completed?: boolean;
     depth?: 0 | 1 | 2;    // 0=milestones, 1=tasks, 2=subtasks
     type?: TaskType;      // Alias: "milestone"|"task"|"subtask" (mutually exclusive with depth)
+    archived?: boolean;   // Include archived tasks (default: false)
   }): Promise<Task[]>;
   get(id: string): Promise<TaskWithContext>;
   create(input: {
@@ -99,6 +104,8 @@ declare const tasks: {
   start(id: string): Promise<Task>;
   complete(id: string, input?: { result?: string; learnings?: string[] }): Promise<Task>;
   reopen(id: string): Promise<Task>;
+  cancel(id: string): Promise<Task>;    // Cancel task (does NOT satisfy blockers)
+  archive(id: string): Promise<Task>;   // Archive completed/cancelled task
   delete(id: string): Promise<void>;
   block(taskId: string, blockerId: string): Promise<void>;
   unblock(taskId: string, blockerId: string): Promise<void>;
@@ -118,6 +125,8 @@ declare const tasks: {
 | `start` | `Task` | **VCS required** - creates bookmark, records start commit |
 | `complete` | `Task` | **VCS required** - commits changes + bubbles learnings to parent |
 | `reopen` | `Task` | Reopen completed task |
+| `cancel` | `Task` | Cancel task (does NOT satisfy blockers) |
+| `archive` | `Task` | Archive completed/cancelled task (hides from list) |
 | `delete` | `void` | Delete task + best-effort VCS bookmark cleanup |
 | `block` | `void` | Add blocker (cannot be self, ancestor, or descendant) |
 | `unblock` | `void` | Remove blocker relationship |
@@ -139,6 +148,21 @@ declare const learnings: {
 | Method | Description |
 |--------|-------------|
 | `list` | List learnings for task |
+
+## Task Lifecycle States
+
+| State | Meaning | Satisfies Blockers? |
+|-------|---------|---------------------|
+| Pending | Not started | No |
+| InProgress | Started, not finished | No |
+| Completed | Successfully finished | **Yes** |
+| Cancelled | Abandoned/superseded | **No** |
+| Archived | Hidden from views | Per underlying state |
+
+**Key semantics:**
+- Cancelled tasks **don't satisfy blockers** (unlike completed)
+- Archive requires task finished (completed OR cancelled) first
+- Archived is a visibility filter, not a workflow state
 
 ## VCS Integration (Required for Workflow)
 
