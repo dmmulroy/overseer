@@ -169,6 +169,15 @@ cd ui && npm run dev              # Start Hono API + Vite HMR
 cd ui && npm run test:ui          # Run UI tests (agent-browser)
 ```
 
+## FEEDBACK LOOPS (v2)
+
+- Build: `cargo check -p os-core -p os-serve -p os-mcp -p os`
+- Serve smoke: `cargo run -p os -- serve` then curl `POST /api/repos`, `POST /api/tasks`, `POST /api/tasks/:id/start`, `POST /api/tasks/:id/submit`
+- SSE: `curl -N http://127.0.0.1:4820/api/events/subscribe`
+- Gates: create `.overseer/gates.toml`, submit task, check `GET /api/gates/results/:review_id`
+- Relay WS: connect `/api/relay/ws`, send `auth/register_harness/session_start/session_complete`
+- MCP: `echo '{"id":"1","method":"execute","params":{"code":"return 1"}}' | os mcp`
+
 ## DOCS
 
 | Document | Purpose |

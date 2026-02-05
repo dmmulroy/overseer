@@ -1,0 +1,14 @@
+pub mod event_repo;
+pub mod gate_repo;
+pub mod git_ai_repo;
+pub mod help_repo;
+pub mod idempotency;
+pub mod learning_repo;
+pub mod repo_repo;
+pub mod review_repo;
+pub mod schema;
+pub mod session_repo;
+pub mod store;
+pub mod task_repo;
+pub mod task_vcs_repo;
+pub mod util;

@@ -1,271 +1,97 @@
 name: Release
 
 on:
-  workflow_dispatch:
-    inputs:
-      version:
-        description: "Version to release (e.g., 0.1.0, 0.2.0-beta.1)"
-        required: true
-        type: string
+  push:
+    tags: ['v*']
 
 permissions:
   contents: write
-  id-token: write
-
-concurrency:
-  group: release
-  cancel-in-progress: false
-
-env:
-  CARGO_INCREMENTAL: 0
-  CARGO_TERM_COLOR: always
 
 jobs:
-  validate:
-    runs-on: ubuntu-latest
-    outputs:
-      version: ${{ steps.version.outputs.version }}
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Validate version
-        id: version
-        run: |
-          VERSION="${{ inputs.version }}"
-          VERSION="${VERSION#v}"
-          if ! npx --yes semver "$VERSION" > /dev/null 2>&1; then
-            echo "::error::Invalid semver: $VERSION"
-            exit 1
-          fi
-          echo "version=$VERSION" >> $GITHUB_OUTPUT
-
-      - name: Check tag doesn't exist
-        run: |
-          if git rev-parse "v${{ steps.version.outputs.version }}" >/dev/null 2>&1; then
-            echo "::error::Tag v${{ steps.version.outputs.version }} already exists"
-            exit 1
-          fi
-
-      - name: Check on main branch
-        run: |
-          if [ "${{ github.ref_name }}" != "main" ]; then
-            echo "::error::Releases must be triggered from main branch"
-            exit 1
-          fi
-
-  prepare:
-    needs: [validate]
-    runs-on: ubuntu-latest
-    outputs:
-      version: ${{ needs.validate.outputs.version }}
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Update Cargo.toml version
-        run: |
-          sed -i 's/^version = ".*"/version = "${{ needs.validate.outputs.version }}"/' overseer/Cargo.toml
-
-      - name: Update Cargo.lock
-        run: cargo check --quiet
-        working-directory: overseer
-
-      - uses: actions/setup-node@v4
-        with:
-          node-version: "22"
-
-      - name: Update npm versions
-        run: node npm/scripts/update-versions.mjs ${{ needs.validate.outputs.version }}
-
-      - name: Commit and tag
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add overseer/Cargo.toml overseer/Cargo.lock npm/ host/package.json ui/package.json
-          git commit -m "release: v${{ needs.validate.outputs.version }}" --allow-empty
-          git tag "v${{ needs.validate.outputs.version }}"
-          git push origin main
-          git push origin "v${{ needs.validate.outputs.version }}"
-
   build:
-    needs: [validate, prepare]
     strategy:
-      fail-fast: false
       matrix:
         include:
-          - os: macos-latest
-            target: aarch64-apple-darwin
-            platform: darwin-arm64
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+            artifact: os
+          - os: ubuntu-latest
+            target: aarch64-unknown-linux-gnu
+            artifact: os
           - os: macos-latest
             target: x86_64-apple-darwin
-            platform: darwin-x64
-          - os: ubuntu-22.04
-            target: x86_64-unknown-linux-gnu
-            platform: linux-x64
-          - os: ubuntu-22.04
-            target: aarch64-unknown-linux-gnu
-            platform: linux-arm64
-            cross: true
-          - os: ubuntu-22.04
-            target: x86_64-unknown-linux-musl
-            platform: linux-x64-musl
-            cross: true
-          - os: ubuntu-22.04
-            target: aarch64-unknown-linux-musl
-            platform: linux-arm64-musl
-            cross: true
+            artifact: os
+          - os: macos-latest
+            target: aarch64-apple-darwin
+            artifact: os
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+            artifact: os.exe
+
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
-        with:
-          ref: v${{ needs.validate.outputs.version }}
-
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: ${{ matrix.target }}
+      - uses: Swatinem/rust-cache@v2
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'pnpm'
+          cache-dependency-path: webapp/pnpm-lock.yaml
 
-      - name: Install cross
-        if: matrix.cross
-        run: cargo install cross --git https://github.com/cross-rs/cross
+      - name: Build webapp
+        run: cd webapp && pnpm install --frozen-lockfile && pnpm build
 
-      - name: Build (cross)
-        if: matrix.cross
-        run: cross build --release --target ${{ matrix.target }}
-        working-directory: overseer
-        env:
-          RUSTFLAGS: "-C strip=symbols"
-
-      - name: Build (native)
-        if: ${{ !matrix.cross }}
+      - name: Build binary
         run: cargo build --release --target ${{ matrix.target }}
-        working-directory: overseer
-        env:
-          RUSTFLAGS: "-C strip=symbols"
 
-      - name: Sign binary (macOS)
-        if: runner.os == 'macOS'
-        run: codesign --force --sign - overseer/target/${{ matrix.target }}/release/os
-
-      - name: Prepare artifact
+      - name: Package
         run: |
           mkdir -p dist
-          cp overseer/target/${{ matrix.target }}/release/os dist/
-          chmod +x dist/os
+          cp target/${{ matrix.target }}/release/${{ matrix.artifact }} dist/
+          cd dist && tar czf os-${{ matrix.target }}.tar.gz ${{ matrix.artifact }}
 
-      - name: Upload artifact
-        uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v4
         with:
-          name: ${{ matrix.platform }}
-          path: dist/os
+          name: os-${{ matrix.target }}
+          path: dist/os-${{ matrix.target }}.tar.gz
 
-  release:
-    needs: [validate, build]
+  github-release:
+    needs: build
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-        with:
-          ref: v${{ needs.validate.outputs.version }}
-
       - uses: actions/download-artifact@v4
         with:
           path: artifacts
 
-      - name: Create archives
-        run: |
-          mkdir -p release
-          for platform in artifacts/*/; do
-            name=$(basename "$platform")
-            (cd "$platform" && tar -czvf "../../release/os-${name}.tar.gz" os)
-          done
-
-      - name: Generate checksums
-        run: |
-          cd release
-          sha256sum * > checksums-sha256.txt
-          cat checksums-sha256.txt
-
-      - name: Create GitHub Release
+      - name: Create release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: v${{ needs.validate.outputs.version }}
-          files: release/*
+          files: artifacts/**/*.tar.gz
           generate_release_notes: true
 
-  publish-npm:
-    needs: [validate, build, release]
+  npm-publish:
+    needs: github-release
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
         with:
-          ref: v${{ needs.validate.outputs.version }}
+          path: artifacts
 
       - uses: actions/setup-node@v4
         with:
-          node-version: "22"
-          registry-url: "https://registry.npmjs.org"
+          node-version: '22'
+          registry-url: 'https://registry.npmjs.org'
 
-      - uses: actions/download-artifact@v4
-        with:
-          path: artifacts
+      - name: Build npm packages
+        run: ./npm/scripts/build-npm.sh
 
-      - name: Build host package
-        run: cd host && npm ci && npm run build
-
-      - name: Build UI static files
-        run: cd ui && npm ci && npm run build
-
-      - name: Prepare npm package
-        run: node npm/scripts/build-npm-package.mjs
-
-      - name: Generate platform packages
-        run: |
-          for platform in darwin-arm64 darwin-x64 linux-arm64 linux-x64 linux-arm64-musl linux-x64-musl; do
-            node npm/scripts/generate-platform-package.mjs $platform ${{ needs.validate.outputs.version }}
-            cp artifacts/$platform/os npm/overseer-$platform/
-            chmod +x npm/overseer-$platform/os
-          done
-
-      - name: Publish platform packages
+      - name: Publish
+        run: cd npm/overseer && npm publish --access public
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
-        run: |
-          for platform in darwin-arm64 darwin-x64 linux-arm64 linux-x64 linux-arm64-musl linux-x64-musl; do
-            echo "Publishing @dmmulroy/overseer-$platform..."
-            npm publish ./npm/overseer-$platform --access public --provenance || {
-              if npm view "@dmmulroy/overseer-$platform@${{ needs.validate.outputs.version }}" > /dev/null 2>&1; then
-                echo "Version already published, skipping"
-              else
-                exit 1
-              fi
-            }
-          done
-
-      - name: Publish main package
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
-        run: |
-          echo "Publishing @dmmulroy/overseer..."
-          npm publish ./npm/overseer --access public --provenance
-
-  summary:
-    needs: [validate, publish-npm]
-    runs-on: ubuntu-latest
-    if: always()
-    steps:
-      - name: Summary
-        run: |
-          echo "## Release v${{ needs.validate.outputs.version }}" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "| Channel | Status |" >> $GITHUB_STEP_SUMMARY
-          echo "|---------|--------|" >> $GITHUB_STEP_SUMMARY
-          echo "| npm | ${{ needs.publish-npm.result }} |" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "### Install" >> $GITHUB_STEP_SUMMARY
-          echo "\`\`\`bash" >> $GITHUB_STEP_SUMMARY
-          echo "npm install -g @dmmulroy/overseer" >> $GITHUB_STEP_SUMMARY
-          echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "### Usage" >> $GITHUB_STEP_SUMMARY
-          echo "\`\`\`bash" >> $GITHUB_STEP_SUMMARY
-          echo "os mcp         # Start MCP server" >> $GITHUB_STEP_SUMMARY
-          echo "os task list   # CLI commands" >> $GITHUB_STEP_SUMMARY
-          echo "\`\`\`" >> $GITHUB_STEP_SUMMARY

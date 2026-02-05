@@ -1,20 +1,26 @@
 # Overseer v2 Architecture
 
-**Status:** Draft  
-**Date:** 2026-02-04
+**Status:** Draft v2  
+**Date:** 2026-02-05  
+**Canonical specs:** `docs/specs/01-core-domain.md` (source of truth for types/invariants)
+
+> **This is a greenfield rebuild.** No code carries over from Overseer v1. Fresh branch, fresh codebase, informed by lessons learned.
 
 ## Vision
 
-Overseer evolves from a task management CLI into a **local code review and agent orchestration platform**. Think: GitHub PR reviews + Linear task management + agent harness broker, all local-first.
+Overseer v2 is a **local code review and agent orchestration platform**. GitHub PR reviews + Linear task management + agent harness broker, all local-first, single Rust binary.
 
 ## Design Principles
 
-1. **Stripe SDK-style API** - `overseer.tasks.create()`, not heavy DDD abstractions
-2. **Single Rust binary** - Boa JS engine for codemode, no Node.js dependency
-3. **Multi-repo/multi-project** - Manage tasks across repositories
-4. **Stacked diffs** - Each task has persistent VCS artifacts for review
-5. **Event-driven** - Internal pub/sub for decoupling + future plugins
-6. **Interface-agnostic core** - CLI, MCP, REST, UI all use same SDK
+1. **Stripe SDK-style API** — `overseer.tasks.create()`, not heavy DDD abstractions
+2. **Single Rust binary** — rquickjs for codemode, no Node.js dependency
+3. **Multi-repo/multi-project** — Manage tasks across repositories
+4. **Stacked diffs** — Each task has persistent VCS artifacts for review
+5. **Event-driven** — Internal pub/sub for decoupling + future plugins
+6. **Interface-agnostic core** — CLI, MCP, REST, UI all use same SDK
+7. **OpenAPI-first** — Generate clients, don't hand-write them
+8. **Types encode business rules** — If a state is invalid, make it unrepresentable
+9. **jj-first** — All VCS references use stable identifiers that survive rewrites
 
 ---
 
@@ -22,94 +28,175 @@ Overseer evolves from a task management CLI into a **local code review and agent
 
 ### Single Binary, Multiple Modes
 
-Overseer ships as **one Rust binary** (`os`) with multiple operational modes. No separate daemon binary needed.
-
 ```
-os <command>      # Fast CLI, works standalone (direct SDK calls)
-os serve          # Starts server (foreground, daemon-capable)
-os mcp            # MCP server mode (Boa JS executor)
+os <command>      # Fast CLI (direct SDK calls, no daemon needed)
+os serve          # Axum server (REST, SSE, Relay WS, embedded webapp)
+os mcp            # MCP server mode (rquickjs executor, stdio transport)
 ```
-
-### Why Not a Separate Daemon?
-
-| Separate `overseerd` | Single binary with modes |
-|----------------------|--------------------------|
-| Version skew risk | Always in sync |
-| Extra packaging | One artifact |
-| Process management complexity | `os serve` is just a mode |
-| User must install service | Works immediately |
 
 ### Architecture Diagram
 
 ```
-┌─────────────────────────────────────────────────────────────────┐
-│                    overseers (single binary)                    │
-│                                                                 │
-│  ┌───────────────────────────────────────────────────────────┐  │
-│  │                      Core SDK (lib)                       │  │
-│  │  overseer::tasks::*  overseer::reviews::*  overseer::*    │  │
-│  └───────────────────────────────────────────────────────────┘  │
-│           │                    │                    │           │
-│           ▼                    ▼                    ▼           │
-│  ┌─────────────┐      ┌─────────────┐      ┌─────────────┐      │
-│  │  CLI Mode   │      │ Serve Mode  │      │  MCP Mode   │      │
-│  │   (clap)    │      │   (axum)    │      │   (Boa)     │      │
-│  │             │      │             │      │             │      │
-│  │ os task ... │      │ os serve    │      │ os mcp      │      │
-│  └─────────────┘      └──────┬──────┘      └─────────────┘      │
-│                              │                                  │
-│                    ┌─────────┼─────────┐                        │
-│                    ▼         ▼         ▼                        │
-│              ┌─────────┐ ┌───────┐ ┌───────┐                    │
-│              │REST API │ │ SSE/  │ │ Relay │                    │
-│              │ /tasks  │ │ WS    │ │  WS   │                    │
-│              └─────────┘ └───────┘ └───────┘                    │
-│                    │         │         │                        │
-│  Clients:    Web UI ◄────────┘         └────► Agent Harnesses   │
-│              Tauri                            (OpenCode, etc)   │
-│              TUI                                                │
-└─────────────────────────────────────────────────────────────────┘
++---------------------------------------------------------------+
+|                       os (single binary)                      |
+|                                                               |
+|  +---------------------------- os-core ---------------------+ |
+|  | tasks::* reviews::* gates::* help::* learnings::*        | |
+|  | repos::* events::*                                       | |
+|  +-------------------------+--------------------------------+ |
+|            |               |                |                 |
+|        +---+---+       +---+---+        +---+---+             |
+|        | os-db |       | os-vcs|        |events|             |
+|        |sqlite|       |jj/gix|        |tokio |             |
+|        +---+---+       +---+---+        +---+---+             |
+|            |               |                |                 |
+|   +--------+--------+  +---+-----+   +------+-------+         |
+|   | CLI (clap) |     | Serve(axum)|  | MCP (rquickjs)|         |
+|   +------------+     +-----+------+  +--------------+         |
+|                        |   |   |                         |
+|                 +------+ +---+ +-------+                   |
+|                 | REST | |SSE| | Relay |                   |
+|                 |API   | |WS | |  WS   |                   |
+|                 +---+--+ +---+ +---+---+                   |
+|                     |         |     |                      |
+| Clients: Webapp <---+---------+--> Harnesses               |
+|          TUI/Tauri                     (OpenCode, etc)     |
++---------------------------------------------------------------+
 ```
+
+### Crate Structure
+
+See `docs/specs/00-monorepo.md` for full detail. Summary:
+
+| Crate | Purpose |
+|-------|---------|
+| `os` | Binary: clap CLI + mode dispatch |
+| `os-core` | Domain types, SDK API, business logic |
+| `os-db` | SQLite persistence, migrations |
+| `os-vcs` | VCS backends (jj-lib + gix) |
+| `os-events` | Event types, bus, persistence |
+| `os-serve` | Axum server, REST, SSE, Relay, static |
+| `os-mcp` | MCP protocol, rquickjs executor |
 
 ### Client Connectivity
 
-| Client | Connection Strategy |
-|--------|---------------------|
-| **Web UI** | HTTP + SSE/WS to `os serve` |
-| **Tauri desktop** | Sidecar `os serve`, talk HTTP/WS |
+| Client | Connection |
+|--------|------------|
+| **Webapp** | HTTP + SSE/WS to `os serve` (embedded via rust-embed) |
+| **Tauri desktop** | Sidecar `os serve`, HTTP/WS |
 | **TUI** | HTTP/WS to `os serve` (or standalone CLI) |
-| **MCP/codemode** | In-process Boa inside `os serve` or `os mcp` |
+| **MCP/codemode** | In-process rquickjs inside `os serve` or `os mcp` |
 
-### SQLite Concurrency Strategy
+### SQLite Strategy
 
-- **WAL mode** enabled for concurrent reads
-- **busy_timeout** set for write contention
-- CLI works standalone (direct SQLite access)
-- When `os serve` running, CLI can optionally route mutations through server
-- Server as single writer → no contention, events always captured in-memory pub/sub
+- **WAL mode** for concurrent reads
+- **busy_timeout** for write contention
+- CLI works standalone (direct SQLite)
+- When `os serve` running, CLI optionally routes through server
+- Server as single writer → events always captured in-memory pub/sub
 
-### Serve Mode Features
+---
 
-`os serve` provides:
-- **REST API** (axum) - Task CRUD, reviews, learnings
-- **SSE/WebSocket** - Real-time event streaming to UI
-- **Relay WebSocket** - Agent harness broker
-- **Boa executor** - MCP codemode endpoint
+## Core Domain Model
 
-### CLI Behavior
+> **Canonical reference:** `docs/specs/01-core-domain.md`
 
-- **Default:** `os task ...` runs in-process via Core SDK (fast, no daemon needed)
-- **Optional:** If `os serve` running, CLI can route through server for consistency
-- **Required:** `os events tail --follow` needs `os serve` (or starts temporary server)
+### Entity Hierarchy
 
-### Daemonization Strategy
+```
+Milestone (ms_...)     ← depth 0, root container
+  └── Task (task_...)  ← depth 1, unit of work
+       └── Subtask (sub_...) ← depth 2, sub-unit
+       
+Task (task_...)        ← depth 0, standalone (no parent)
+  └── Subtask (sub_...)
+```
 
-**Phase 1 (now):** `os serve` runs foreground, user manages with tmux/screen/&
+### Entity IDs
 
-**Phase 2 (later, if needed):** Add `os install-service` for:
-- macOS: launchd user agent
-- Linux: systemd user service
-- Only if users demand always-on behavior
+All IDs use ULID with typed prefixes: `ms_`, `task_`, `sub_`, `lrn_`, `rev_`, `cmt_`, `repo_`, `gate_`, `help_`. Union type `AnyTaskId` enables polymorphic task operations.
+
+### Task Lifecycle
+
+```
+                    ┌─────────────┐
+                    │   Pending   │
+                    +------+------+
+                           | start()
+                           v
+                   ┌─────────────┐
+         +--------|  InProgress  |<-----------+
+         |        +------+------+             |
+         |               | submit()           |
+         |               v                    |
+         |        ┌─────────────┐             |
+         |        |  InReview   |-------------+
+         |        +------+------+  reject()   |
+         |               | approve()          |
+         |               v                    |
+         |        ┌─────────────┐             |
+         |        |  Completed  |             |
+         |        └─────────────┘             |
+         |                                    |
+         |        ┌───────────────┐           |
+         +------->| AwaitingHuman |<----------+
+         |        +-------+-------+           |
+         |                | resume()          |
+         |                +-------------------+
+         |
+         +-- cancel() --> Cancelled
+```
+
+**Key additions from v1:** `AwaitingHuman` status (agent requests human help), `InReview` now gates a three-phase pipeline (Gates → Agent Review → Human Review).
+
+### Priority
+
+4 levels: Urgent(0), High(1), Normal(2), Low(3). Lower numeric = higher priority.
+
+### Core Entities
+
+| Entity | ID Prefix | Purpose |
+|--------|-----------|---------|
+| Task | `ms_`/`task_`/`sub_` | Unit of work (polymorphic via TaskKind) |
+| TaskVcs | — | VCS artifacts (ref, change_id, base/head commit) |
+| Review | `rev_` | Three-phase review session (Gates→Agent→Human) |
+| ReviewComment | `cmt_` | PR-style diff comment (file/line/side) |
+| Gate | `gate_` | Quality check (shell command, pass/fail) |
+| GateResult | — | Execution result per gate per review |
+| HelpRequest | `help_` | Agent→human escalation with structured response |
+| Learning | `lrn_` | Knowledge captured during task execution |
+| Repo | `repo_` | Registered repository |
+
+---
+
+## Review Pipeline
+
+> **Canonical reference:** `docs/specs/01-core-domain.md` (Review types), `docs/specs/03a-gates.md` (gate execution)
+
+### Three-Phase Pipeline
+
+```
+submit()
+   |
+   v
+GatesPending ──[all pass]──> AgentPending ──[approve]──> HumanPending ──[approve]──> Approved
+   |                             |                           |
+   +──[retries exhausted]──> GatesEscalated                  |
+   |                             |                           |
+   +─────────────────────────────+───────────────────────────+──> ChangesRequested
+                                                                     |
+                                                              (task → InProgress)
+```
+
+### Gates
+
+Gates are shell commands that return exit codes: 0=pass, 75=pending (async), other=fail. They run before **each** review phase transition. Gates inherit downward: Repo → Milestone → Task → Subtask.
+
+Configuration via `.overseer/gates.toml` or task context YAML front matter.
+
+### HelpRequests
+
+Agents can request human help via `request_help()`. Task transitions to `AwaitingHuman`, preserving `from_status`. Human responds + resumes. Categories: Clarification, Decision, TechnicalBlocker, Unexpected.
 
 ---
 
@@ -118,569 +205,388 @@ os mcp            # MCP server mode (Boa JS executor)
 ### Module Structure
 
 ```rust
-// overseer/src/lib.rs
+// os-core/src/lib.rs
 pub mod tasks;      // Task CRUD + lifecycle
+pub mod reviews;    // Three-phase review pipeline
+pub mod gates;      // Quality gate management
+pub mod help;       // Help request workflow
 pub mod learnings;  // Learning management
-pub mod reviews;    // Code review workflow
 pub mod repos;      // Multi-repo management
-pub mod harnesses;  // Agent harness broker
 pub mod events;     // Event bus + subscriptions
-pub mod vcs;        // VCS operations (internal)
-pub mod db;         // Persistence (internal)
 ```
 
 ### API Surface
 
 ```rust
 // Tasks
-overseer::tasks::create(CreateTaskInput) -> Result<Task>
-overseer::tasks::get(TaskId) -> Result<TaskWithContext>
-overseer::tasks::list(TaskFilter) -> Result<Vec<Task>>
-overseer::tasks::update(TaskId, UpdateTaskInput) -> Result<Task>
-overseer::tasks::start(TaskId) -> Result<Task>
-overseer::tasks::submit_for_review(TaskId, SubmitOptions) -> Result<Task>
-overseer::tasks::delete(TaskId) -> Result<()>
-overseer::tasks::block(TaskId, BlockerId) -> Result<()>
-overseer::tasks::unblock(TaskId, BlockerId) -> Result<()>
-overseer::tasks::next_ready(Option<MilestoneId>) -> Result<Option<TaskWithContext>>
-overseer::tasks::tree(Option<RootId>) -> Result<TaskTree>
-overseer::tasks::progress(Option<RootId>) -> Result<TaskProgress>
+overseer.tasks.create(CreateTaskInput) -> Result<Task>
+overseer.tasks.get(AnyTaskId) -> Result<TaskWithContext>
+overseer.tasks.list(TaskFilter) -> Result<Vec<Task>>
+overseer.tasks.update(AnyTaskId, UpdateTaskInput) -> Result<Task>
+overseer.tasks.delete(AnyTaskId) -> Result<()>
+overseer.tasks.start(AnyTaskId) -> Result<Task>
+overseer.tasks.submit(AnyTaskId) -> Result<Task>
+overseer.tasks.cancel(AnyTaskId) -> Result<Task>
+overseer.tasks.force_complete(AnyTaskId) -> Result<Task>  // Human only
+overseer.tasks.set_status(AnyTaskId, TaskStatus) -> Result<Task>  // Human only
+overseer.tasks.block(AnyTaskId, AnyTaskId) -> Result<()>
+overseer.tasks.unblock(AnyTaskId, AnyTaskId) -> Result<()>
+overseer.tasks.next_ready(RepoId, Option<MilestoneId>) -> Result<Option<TaskWithContext>>
+overseer.tasks.tree(Option<AnyTaskId>) -> Result<TaskTree>
+overseer.tasks.progress(RepoId, Option<AnyTaskId>) -> Result<TaskProgress>
 
 // Reviews
-overseer::reviews::get(TaskId) -> Result<Review>
-overseer::reviews::diff(TaskId) -> Result<Diff>
-overseer::reviews::comment(TaskId, CommentInput) -> Result<Comment>
-overseer::reviews::approve(TaskId, ApproveOptions) -> Result<Task>
-overseer::reviews::reject(TaskId, RejectOptions) -> Result<Task>
-overseer::reviews::request_changes(TaskId, Vec<Comment>) -> Result<Review>
+overseer.reviews.get(ReviewId) -> Result<Review>
+overseer.reviews.get_active(AnyTaskId) -> Result<Option<Review>>
+overseer.reviews.list(AnyTaskId) -> Result<Vec<Review>>
+overseer.reviews.comment(CreateCommentInput) -> Result<ReviewComment>
+overseer.reviews.list_comments(ReviewId) -> Result<Vec<ReviewComment>>
+overseer.reviews.resolve_comment(CommentId) -> Result<ReviewComment>
+overseer.reviews.approve(AnyTaskId) -> Result<Task>
+overseer.reviews.request_changes(AnyTaskId, Vec<CreateCommentInput>) -> Result<Review>
+
+// Gates
+overseer.gates.add(CreateGateInput) -> Result<Gate>
+overseer.gates.list(GateScope) -> Result<Vec<Gate>>
+overseer.gates.get_effective(AnyTaskId) -> Result<Vec<Gate>>
+overseer.gates.remove(GateId) -> Result<()>
+overseer.gates.update(GateId, UpdateGateInput) -> Result<Gate>
+overseer.gates.results(ReviewId) -> Result<Vec<GateResult>>
+overseer.gates.rerun(ReviewId) -> Result<()>
+
+// Help
+overseer.help.request(CreateHelpRequestInput) -> Result<HelpRequest>
+overseer.help.respond(HelpRequestId, HelpResponseInput) -> Result<HelpRequest>
+overseer.help.resume(AnyTaskId) -> Result<Task>
+overseer.help.get_active(AnyTaskId) -> Result<Option<HelpRequest>>
+overseer.help.list(AnyTaskId) -> Result<Vec<HelpRequest>>
 
 // Learnings
-overseer::learnings::list(TaskId) -> Result<Vec<Learning>>
-overseer::learnings::add(TaskId, content: String) -> Result<Learning>
+overseer.learnings.add(AnyTaskId, String) -> Result<Learning>
+overseer.learnings.list(AnyTaskId) -> Result<Vec<Learning>>
+overseer.learnings.get_inherited(AnyTaskId) -> Result<InheritedLearnings>
 
 // Repos
-overseer::repos::register(RepoPath) -> Result<Repo>
-overseer::repos::list() -> Result<Vec<Repo>>
-overseer::repos::get(RepoId) -> Result<Repo>
-overseer::repos::set_active(RepoId) -> Result<()>
-
-// Harnesses
-overseer::harnesses::connect(HarnessConfig) -> Result<HarnessConnection>
-overseer::harnesses::list() -> Result<Vec<Harness>>
-overseer::harnesses::invoke(HarnessId, TaskId) -> Result<HarnessSession>
-overseer::harnesses::abort(SessionId) -> Result<()>
+overseer.repos.register(PathBuf) -> Result<Repo>
+overseer.repos.get(RepoId) -> Result<Repo>
+overseer.repos.get_by_path(Path) -> Result<Option<Repo>>
+overseer.repos.list() -> Result<Vec<Repo>>
+overseer.repos.unregister(RepoId) -> Result<()>
 
 // Events
-overseer::events::subscribe(EventFilter) -> EventStream
-overseer::events::list(EventQuery) -> Result<Vec<Event>>
-overseer::events::replay(AfterSeq, Limit) -> Result<Vec<Event>>
+overseer.events.subscribe(EventFilter) -> EventStream
+overseer.events.list(EventQuery) -> Result<Vec<Event>>
+overseer.events.replay(AfterSeq, Limit) -> Result<Vec<Event>>
 ```
 
 ### Internal Structure
 
 ```rust
-// Each module has a struct that holds dependencies
+pub struct Overseer {
+    pub tasks: Tasks,
+    pub reviews: Reviews,
+    pub gates: Gates,
+    pub help: Help,
+    pub learnings: Learnings,
+    pub repos: Repos,
+    pub events: Events,
+}
+
+impl Overseer {
+    pub fn new(config: Config) -> Result<Self> { ... }
+}
+
+// Each module holds shared dependencies
 pub struct Tasks {
     db: Arc<Database>,
     vcs: Arc<VcsManager>,
     events: Arc<EventBus>,
 }
-
-impl Tasks {
-    pub fn create(&self, input: CreateTaskInput) -> Result<Task> {
-        // Validation
-        self.validate_create(&input)?;
-        
-        // Persist
-        let task = self.db.tasks().insert(&input)?;
-        
-        // Emit event
-        self.events.emit(TaskEvent::Created { task: task.clone() });
-        
-        Ok(task)
-    }
-}
-
-// Top-level client that holds all modules
-pub struct Overseer {
-    pub tasks: Tasks,
-    pub reviews: Reviews,
-    pub learnings: Learnings,
-    pub repos: Repos,
-    pub harnesses: Harnesses,
-    pub events: Events,
-}
-
-impl Overseer {
-    pub fn new(config: Config) -> Result<Self> { /* ... */ }
-}
 ```
 
 ---
 
-## Multi-Repo/Project Model
+## VCS Model
 
-### Schema
+### TaskVcs (Separated from Task)
 
-```sql
--- Registered repositories
-CREATE TABLE repos (
-  id TEXT PRIMARY KEY,              -- repo_01ABC...
-  path TEXT NOT NULL UNIQUE,        -- /Users/me/Code/project
-  name TEXT NOT NULL,               -- project (derived from path)
-  vcs_type TEXT NOT NULL,           -- 'jj' | 'git'
-  is_active INTEGER DEFAULT 0,      -- Current working repo
-  created_at TEXT NOT NULL,
-  updated_at TEXT NOT NULL
-);
+VCS artifacts are stored separately to keep the domain model VCS-agnostic and allow planning-only mode (no VCS required for task creation).
 
--- Tasks now belong to a repo
-ALTER TABLE tasks ADD COLUMN repo_id TEXT REFERENCES repos(id);
-
--- VCS artifacts per task
-CREATE TABLE task_vcs (
-  task_id TEXT PRIMARY KEY REFERENCES tasks(id) ON DELETE CASCADE,
-  repo_id TEXT NOT NULL REFERENCES repos(id),
-  ref_name TEXT NOT NULL,           -- bookmark/branch name
-  base_rev TEXT NOT NULL,           -- Diff base (parent's head_rev for stacking)
-  head_rev TEXT,                    -- Latest submitted revision
-  worktree_path TEXT,               -- If using separate worktree
-  created_at TEXT NOT NULL,
-  updated_at TEXT NOT NULL
-);
+```rust
+pub struct TaskVcs {
+    pub task_id: AnyTaskId,
+    pub repo_id: RepoId,
+    pub vcs_type: VcsType,         // Jj | Git
+    pub ref_name: String,          // Bookmark (jj) or branch (git)
+    pub change_id: String,         // jj: ChangeId (stable), git: branch name
+    pub base_commit: String,       // Diff base (parent's head or main)
+    pub head_commit: Option<String>, // Set on submit
+    pub start_commit: String,      // SHA at task start
+    pub archived_at: Option<DateTime<Utc>>,
+}
 ```
 
-### Stacked Diffs Model
+**jj-first:** Uses ChangeId (stable across rewrites) for persistent references. Git falls back to branch names.
+
+**Stack-preserving:** Refs preserved on complete. `os task archive` or `os gc` for cleanup.
+
+### Stacked Diffs
 
 ```
-Milestone (task_01ABC)
-├── base_rev: main@abc123
-├── head_rev: abc456
+Milestone (ms_01ABC)
+├── base_commit: main@abc123
+├── head_commit: abc456
 │
 ├── Task A (task_01DEF)
-│   ├── base_rev: abc456 (milestone's head)
-│   ├── head_rev: def789
+│   ├── base_commit: abc456 (milestone's head)
+│   ├── head_commit: def789
 │   │
-│   ├── Subtask A1 (task_01GHI)
-│   │   ├── base_rev: def789 (parent's head)
-│   │   └── head_rev: ghi012
-│   │
-│   └── Subtask A2 (task_01JKL)
-│       ├── base_rev: def789 (parent's head)
-│       └── head_rev: jkl345
+│   └── Subtask A1 (sub_01GHI)
+│       ├── base_commit: def789 (parent's head)
+│       └── head_commit: ghi012
 │
 └── Task B (task_01MNO)
-    ├── base_rev: abc456 (milestone's head)
-    └── head_rev: mno678
+    ├── base_commit: abc456 (milestone's head)
+    └── head_commit: mno678
 ```
 
-**Key insight:** Each task's `base_rev` is its parent's `head_rev`. This creates a true stack where:
-- Diff for Task A1 = `def789..ghi012` (shows only A1's changes)
-- Diff for Task A = `abc456..def789` (shows only A's changes, not subtasks)
-
-### Worktree/Workspace Strategy
-
-To avoid impacting the main working directory during reviews:
-
-```rust
-// On task start (if configured)
-overseer::tasks::start(task_id) {
-    let task_vcs = self.db.task_vcs().get(task_id)?;
-    
-    // Create isolated worktree for this task
-    let worktree_path = match self.vcs.backend() {
-        VcsType::Jj => {
-            // jj workspace add --name task_01ABC /tmp/overseer/task_01ABC
-            self.vcs.jj().create_workspace(&task_vcs.ref_name)?
-        }
-        VcsType::Git => {
-            // git worktree add /tmp/overseer/task_01ABC task_01ABC
-            self.vcs.git().create_worktree(&task_vcs.ref_name)?
-        }
-    };
-    
-    self.db.task_vcs().set_worktree_path(task_id, &worktree_path)?;
-}
-```
-
----
-
-## Review Model (GitHub PR-style)
-
-### Schema
-
-```sql
--- Review sessions
-CREATE TABLE reviews (
-  id TEXT PRIMARY KEY,              -- rev_01ABC...
-  task_id TEXT NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
-  status TEXT NOT NULL,             -- 'pending' | 'approved' | 'changes_requested' | 'rejected'
-  submitted_at TEXT,
-  decided_at TEXT,
-  reviewer TEXT,                    -- Optional reviewer identity
-  created_at TEXT NOT NULL,
-  updated_at TEXT NOT NULL
-);
-
--- Comments on diffs
-CREATE TABLE review_comments (
-  id TEXT PRIMARY KEY,              -- cmt_01ABC...
-  review_id TEXT NOT NULL REFERENCES reviews(id) ON DELETE CASCADE,
-  task_id TEXT NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
-  file_path TEXT NOT NULL,          -- src/main.rs
-  line_start INTEGER,               -- Starting line (nullable for file-level)
-  line_end INTEGER,                 -- Ending line
-  side TEXT,                        -- 'left' | 'right' (old vs new)
-  body TEXT NOT NULL,
-  status TEXT NOT NULL,             -- 'pending' | 'posted' | 'resolved'
-  posted_at TEXT,                   -- When sent to agent
-  resolved_at TEXT,
-  created_at TEXT NOT NULL,
-  updated_at TEXT NOT NULL
-);
-```
-
-### Review Workflow
-
-```
-                    ┌─────────────┐
-                    │   pending   │
-                    └──────┬──────┘
-                           │ start()
-                           ▼
-                   ┌─────────────┐
-         ┌─────────│ in_progress │◄────────┐
-         │         └──────┬──────┘         │
-         │                │ submit_for_review()
-         │                ▼                │
-         │         ┌─────────────┐         │
-         │         │   review    │─────────┤ reject()
-         │         └──────┬──────┘         │
-         │                │                │
-         │    ┌───────────┴───────────┐    │
-         │    │                       │    │
-         │    ▼                       ▼    │
-         │ approve()            request_changes()
-         │    │                       │    │
-         │    ▼                       └────┘
-         │ ┌─────────────┐
-         │ │  completed  │
-         │ └─────────────┘
-         │
-         └─ cancel()
-            ┌─────────────┐
-            │  cancelled  │
-            └─────────────┘
-```
-
-### Comment → Agent Feedback Loop
-
-```rust
-// Immediate comment (posts to active harness session)
-overseer::reviews::comment(task_id, CommentInput {
-    file_path: "src/auth.rs",
-    line_start: Some(42),
-    line_end: Some(45),
-    body: "This should use bcrypt, not md5",
-    post_immediately: true,  // Send to agent now
-}) -> Result<Comment>
-
-// When post_immediately = true:
-// 1. Find active harness session for this task
-// 2. Send comment as agent message
-// 3. Agent receives feedback in real-time
-
-// Batched review (posts all pending comments)
-overseer::reviews::request_changes(task_id, pending_comments) {
-    // 1. Mark review as changes_requested
-    // 2. Emit ReviewEvent::ChangesRequested with all comments
-    // 3. Relay broadcasts to connected harness
-    // 4. Agent picks up review feedback
-}
-```
+Each task's `base_commit` is its parent's `head_commit`. Diff for any task shows only that task's changes.
 
 ---
 
 ## Event System
 
+### Event Structure
+
+```rust
+pub struct Event {
+    pub id: EventId,
+    pub seq: i64,                    // Monotonic sequence for tailing
+    pub at: DateTime<Utc>,
+    pub correlation_id: Option<String>,
+    pub source: EventSource,         // Cli | Mcp | Ui | Relay
+    pub body: EventBody,
+}
+```
+
 ### Event Types
 
 ```rust
-#[derive(Debug, Clone, Serialize)]
-pub struct Event {
-    pub id: EventId,
-    pub seq: i64,                    // Monotonic, for tailing
-    pub at: DateTime<Utc>,
-    pub correlation_id: Option<String>,
-    pub source: EventSource,         // Cli | Mcp | Ui | Relay | Plugin
-    pub body: EventBody,
-}
-
-#[derive(Debug, Clone, Serialize)]
-#[serde(tag = "type", content = "data")]
 pub enum EventBody {
     // Task lifecycle
     TaskCreated { task: Task },
+    TaskUpdated { task: Task },
     TaskStarted { task: Task },
     TaskSubmitted { task: Task, review_id: ReviewId },
-    TaskApproved { task: Task, review_id: ReviewId },
-    TaskRejected { task: Task, review_id: ReviewId, reason: Option<String> },
     TaskCompleted { task: Task },
     TaskCancelled { task: Task },
+    TaskDeleted { task_id: AnyTaskId },
+    TaskStatusChanged { task: Task, from: TaskStatus, to: TaskStatus },
     
     // Reviews
     ReviewCreated { review: Review },
-    CommentAdded { comment: Comment },
-    ChangesRequested { review: Review, comments: Vec<Comment> },
+    CommentAdded { comment: ReviewComment },
+    CommentResolved { comment: ReviewComment },
+    ChangesRequested { review: Review, comments: Vec<ReviewComment> },
+    ReviewApproved { review: Review },
+    
+    // Gates
+    GateAdded { gate: Gate },
+    GateUpdated { gate: Gate },
+    GateRemoved { gate_id: GateId },
+    GateStarted { gate_id: GateId, task_id: AnyTaskId, review_id: ReviewId },
+    GatePassed { gate_id: GateId, result: GateResult },
+    GateFailed { gate_id: GateId, result: GateResult },
+    GateEscalated { gate_id: GateId, result: GateResult },
+    
+    // Help
+    HelpRequested { help_request: HelpRequest },
+    HelpResponded { help_request: HelpRequest },
+    HelpResumed { task: Task, help_request: HelpRequest },
     
     // VCS
-    RefCreated { task_id: TaskId, ref_name: String, target: String },
-    Committed { task_id: TaskId, rev: String },
+    RefCreated { task_id: AnyTaskId, ref_name: String },
+    Committed { task_id: AnyTaskId, rev: String },
+    TaskArchived { task_id: AnyTaskId },
     
     // Harnesses
     HarnessConnected { harness_id: String },
     HarnessDisconnected { harness_id: String },
-    SessionStarted { session_id: String, task_id: TaskId, harness_id: String },
-    SessionProgress { session_id: String, message: String },
+    SessionStarted { session_id: String, task_id: AnyTaskId, harness_id: String },
     SessionCompleted { session_id: String },
+    SessionFailed { session_id: String, error: String },
     
     // Blockers
-    BlockerAdded { task_id: TaskId, blocker_id: TaskId },
-    BlockerRemoved { task_id: TaskId, blocker_id: TaskId },
+    BlockerAdded { task_id: AnyTaskId, blocker_id: AnyTaskId },
+    BlockerRemoved { task_id: AnyTaskId, blocker_id: AnyTaskId },
     
     // Learnings
     LearningAdded { learning: Learning },
-    LearningBubbled { from: TaskId, to: TaskId, learning_ids: Vec<LearningId> },
+    LearningBubbled { from: AnyTaskId, to: AnyTaskId },
+    RepoRegistered { repo: Repo },
+    RepoUnregistered { repo_id: RepoId },
 }
 ```
 
-### Persistence
+### Persistence + Subscription
 
-```sql
-CREATE TABLE events (
-  seq INTEGER PRIMARY KEY AUTOINCREMENT,
-  id TEXT NOT NULL UNIQUE,
-  at TEXT NOT NULL,
-  correlation_id TEXT,
-  source TEXT NOT NULL,
-  event_type TEXT NOT NULL,         -- 'task.created', 'review.approved', etc.
-  task_id TEXT,                     -- Indexed for task-scoped queries
-  payload TEXT NOT NULL             -- JSON EventBody
-);
-
-CREATE INDEX idx_events_task ON events(task_id, seq);
-CREATE INDEX idx_events_type ON events(event_type, seq);
-CREATE INDEX idx_events_corr ON events(correlation_id);
-```
-
-### Subscription API
-
-```rust
-// In-process subscription
-let mut stream = overseer.events.subscribe(EventFilter {
-    types: vec!["task.*", "review.*"],
-    task_id: Some(task_id),
-});
-
-while let Some(event) = stream.next().await {
-    match event.body {
-        EventBody::TaskApproved { task, .. } => { /* ... */ }
-        _ => {}
-    }
-}
-
-// External tailing (plugins, relay)
-// Plugins tail via: os events tail --after-seq 123 --follow
-// Relay tails SQLite directly or via CLI
-```
+Events persisted to SQLite with monotonic sequence number. In-process pub/sub via tokio channels. External consumers tail via SSE or `os events tail --follow`.
 
 ---
 
-## Unified Rust Binary (Boa Integration)
+## MCP Integration (rquickjs)
 
-### Why Boa?
+### Why rquickjs?
 
-- **Single binary** - No Node.js runtime dependency
-- **Direct function calls** - No CLI spawn overhead
-- **94% ES2023 conformance** - Full async/await support
-- **Pure Rust** - Easy cross-compilation
+- **Single binary** — No Node.js dependency
+- **Direct function calls** — No CLI spawn overhead (v1 bottleneck)
+- **ES2023-compatible** — Async/await, modern JS
+- **Pure Rust** — Cross-compilation
 
-### Architecture
+### Codemode Pattern
+
+Agents write JS → rquickjs executes → SDK calls in-process → only results return.
 
 ```rust
-// overseer/src/mcp/executor.rs
-use boa_engine::{Context, Source, JsObject, NativeFunction, js_string};
-
+// os-mcp/src/executor.rs
 pub struct JsExecutor {
     context: Context,
     overseer: Arc<Overseer>,
 }
 
-impl JsExecutor {
-    pub fn new(overseer: Arc<Overseer>) -> Result<Self> {
-        let mut context = Context::default();
-        
-        // Register tasks API
-        let tasks = Self::create_tasks_api(&overseer, &mut context)?;
-        context.register_global_property(js_string!("tasks"), tasks, Attribute::default())?;
-        
-        // Register reviews API
-        let reviews = Self::create_reviews_api(&overseer, &mut context)?;
-        context.register_global_property(js_string!("reviews"), reviews, Attribute::default())?;
-        
-        // Register learnings API
-        let learnings = Self::create_learnings_api(&overseer, &mut context)?;
-        context.register_global_property(js_string!("learnings"), learnings, Attribute::default())?;
-        
-        Ok(Self { context, overseer })
-    }
-    
-    fn create_tasks_api(overseer: &Arc<Overseer>, ctx: &mut Context) -> Result<JsObject> {
-        let tasks = JsObject::default();
-        let os = overseer.clone();
-        
-        // tasks.create()
-        tasks.create_data_property(
-            js_string!("create"),
-            NativeFunction::from_async_fn(move |_, args, context| {
-                let os = os.clone();
-                async move {
-                    let input = parse_create_input(args, context)?;
-                    let task = os.tasks.create(input)?;
-                    Ok(task_to_js(task, context))
-                }
-            }).to_js_function(ctx.realm()),
-            ctx
-        )?;
-        
-        // tasks.list(), tasks.get(), tasks.start(), etc.
-        // ...
-        
-        Ok(tasks)
-    }
-    
-    pub async fn execute(&mut self, code: &str) -> Result<JsValue> {
-        let wrapped = format!("(async () => {{ {} }})()", code);
-        self.context.eval(Source::from_bytes(&wrapped))
-    }
-}
+// JS API surface mirrors SDK:
+// tasks.create(), tasks.list(), reviews.comment(), gates.results(), etc.
 ```
 
 ---
 
 ## Relay Server (Agent Harness Broker)
 
-Adapted from react-grab relay pattern:
+WebSocket server in `os serve` for brokering between:
+- **Harness providers** (OpenCode, Claude Code, etc.) — register capabilities
+- **UI clients** — dispatch tasks, view progress
+- **Review feedback** — bidirectional comment delivery
 
-```rust
-// overseer/src/relay/server.rs
-use tokio::net::TcpListener;
-use tokio_tungstenite::accept_async;
-
-pub struct RelayServer {
-    overseer: Arc<Overseer>,
-    handlers: Arc<RwLock<HashMap<String, HarnessHandler>>>,
-    sessions: Arc<RwLock<HashMap<String, Session>>>,
-}
-
-impl RelayServer {
-    pub async fn run(&self, addr: &str) -> Result<()> {
-        let listener = TcpListener::bind(addr).await?;
-        
-        while let Ok((stream, _)) = listener.accept().await {
-            let ws = accept_async(stream).await?;
-            let relay = self.clone();
-            
-            tokio::spawn(async move {
-                relay.handle_connection(ws).await
-            });
-        }
-        
-        Ok(())
-    }
-    
-    async fn handle_connection(&self, ws: WebSocketStream) {
-        // Determine if this is a harness provider or UI client
-        // Route messages accordingly
-    }
-}
-
-// Protocol
-#[derive(Debug, Serialize, Deserialize)]
-#[serde(tag = "type")]
-pub enum RelayMessage {
-    // From harness providers
-    RegisterHandler { agent_id: String },
-    AgentStatus { session_id: String, message: String },
-    AgentDone { session_id: String, result: Option<String> },
-    
-    // From UI/clients
-    TaskRequest { task_id: TaskId, agent_id: String },
-    TaskAbort { session_id: String },
-    
-    // Review feedback (bidirectional)
-    ReviewComment { task_id: TaskId, comment: Comment },
-    ReviewSubmitted { task_id: TaskId, status: ReviewStatus },
-}
-```
+Protocol TBD in `docs/specs/05-relay.md`.
 
 ---
 
-## Migration Path
+## OpenAPI Strategy
 
-### Phase 1: Foundation (M)
-1. Fix jj commit ID bug (head_rev from commit result, not re-query)
-2. Add `repos` table + `repo_id` to tasks
-3. Add `task_vcs` table with `base_rev`/`head_rev`
-4. Add `events` table
-5. Enable SQLite WAL mode + busy_timeout
+REST API annotated with `utoipa` → generates OpenAPI 3.1 spec → `openapi-typescript` generates TS client → webapp imports.
 
-### Phase 2: Serve Mode (M-L)
-1. Add `os serve` command with axum
-2. Implement REST API for tasks/learnings
-3. Add SSE endpoint for event streaming
-4. Keep existing CLI working (direct SDK calls)
+```
+Rust (utoipa) → openapi/overseer.yaml → openapi-typescript → webapp/src/api/
+```
 
-### Phase 3: Review Workflow (M-L)
-1. Add `reviews` and `review_comments` tables
-2. Add `requires_review` status
-3. Implement `submit_for_review()`, `approve()`, `reject()`
-4. Update task state machine
+Swagger UI available at `/api/docs` in serve mode.
 
-### Phase 4: SDK Refactor (L)
-1. Restructure into Stripe-style modules
-2. Extract business logic from services
-3. Add event emission throughout
-4. Keep CLI working during transition
+---
 
-### Phase 5: Boa Integration (L)
-1. Add boa-engine dependency
-2. Implement JsExecutor with task/review/learning APIs
-3. Wire into `os serve` and/or `os mcp` mode
-4. Remove Node.js host package
+## Build & Distribution
 
-### Phase 6: Relay + Harnesses (XL)
-1. Implement relay WebSocket server (in `os serve`)
-2. Define harness protocol
-3. Build OpenCode/Claude Code providers
-4. Add review → agent feedback loop
+> **Full detail:** `docs/specs/00-monorepo.md`
 
-### Phase 7: Multi-Client Support (L)
-1. Tauri desktop app (sidecar `os serve`)
-2. TUI client (ratatui or similar)
-3. Optional: `os install-service` for launchd/systemd
+### Tooling
+
+- **Cargo workspace** — 7 crates
+- **Justfile** — Build orchestration
+- **pnpm** — Webapp only
+- **rust-embed** — Webapp baked into release binary
+
+### Distribution
+
+- **npm** (primary) — Platform-specific binaries, `npx overseer`
+- **GitHub Releases** — tar.gz per platform
+- **cargo-binstall** compatible
+
+### CI/CD
+
+- GitHub Actions: format, clippy, test, build on PR
+- OpenAPI drift detection (CI verifies spec matches code)
+- Release on tag: cross-compile → GitHub Release → npm publish
+
+---
+
+## Implementation Phases
+
+> These are greenfield build phases, not migration steps.
+
+### Phase 1: Scaffold (S)
+- Workspace setup, Cargo.toml, justfile, CI
+- os-core type stubs, os-db schema, os binary shell
+- `just build && just test` works
+
+### Phase 2: Core Domain (L)
+- Implement types, task CRUD, hierarchy, blockers, cycle detection
+- SQLite persistence, ID generation
+- CLI: `os task create/list/get/update/delete`
+
+### Phase 3: VCS Integration (L)
+- os-vcs crate: jj-lib + gix backends, detection
+- TaskVcs lifecycle: start/submit/archive
+- Stacked diff computation
+
+### Phase 4: Review Pipeline (L)
+- Reviews, ReviewComments, three-phase state machine
+- Gates: execution engine, polling, retry, escalation
+- HelpRequests: request/respond/resume
+
+### Phase 5: Server + Events (L)
+- os-events: bus + SQLite persistence
+- os-serve: axum REST API with utoipa, SSE
+- OpenAPI spec generation + TS client codegen
+- Embedded webapp (rust-embed)
+
+### Phase 6: MCP + rquickjs (M)
+- os-mcp: rquickjs executor, JS API bindings
+- `os mcp` mode for stdio transport
+- Codemode pattern (agents write JS)
+
+### Phase 7: Relay + Harnesses (XL)
+- WebSocket harness broker in os-serve
+- Harness protocol definition
+- Agent session management
+- Review → agent feedback loop
+
+### Phase 8: Webapp MVP (L)
+- React + TanStack Query + generated OpenAPI client
+- Task list/detail, review UI, gate status
+- Embedded in binary via rust-embed
 
 ---
 
 ## Unresolved Questions
 
-1. **Cancelled task refs**: Keep forever or explicit `os gc`?
-2. **Review comments on cancelled tasks**: Preserve or delete?
-3. **Multi-repo task moves**: Allow moving task to different repo?
-4. **Worktree cleanup**: Auto-delete on complete, or keep for history?
-5. **Event retention**: TTL for events, or keep forever?
-6. **Harness auth**: How do harnesses authenticate with relay?
-7. **Diff storage**: Store computed diffs, or always compute from VCS?
-8. **Serve mode port**: Fixed (e.g., 4820) or dynamic with discovery?
-9. **CLI → server routing**: Auto-detect running server, or explicit flag?
-10. **Tauri embedding**: Sidecar vs embedded Rust library?
+1. **Cancelled task refs**: Preserve until `os gc`, or auto-cleanup?
+2. **Event retention**: TTL or keep forever?
+3. **Harness auth**: How do harnesses authenticate with relay?
+4. **Diff storage**: Compute from VCS on demand, or cache?
+5. **Serve mode port**: Fixed (e.g., 4820) or dynamic with discovery?
+6. **CLI → server routing**: Auto-detect running server, or explicit flag?
+7. **Worktree strategy**: Separate worktrees per task, or shared working copy?
+
+---
+
+## Spec Index
+
+| # | Spec | Status | Summary |
+|---|------|--------|---------|
+| 00 | `00-monorepo.md` | Draft v1 | Repo structure, crates, build, CI/CD, release |
+| 01 | `01-core-domain.md` | Draft v4 | **Source of truth** — domain types, traits, invariants |
+| 02 | `02-vcs.md` | Draft v1 | VCS backends, jj-lib + gix, stacking semantics |
+| 03 | `03-review.md` | Draft v1 | Review workflow, comments, three-phase pipeline |
+| 03a | `03a-gates.md` | Draft v1 | Gate execution model, async polling, retry |
+| 04 | `04-events.md` | Draft v1 | Event bus, persistence, subscriptions |
+| 05 | `05-relay.md` | Draft v1 | Agent harness broker, WebSocket protocol |
+| 06 | `06-git-ai.md` | Draft v1 | git-ai integration |
+| 07 | `07-agent-primitives.md` | Draft v1 | Skills, commands, subagents for harnesses |
+| 08 | `08-web-ui.md` | Draft v1 | Web UI local-first design and data layer |
+| 09 | `09-mcp-rquickjs.md` | Draft v1 | MCP server + rquickjs execution |
+| 10 | `10-system-integration.md` | Draft v1 | Cross-component integration, errors, tracing |
+| 11 | `11-end-to-end-audit.md` | Draft v1 | Endpoint/entrypoint audit map |
+| 12 | `12-feedback-loops.md` | Draft v1 | Agent feedback loop design + research |
+| 13 | `13-implementation-guide.md` | Draft v1 | Build instructions for coding agents |
+    GitAiStarted { task_id: AnyTaskId, review_id: ReviewId },
+    GitAiCompleted { task_id: AnyTaskId, review_id: ReviewId },
+    GitAiFailed { task_id: AnyTaskId, review_id: ReviewId, error: String },

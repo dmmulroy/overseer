@@ -1,0 +1,17 @@
+[package]
+name = "os-vcs"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+jj-lib.workspace = true
+gix.workspace = true
+pollster.workspace = true
+futures.workspace = true
+bstr.workspace = true
+thiserror.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+chrono.workspace = true

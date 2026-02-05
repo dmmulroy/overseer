@@ -1,0 +1,16 @@
+[package]
+name = "os-db"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+rusqlite.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+chrono.workspace = true
+ulid.workspace = true
+thiserror.workspace = true
+os-core.workspace = true
+os-events.workspace = true

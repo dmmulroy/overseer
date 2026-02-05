@@ -1,0 +1,27 @@
+[package]
+name = "os-serve"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+os-core.workspace = true
+os-events.workspace = true
+os-db.workspace = true
+axum.workspace = true
+tower.workspace = true
+tower-http.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+tokio.workspace = true
+tokio-stream = { version = "0.1", features = ["sync"] }
+chrono.workspace = true
+futures.workspace = true
+ulid.workspace = true
+sha2.workspace = true
+hex.workspace = true
+utoipa.workspace = true
+utoipa-swagger-ui.workspace = true
+rust-embed.workspace = true
+mime_guess.workspace = true
