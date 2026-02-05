@@ -4,7 +4,7 @@
  * 
  * Usage:
  *   overseer-host mcp --cli-path /path/to/os --cwd /path/to/repo
- *   overseer-host ui --cli-path /path/to/os --cwd /path/to/repo --static-root /path/to/dist --port 6969
+ *   overseer-host ui --cli-path /path/to/os --cwd /path/to/repo --static-root /path/to/dist --host 127.0.0.1 --port 6969
  */
 import { configureCli } from "./cli.js";
 import { startMcpServer } from "./mcp.js";
@@ -16,6 +16,7 @@ interface Args {
   cwd: string;
   // UI-specific
   staticRoot?: string;
+  host?: string;
   port?: number;
 }
 
@@ -67,6 +68,14 @@ function parseArgs(argv: string[]): Args {
           process.exit(1);
         }
         result.staticRoot = next;
+        i++;
+        break;
+      case "--host":
+        if (!next) {
+          console.error("--host requires a value");
+          process.exit(1);
+        }
+        result.host = next;
         i++;
         break;
       case "--port":
@@ -124,11 +133,12 @@ Options:
 
 UI-specific options:
   --static-root <path>   Path to static files (required for UI mode)
+  --host <address>       Host to bind to (default: 127.0.0.1)
   --port <number>        HTTP port (default: 6969)
 
 Examples:
   overseer-host mcp --cli-path /usr/local/bin/os --cwd /home/user/project
-  overseer-host ui --cli-path ./os --cwd . --static-root ./dist --port 8080
+  overseer-host ui --cli-path ./os --cwd . --static-root ./dist --host 0.0.0.0 --port 8080
 `.trim());
 }
 
@@ -145,6 +155,7 @@ async function main(): Promise<void> {
     await startMcpServer();
   } else {
     await startUiServer({
+      host: args.host ?? "127.0.0.1",
       port: args.port ?? 6969,
       staticRoot: args.staticRoot ?? "./dist",
     });

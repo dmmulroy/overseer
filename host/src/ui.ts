@@ -302,6 +302,7 @@ function createTaskRoutes() {
 }
 
 export interface UiServerConfig {
+  host: string;
   port: number;
   staticRoot: string;
 }
@@ -330,10 +331,11 @@ export async function startUiServer(config: UiServerConfig): Promise<void> {
   serve(
     {
       fetch: app.fetch,
+      hostname: config.host,
       port: config.port,
     },
     (info) => {
-      console.log(`Overseer UI: http://localhost:${info.port}`);
+      console.log(`Overseer UI: http://${config.host}:${info.port}`);
     }
   );
 }
