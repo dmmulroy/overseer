@@ -124,6 +124,9 @@ Requires Node.js and the @overseer/host package.
 "#
     )]
     Ui {
+        /// Host to bind to (default: 127.0.0.1)
+        #[arg(long, default_value = "127.0.0.1")]
+        host: String,
         /// HTTP port (default: 6969)
         #[arg(long, short, default_value = "6969")]
         port: u16,
@@ -147,7 +150,7 @@ Requires Node.js and the @overseer/host package.
 /// Run the Node host server for UI or MCP mode.
 ///
 /// Resolves paths relative to the binary location and spawns Node.
-fn run_host_server(mode: &str, port: u16) {
+fn run_host_server(mode: &str, port: u16, host: &str) {
     // Get path to current executable
     let exe_path = std::env::current_exe().unwrap_or_else(|e| {
         eprintln!("Error: cannot determine executable path: {}", e);
@@ -196,6 +199,8 @@ fn run_host_server(mode: &str, port: u16) {
     if mode == "ui" {
         args.push("--static-root".to_string());
         args.push(static_root);
+        args.push("--host".to_string());
+        args.push(host.to_string());
         args.push("--port".to_string());
         args.push(port.to_string());
     }
@@ -314,12 +319,12 @@ fn main() {
     }
 
     // PRECONDITION: UI and MCP spawn Node processes, bypass normal run()
-    if let Command::Ui { port } = &cli.command {
-        run_host_server("ui", *port);
+    if let Command::Ui { host, port } = &cli.command {
+        run_host_server("ui", *port, host);
         return;
     }
     if let Command::Mcp = &cli.command {
-        run_host_server("mcp", 0);
+        run_host_server("mcp", 0, "127.0.0.1");
         return;
     }
 
