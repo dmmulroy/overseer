@@ -8,6 +8,8 @@
 
 ## ARCHITECTURE
 
+> **Note:** This describes the current monolith on `main`. See `specs/crate-extraction.md` for the target multi-crate workspace architecture.
+
 ```
 +-------------------------------------------------------------+
 |                     Overseer (Node MCP)                     |
@@ -62,6 +64,19 @@ overseer/
 └── docs/                    # Reference documentation
 ```
 
+### Target Structure (post-extraction)
+
+```
+crates/
+├── os-cli/        # Binary: [[bin]] name = "os". Thin: clap + wiring
+├── os-core/       # Domain types, Store trait, Overseer<S> facade
+├── os-db/         # SQLite: DbStore impl
+├── os-vcs/        # VcsBackend trait, JjBackend, GitBackend
+├── os-events/     # EventBus (tokio broadcast)
+├── os-serve/      # Axum: API + SSE + static files
+└── os-mcp/        # rquickjs: MCP executor
+```
+
 ## WHERE TO LOOK
 
 | Task | Location | Notes |
@@ -94,6 +109,8 @@ overseer/
 
 ## TYPE SYNC (Rust <-> TS)
 
+**Pre-extraction (current monolith):**
+
 Types must stay in sync between `overseer/src/types.rs`, `overseer/src/core/context.rs`, and `mcp/src/types.ts`:
 - `TaskId`: Newtype (Rust) / Branded type (TS), `task_` prefix + 26-char ULID
 - `LearningId`: Newtype / Branded, `lrn_` prefix
@@ -103,12 +120,22 @@ Types must stay in sync between `overseer/src/types.rs`, `overseer/src/core/cont
 
 **Note:** The `InheritedLearnings` type in `overseer/src/types.rs` (with only `milestone` and `parent`) is for import/export schema compatibility. The actual runtime type used for `TaskWithContext` is in `context.rs` and includes `own`.
 
-**When changing constrained types (e.g., Priority range):**
-1. Rust: `types.rs`, validation in `task_service.rs`, CLI args in `commands/task.rs`
-2. TypeScript types: `generated/types.ts`, `host/src/types.ts`, `ui/src/types.ts`
-3. TypeScript decoders: `host/src/decoder.ts`, `ui/src/decoder.ts`
-4. TypeScript API interfaces: `host/src/api/tasks.ts`, `host/src/ui.ts`
+When changing constrained types (pre-extraction):
+1. Rust: `overseer/src/types.rs`, validation in `overseer/src/core/task_service.rs`, CLI args in `overseer/src/commands/task.rs`
+2. TypeScript types: `mcp/src/types.ts`, `ui/src/types.ts`
+3. TypeScript decoders: `mcp/src/decoder.ts`, `ui/src/decoder.ts`
+4. TypeScript API interfaces: `mcp/src/api/tasks.ts`
 5. UI input constraints: Any `min/max` on number inputs
+
+**Post-extraction (target workspace):**
+
+Types are Rust-only in `crates/os-core/src/`. The MCP layer (os-mcp, rquickjs) serializes to/from JSON — no separate TypeScript type definitions to maintain. UI TypeScript types live in `ui/src/types.ts` and must match the JSON shapes from os-serve.
+
+When changing constrained types (post-extraction):
+1. Rust types: `crates/os-core/src/types/`
+2. Rust validation: `crates/os-core/src/tasks.rs`
+3. CLI args: `crates/os-cli/src/commands/`
+4. UI TypeScript types: `ui/src/types.ts` (must match JSON from os-serve)
 
 ## CONVENTIONS
 
@@ -121,6 +148,7 @@ Types must stay in sync between `overseer/src/types.rs`, `overseer/src/core/cont
 
 ## ANTI-PATTERNS
 
+- **NO BACKWARDS COMPATIBILITY.** No migrations, no deprecation periods, no dual-schema support. Clean slate. The best code is the code we don't write, keep, or maintain.
 - Never guess VCS type - detect via `overseer/src/vcs/detection.rs`
 - Never skip cycle detection - DFS in `task_service.rs`
 - Never bypass CASCADE delete invariant
@@ -155,11 +183,11 @@ Agents write JS -> server executes -> only results return.
 ## COMMANDS
 
 ```bash
-# Rust CLI
+# Monolith (current, pre-extraction)
 cd overseer && cargo build --release    # Build CLI
 cd overseer && cargo test               # Run tests
 
-# Node MCP
+# Node MCP (current)
 cd mcp && npm install             # Install deps
 cd mcp && npm run build           # Compile TS
 cd mcp && npm test                # Run tests (node --test)
@@ -167,7 +195,23 @@ cd mcp && npm test                # Run tests (node --test)
 # UI
 cd ui && npm run dev              # Start Hono API + Vite HMR
 cd ui && npm run test:ui          # Run UI tests (agent-browser)
+
+# Workspace (post-extraction)
+cargo check --workspace                 # Check all crates
+cargo test --workspace                  # Test all crates
+cargo test -p os-core                   # Test single crate
+cargo build --release                   # Build binary (os)
+cargo run -p os-cli -- serve            # Run HTTP server
+cargo run -p os-cli -- mcp              # Run MCP stdio
 ```
+
+## FEEDBACK LOOPS
+
+- Build (monolith): `cd overseer && cargo check`
+- Build (workspace): `cargo check --workspace`
+- Serve smoke: `cargo run -p os-cli -- serve` then curl `POST /api/repos`, `POST /api/tasks`, `POST /api/tasks/:id/start`, `POST /api/tasks/:id/complete`
+- SSE: `curl -N http://127.0.0.1:4820/api/events/subscribe`
+- MCP: `echo '{"id":"1","method":"execute","params":{"code":"return 1"}}' | cargo run -p os-cli -- mcp`
 
 ## DOCS
 
