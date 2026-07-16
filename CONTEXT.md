@@ -43,20 +43,30 @@ Project-defined metadata that can be attached only to issues in its project for 
 _Avoid_: Tag
 
 **Comment**:
-An editable Markdown message permanently owned by one Issue. It may be reversibly soft-deleted into a timeline tombstone with its body hidden, but cannot move between Issues. Edits, deletion, and restoration are recorded as structured events.
+A required non-empty Markdown message permanently owned by one Issue. It may be reversibly soft-deleted into a timeline tombstone with its body and revisions hidden, but cannot move between Issues.
 _Avoid_: Note, reply
 
+**Revision**:
+An immutable snapshot in the ordered text history of an Issue title, Issue body, or Comment. A Revision is a value of its owner rather than an independently identified entity.
+
+**Timeline event**:
+An immutable, independently identified record of a meaningful Issue change. One event may be projected onto every Issue it affects.
+
 **Timeline**:
-The chronological projection of an Issue's independently identified Comments and immutable structured events for content and workflow changes.
+The ordered projection of an Issue's Comments and Timeline events. Each projected item has a permanent Issue-local position.
 _Avoid_: Activity log, audit log
 
 **Mention**:
-A reference written in an issue body or comment that connects the source content to another issue or project.
+A reference written in an Issue body or Comment that resolves to another Issue or Project. It is derived from current Markdown and has no independent identity.
 _Avoid_: Link (when referring to tracker entities)
 
+**Internal reference**:
+The reciprocal Issue-to-Issue connection created by a resolved Mention. It is visible from both Issues and has no independent identity.
+_Avoid_: External reference
+
 **External reference**:
-A typed connection from an issue to a resource outside Overseer; the initial type is a URL.
-_Avoid_: Mention
+A typed connection derived from a URL in an Issue body or Comment and pointing outside Overseer. It has no independent identity; URL is the only MVP type.
+_Avoid_: Mention, internal reference
 
 **Attachment**:
 A file uploaded to Overseer and associated with issue content.
