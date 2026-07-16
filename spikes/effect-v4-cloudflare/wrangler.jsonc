@@ -1,0 +1,20 @@
+{
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  "name": "overseer-effect-v4-cloudflare-spike",
+  "main": "src/worker.ts",
+  "compatibility_date": "2026-07-16",
+  "durable_objects": {
+    "bindings": [
+      {
+        "name": "EFFECT_SQLITE_DO",
+        "class_name": "EffectSqliteDurableObject"
+      }
+    ]
+  },
+  "migrations": [
+    {
+      "tag": "v1",
+      "new_sqlite_classes": ["EffectSqliteDurableObject"]
+    }
+  ]
+}

@@ -1,0 +1,23 @@
+{
+  "name": "overseer-effect-v4-cloudflare-spike",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "check": "tsc --noEmit",
+    "test": "vitest run",
+    "test:repeat": "vitest run --retry=2"
+  },
+  "dependencies": {
+    "@effect/sql-sqlite-do": "4.0.0-beta.98",
+    "effect": "4.0.0-beta.98"
+  },
+  "devDependencies": {
+    "@cloudflare/vitest-pool-workers": "0.18.5",
+    "@cloudflare/workers-types": "5.20260710.1",
+    "@effect/vitest": "4.0.0-beta.98",
+    "@types/node": "24.0.15",
+    "typescript": "5.9.3",
+    "vitest": "4.1.10",
+    "wrangler": "4.111.0"
+  }
+}
