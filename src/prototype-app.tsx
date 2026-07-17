@@ -1,14 +1,14 @@
 import { Badge, Button, Input, Surface } from "@cloudflare/kumo";
 import { useEffect, useMemo, useState } from "react";
 
-// PROTOTYPE — Three Kumo token mappings of Utility, switchable via ?variant=
+// PROTOTYPE — Four Kumo token mappings of Utility, switchable via ?variant=
 // and ?mode= on /prototype/kumo-utility. The specimen is intentionally fixed:
 // this ticket decides the reusable theme foundation, not a screen layout.
 
-type Variant = "A" | "B" | "C";
+type Variant = "A" | "B" | "C" | "D";
 type Mode = "light" | "dark";
 
-const variants: ReadonlyArray<Variant> = ["A", "B", "C"];
+const variants: ReadonlyArray<Variant> = ["A", "B", "C", "D"];
 const variantMeta: Record<Variant, { name: string; thesis: string; contract: string }> = {
   A: {
     name: "Faithful",
@@ -16,14 +16,19 @@ const variantMeta: Record<Variant, { name: string; thesis: string; contract: str
     contract: "Explicit core + state tokens",
   },
   B: {
-    name: "Quiet",
-    thesis: "Compresses the neutral ladder so typography and content carry more hierarchy.",
-    contract: "Low-separation surfaces",
+    name: "Ember",
+    thesis: "Pairs cool utility surfaces with a warm vermilion action signal and plum graphite darks.",
+    contract: "Warm signal / cool graphite",
   },
   C: {
     name: "Delineated",
     thesis: "Strengthens borders, fills, and state contrast for long, dense work queues.",
     contract: "High-separation surfaces",
+  },
+  D: {
+    name: "Signal",
+    thesis: "Pushes Utility toward technical blue-greens with an electric teal interaction signal.",
+    contract: "Teal signal / blue graphite",
   },
 };
 
@@ -46,7 +51,7 @@ function readInitial(): { variant: Variant; mode: Mode } {
   const params = new URL(window.location.href).searchParams;
   const candidate = params.get("variant");
   return {
-    variant: candidate === "B" || candidate === "C" ? candidate : "A",
+    variant: candidate === "B" || candidate === "C" || candidate === "D" ? candidate : "A",
     mode: params.get("mode") === "dark" ? "dark" : "light",
   };
 }
@@ -141,8 +146,8 @@ function ProductSpecimen() {
               <h1>Current work</h1>
             </div>
             <div className="index-actions">
-              <Button variant="secondary" size="xs">State: open</Button>
-              <Button variant="secondary" size="xs">Assignee: anyone</Button>
+              <Button variant="secondary" size="sm">State: open</Button>
+              <Button variant="secondary" size="sm">Assignee: anyone</Button>
             </div>
           </div>
           <div className="issue-list">
@@ -191,7 +196,7 @@ function FoundationContract({ variant }: { variant: Variant }) {
         <div className="contract-badges">
           <Badge variant="success">Kumo 2.8</Badge>
           <Badge variant="outline">light + dark</Badge>
-          <Badge variant="secondary">14px base</Badge>
+          <Badge variant="secondary">Inter Variable</Badge>
         </div>
       </div>
 
@@ -271,7 +276,7 @@ export function PrototypeApp() {
         <div>
           <p className="prototype-kicker">PROTOTYPE · Issue #40 · theme tokens only</p>
           <h1>Kumo Utility foundation</h1>
-          <p>Compare three formal token mappings against one fixed, compact issue-tracker specimen.</p>
+          <p>Compare four formal token mappings against one fixed, compact issue-tracker specimen.</p>
         </div>
         <div className="review-state">
           <span>Variant <strong>{variant}</strong></span>

@@ -48,8 +48,8 @@ async function open(page, variant, mode) {
   }
 }
 
-const names = { A: "faithful", B: "quiet", C: "delineated" };
-for (const variant of ["A", "B", "C"]) {
+const names = { A: "faithful", B: "ember", C: "delineated", D: "signal" };
+for (const variant of ["A", "B", "C", "D"]) {
   for (const mode of ["light", "dark"]) {
     await open(desktop, variant, mode);
     await desktop.screenshot({ path: `evidence/kumo-utility-${names[variant]}-${mode}.png`, fullPage: true });
@@ -62,6 +62,20 @@ for (const mode of ["light", "dark"]) {
 }
 
 await open(desktop, "A", "light");
+const controlType = await desktop.evaluate(() => {
+  const buttons = [...document.querySelectorAll("button")];
+  const newIssue = buttons.find((button) => button.textContent?.includes("New issue"));
+  const state = buttons.find((button) => button.textContent?.includes("State: open"));
+  const filter = document.querySelector('input[placeholder="Filter issues…"]');
+  return {
+    newIssue: newIssue && getComputedStyle(newIssue).fontSize,
+    state: state && { fontSize: getComputedStyle(state).fontSize, height: getComputedStyle(state).height },
+    filter: filter && getComputedStyle(filter).fontSize,
+  };
+});
+if (controlType.newIssue !== "12px" || controlType.state?.fontSize !== "12px" || controlType.state?.height !== "26px" || controlType.filter !== "12px") {
+  errors.push(new Error(`Compact control typography regressed: ${JSON.stringify(controlType)}`));
+}
 await desktop.keyboard.press("ArrowRight");
 await desktop.waitForFunction(() => new URL(location.href).searchParams.get("variant") === "B");
 await desktop.getByRole("button", { name: "Dark mode" }).click();
@@ -69,4 +83,4 @@ await desktop.waitForFunction(() => new URL(location.href).searchParams.get("mod
 
 await browser.close();
 if (errors.length > 0) throw new AggregateError(errors, "Prototype browser checks failed");
-console.log("Captured 8 screenshots; variant, mode, keyboard, URL, and overflow checks passed.");
+console.log("Captured 10 screenshots; control type, variant, mode, keyboard, URL, and overflow checks passed.");
