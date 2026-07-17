@@ -85,5 +85,5 @@ A typed connection derived from a URL in an Issue body or Comment and pointing o
 _Avoid_: Mention, internal reference
 
 **Attachment**:
-A file uploaded to Overseer and associated with issue content.
+An independently addressable file permanently owned by one Issue. Its bytes, display filename, and declared media type become immutable when its upload completes; replacement creates a new Attachment. It progresses from pending to ready and may be soft-deleted and restored while retained. Current Markdown in its owning Issue body or Comments may associate with it, but it cannot be associated with another Issue.
 _Avoid_: External reference
