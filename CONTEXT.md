@@ -68,6 +68,9 @@ An immutable snapshot in the ordered text history of an Issue title, Issue body,
 **Timeline event**:
 An immutable, independently identified record of a meaningful Issue change. One event may be projected onto every Issue it affects.
 
+**Project change record**:
+An immutable, self-contained record of exactly one committed, non-noop Project-local mutation that changes REST-observable state and is used to synchronize clients. Project change records form one contiguous Project-wide sequence beginning at 1, with 0 representing no records. They are retained for the Project's lifetime in the MVP and describe domain mutations rather than generic storage patches. They are distinct from Timeline events, which they may reference when a mutation creates one.
+
 **Timeline**:
 The ordered projection of an Issue's Comments and Timeline events. Each projected item has a permanent Issue-local position.
 _Avoid_: Activity log, audit log
