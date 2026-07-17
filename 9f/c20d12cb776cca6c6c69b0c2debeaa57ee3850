@@ -1,0 +1,21 @@
+src/overseer-utility-theme.css
+  s_2e62eccf42d363::t_2b6929586d31a2 101,104-116,118-122,124-140,145-181,266-348
+src/prototype.css
+  s_2e62eccf42d363::t_5e3315284361cd 4,46
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.10",
+  "base_commit_sha": "9fc20d12cb776cca6c6c69b0c2debeaa57ee3850",
+  "prompts": {},
+  "sessions": {
+    "s_2e62eccf42d363": {
+      "agent_id": {
+        "tool": "pi",
+        "id": "019f6849-ad14-7d9d-a43b-6c0ff6cdef74",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Dillon Mulroy <dillon.mulroy@gmail.com>"
+    }
+  }
+}
