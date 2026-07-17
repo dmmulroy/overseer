@@ -1,0 +1,19 @@
+package-lock.json
+  s_1aa0dbe6f47d9b::t_fc851970f89a9b 1-1322
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.10",
+  "base_commit_sha": "2f9ca846fe7718acf39e266fe870b216e8bc47d5",
+  "prompts": {},
+  "sessions": {
+    "s_1aa0dbe6f47d9b": {
+      "agent_id": {
+        "tool": "pi",
+        "id": "019f6bd5-bc65-7498-a4be-28e0c02658cc",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Dillon Mulroy <dillon.mulroy@gmail.com>"
+    }
+  }
+}
