@@ -1,0 +1,27 @@
+{
+  "name": "overseer-issue-ui-prototype",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "check": "tsc --noEmit",
+    "build": "vite build",
+    "evidence": "node scripts/capture-evidence.mjs"
+  },
+  "dependencies": {
+    "@effect/platform-browser": "4.0.0-beta.97",
+    "@foldkit/ui": "0.128.1",
+    "effect": "4.0.0-beta.97",
+    "foldkit": "0.128.1"
+  },
+  "devDependencies": {
+    "@foldkit/vite-plugin": "0.10.1",
+    "@types/node": "24.0.15",
+    "playwright-core": "^1.61.1",
+    "typescript": "5.9.3",
+    "vite": "8.1.5"
+  },
+  "overrides": {
+    "effect": "$effect"
+  }
+}
