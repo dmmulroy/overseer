@@ -1,8 +1,8 @@
-import { access, mkdir, rm } from "node:fs/promises";
 import { constants } from "node:fs";
+import { access, mkdir, rm } from "node:fs/promises";
 import { chromium } from "playwright-core";
 
-const baseUrl = process.env.PROTOTYPE_URL ?? "http://127.0.0.1:5173/prototype/kumo-utility";
+const baseUrl = process.env.PROTOTYPE_URL ?? "http://127.0.0.1:5173/prototype/utility-foundation";
 const executableCandidates = [
   process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE,
   "/Users/dillon/.agent-browser/browsers/chrome-147.0.7727.57/Google Chrome for Testing.app/Contents/MacOS/Google Chrome for Testing",
@@ -28,7 +28,15 @@ const browser = await chromium.launch({ executablePath: await firstExecutable(),
 const desktop = await browser.newPage({ viewport: { width: 1440, height: 1000 } });
 const mobile = await browser.newPage({ viewport: { width: 390, height: 844 } });
 const errors = [];
-for (const page of [desktop, mobile]) page.on("pageerror", (error) => errors.push(error));
+for (const page of [desktop, mobile]) {
+  page.on("pageerror", (error) => errors.push(error));
+  page.on("console", (message) => {
+    if (message.type() === "error") errors.push(new Error(`Browser console at ${message.location().url}: ${message.text()}`));
+  });
+  page.on("response", (response) => {
+    if (response.status() >= 400) errors.push(new Error(`Browser response ${response.status()}: ${response.url()}`));
+  });
+}
 
 async function open(page, variant, mode) {
   await page.goto(`${baseUrl}?variant=${variant}&mode=${mode}`, { waitUntil: "networkidle" });
@@ -37,50 +45,87 @@ async function open(page, variant, mode) {
   const state = await page.evaluate(() => ({
     theme: document.documentElement.dataset.theme,
     mode: document.documentElement.dataset.mode,
+    darkClass: document.documentElement.classList.contains("dark"),
     clientWidth: document.documentElement.clientWidth,
     scrollWidth: document.documentElement.scrollWidth,
+    tokens: ["--background", "--primary", "--success", "--warning", "--info"].map((token) =>
+      getComputedStyle(document.documentElement).getPropertyValue(token).trim(),
+    ),
   }));
-  if (state.theme !== `overseer-utility-${variant.toLowerCase()}` || state.mode !== mode) {
-    errors.push(new Error(`Wrong theme state: ${JSON.stringify(state)}`));
+  if (state.theme !== `overseer-utility-${variant.toLowerCase()}` || state.mode !== mode || state.darkClass !== (mode === "dark")) {
+    errors.push(new Error(`Wrong root theme state: ${JSON.stringify(state)}`));
+  }
+  if (state.tokens.some((token) => token.length === 0)) {
+    errors.push(new Error(`${variant}/${mode} has an empty semantic token: ${JSON.stringify(state.tokens)}`));
   }
   if (state.scrollWidth > state.clientWidth) {
     errors.push(new Error(`${variant}/${mode} horizontally overflows: ${state.scrollWidth} > ${state.clientWidth}`));
   }
 }
 
-const names = { A: "faithful", B: "graphite", C: "delineated", D: "iris" };
-for (const variant of ["A", "B", "C", "D"]) {
+const names = { A: "balanced", B: "crisp", C: "roomy" };
+for (const variant of ["A", "B", "C"]) {
   for (const mode of ["light", "dark"]) {
     await open(desktop, variant, mode);
-    await desktop.screenshot({ path: `evidence/kumo-utility-${names[variant]}-${mode}.png`, fullPage: true });
+    await desktop.screenshot({ path: `evidence/utility-foundation-${names[variant]}-${mode}.png`, fullPage: true });
   }
 }
 
 for (const mode of ["light", "dark"]) {
   await open(mobile, "A", mode);
-  await mobile.screenshot({ path: `evidence/kumo-utility-faithful-${mode}-mobile.png`, fullPage: true });
+  await mobile.screenshot({ path: `evidence/utility-foundation-balanced-${mode}-mobile.png`, fullPage: true });
+}
+
+const expectedRecipes = {
+  A: { height: "28px", radius: "6px" },
+  B: { height: "28px", radius: "4px" },
+  C: { height: "30px", radius: "8px" },
+};
+for (const variant of ["A", "B", "C"]) {
+  await open(desktop, variant, "light");
+  const controls = await desktop.evaluate(() => {
+    const newIssue = [...document.querySelectorAll("button")].find((button) => button.textContent?.includes("New issue"));
+    const filter = document.querySelector('input[aria-label="Filter issues"]');
+    if (!(newIssue instanceof HTMLButtonElement) || !(filter instanceof HTMLInputElement)) return null;
+    const buttonStyle = getComputedStyle(newIssue);
+    const inputStyle = getComputedStyle(filter);
+    return {
+      buttonSlot: newIssue.dataset.slot,
+      inputSlot: filter.dataset.slot,
+      buttonHeight: buttonStyle.height,
+      inputHeight: inputStyle.height,
+      buttonRadius: buttonStyle.borderRadius,
+      inputRadius: inputStyle.borderRadius,
+      buttonFontFamily: buttonStyle.fontFamily,
+      buttonFontSize: buttonStyle.fontSize,
+      inputFontSize: inputStyle.fontSize,
+    };
+  });
+  const expected = expectedRecipes[variant];
+  if (
+    controls === null
+    || controls.buttonSlot !== "button"
+    || controls.inputSlot !== "input"
+    || controls.buttonHeight !== expected.height
+    || controls.inputHeight !== expected.height
+    || controls.buttonRadius !== expected.radius
+    || controls.inputRadius !== expected.radius
+    || !controls.buttonFontFamily.includes("Geist Variable")
+    || controls.buttonFontSize !== "13px"
+    || controls.inputFontSize !== "13px"
+  ) {
+    errors.push(new Error(`${variant} Base UI/shadcn control recipe regressed: ${JSON.stringify(controls)}`));
+  }
 }
 
 await open(desktop, "A", "light");
-const controlType = await desktop.evaluate(() => {
-  const buttons = [...document.querySelectorAll("button")];
-  const newIssue = buttons.find((button) => button.textContent?.includes("New issue"));
-  const state = buttons.find((button) => button.textContent?.includes("State: open"));
-  const filter = document.querySelector('input[placeholder="Filter issues…"]');
-  return {
-    newIssue: newIssue && { fontFamily: getComputedStyle(newIssue).fontFamily, fontSize: getComputedStyle(newIssue).fontSize },
-    state: state && { fontSize: getComputedStyle(state).fontSize, height: getComputedStyle(state).height },
-    filter: filter && getComputedStyle(filter).fontSize,
-  };
-});
-if (!controlType.newIssue?.fontFamily.startsWith("Geist") || controlType.newIssue?.fontSize !== "13px" || controlType.state?.fontSize !== "13px" || controlType.state?.height !== "26px" || controlType.filter !== "13px") {
-  errors.push(new Error(`Compact control typography regressed: ${JSON.stringify(controlType)}`));
-}
 await desktop.keyboard.press("ArrowRight");
 await desktop.waitForFunction(() => new URL(location.href).searchParams.get("variant") === "B");
 await desktop.getByRole("button", { name: "Dark mode" }).click();
-await desktop.waitForFunction(() => new URL(location.href).searchParams.get("mode") === "dark");
+await desktop.waitForFunction(() =>
+  new URL(location.href).searchParams.get("mode") === "dark" && document.documentElement.classList.contains("dark"),
+);
 
 await browser.close();
 if (errors.length > 0) throw new AggregateError(errors, "Prototype browser checks failed");
-console.log("Captured 10 screenshots; control type, variant, mode, keyboard, URL, and overflow checks passed.");
+console.log("Captured 8 screenshots; Base UI/shadcn recipes, root state, keyboard, URL, console, and overflow checks passed.");

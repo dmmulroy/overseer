@@ -1,0 +1,234 @@
+/* PROTOTYPE — app-owned Tailwind/shadcn semantic tokens and control recipes. */
+
+html[data-theme^="overseer-utility-"] {
+  --radius: 7px;
+  --control-font-size: 13px;
+  --control-height: 28px;
+  --control-padding-x: 10px;
+  --control-radius: 6px;
+}
+
+/* A — Balanced: the faithful Utility palette with compact, quiet controls. */
+html[data-theme="overseer-utility-a"][data-mode="light"] {
+  color-scheme: light;
+  --background: #eef0f2;
+  --foreground: #202328;
+  --card: #ffffff;
+  --card-foreground: #202328;
+  --popover: #ffffff;
+  --popover-foreground: #202328;
+  --primary: #2e62e8;
+  --primary-foreground: #ffffff;
+  --secondary: #e8ebef;
+  --secondary-foreground: #202328;
+  --muted: #f5f6f7;
+  --muted-foreground: #68707a;
+  --accent: #e8eeff;
+  --accent-foreground: #2659d0;
+  --destructive: #bd3e3e;
+  --border: #d8dce1;
+  --input: #cdd2d8;
+  --ring: #2e62e8;
+  --surface-raised: #ffffff;
+  --surface-recessed: #f5f6f7;
+  --surface-hover: #dfe3e8;
+  --hairline: #e8eaed;
+  --strong: #111318;
+  --inactive: #939aa3;
+  --inverse: #f8f9fb;
+  --success: #21845a;
+  --success-muted: #e7f5ed;
+  --warning: #8a5908;
+  --warning-border: #d69a31;
+  --warning-muted: #fff4d8;
+  --info: #4b7bec;
+}
+
+html[data-theme="overseer-utility-a"][data-mode="dark"] {
+  color-scheme: dark;
+  --background: #0e1116;
+  --foreground: #eef0f4;
+  --card: #181c23;
+  --card-foreground: #eef0f4;
+  --popover: #1e232b;
+  --popover-foreground: #eef0f4;
+  --primary: #6387ef;
+  --primary-foreground: #ffffff;
+  --secondary: #292f38;
+  --secondary-foreground: #eef0f4;
+  --muted: #20252d;
+  --muted-foreground: #9ca4b0;
+  --accent: #25304d;
+  --accent-foreground: #8ba7ff;
+  --destructive: #d96767;
+  --border: #303640;
+  --input: #424a57;
+  --ring: #8ba7ff;
+  --surface-raised: #1e232b;
+  --surface-recessed: #14181e;
+  --surface-hover: #343b46;
+  --hairline: #272d36;
+  --strong: #ffffff;
+  --inactive: #737c89;
+  --inverse: #151920;
+  --success: #72cc98;
+  --success-muted: #193426;
+  --warning: #e1aa4c;
+  --warning-border: #c78f36;
+  --warning-muted: #352a18;
+  --info: #7395ff;
+}
+
+/* B — Crisp: the delineated neutral ladder with tighter corners and borders. */
+html[data-theme="overseer-utility-b"] {
+  --radius: 5px;
+  --control-radius: 4px;
+}
+
+html[data-theme="overseer-utility-b"][data-mode="light"] {
+  color-scheme: light;
+  --background: #e7ebef;
+  --foreground: #18202a;
+  --card: #fbfcfd;
+  --card-foreground: #18202a;
+  --popover: #ffffff;
+  --popover-foreground: #18202a;
+  --primary: #195fcd;
+  --primary-foreground: #ffffff;
+  --secondary: #dfe5ea;
+  --secondary-foreground: #18202a;
+  --muted: #edf1f5;
+  --muted-foreground: #596573;
+  --accent: #e3edfc;
+  --accent-foreground: #1558bd;
+  --destructive: #b53540;
+  --border: #c8cfd6;
+  --input: #bcc5ce;
+  --ring: #195fcd;
+  --surface-raised: #ffffff;
+  --surface-recessed: #eef1f4;
+  --surface-hover: #d2d9e0;
+  --hairline: #d9dee3;
+  --strong: #09111b;
+  --inactive: #87919b;
+  --inverse: #f7f9fc;
+  --success: #19754a;
+  --success-muted: #e2f2e9;
+  --warning: #80510a;
+  --warning-border: #c1831d;
+  --warning-muted: #fff0cf;
+  --info: #3476d9;
+}
+
+html[data-theme="overseer-utility-b"][data-mode="dark"] {
+  color-scheme: dark;
+  --background: #090e13;
+  --foreground: #edf3f8;
+  --card: #151c24;
+  --card-foreground: #edf3f8;
+  --popover: #1b232c;
+  --popover-foreground: #edf3f8;
+  --primary: #347bdc;
+  --primary-foreground: #ffffff;
+  --secondary: #28333e;
+  --secondary-foreground: #edf3f8;
+  --muted: #202a34;
+  --muted-foreground: #a1adba;
+  --accent: #1b3049;
+  --accent-foreground: #80adf4;
+  --destructive: #d65f69;
+  --border: #35414d;
+  --input: #475463;
+  --ring: #80adf4;
+  --surface-raised: #1b232c;
+  --surface-recessed: #10171e;
+  --surface-hover: #354250;
+  --hairline: #28333d;
+  --strong: #ffffff;
+  --inactive: #697685;
+  --inverse: #101820;
+  --success: #83d4aa;
+  --success-muted: #173629;
+  --warning: #e5b65d;
+  --warning-border: #c99535;
+  --warning-muted: #392d18;
+  --info: #4d91e8;
+}
+
+/* C — Roomy: faithful colors with a slightly larger, softer control recipe. */
+html[data-theme="overseer-utility-c"] {
+  --radius: 9px;
+  --control-height: 30px;
+  --control-padding-x: 12px;
+  --control-radius: 8px;
+}
+
+html[data-theme="overseer-utility-c"][data-mode="light"] {
+  color-scheme: light;
+  --background: #eef0f2;
+  --foreground: #202328;
+  --card: #ffffff;
+  --card-foreground: #202328;
+  --popover: #ffffff;
+  --popover-foreground: #202328;
+  --primary: #2e62e8;
+  --primary-foreground: #ffffff;
+  --secondary: #e8ebef;
+  --secondary-foreground: #202328;
+  --muted: #f5f6f7;
+  --muted-foreground: #68707a;
+  --accent: #e8eeff;
+  --accent-foreground: #2659d0;
+  --destructive: #bd3e3e;
+  --border: #d8dce1;
+  --input: #cdd2d8;
+  --ring: #2e62e8;
+  --surface-raised: #ffffff;
+  --surface-recessed: #f5f6f7;
+  --surface-hover: #dfe3e8;
+  --hairline: #e8eaed;
+  --strong: #111318;
+  --inactive: #939aa3;
+  --inverse: #f8f9fb;
+  --success: #21845a;
+  --success-muted: #e7f5ed;
+  --warning: #8a5908;
+  --warning-border: #d69a31;
+  --warning-muted: #fff4d8;
+  --info: #4b7bec;
+}
+
+html[data-theme="overseer-utility-c"][data-mode="dark"] {
+  color-scheme: dark;
+  --background: #0e1116;
+  --foreground: #eef0f4;
+  --card: #181c23;
+  --card-foreground: #eef0f4;
+  --popover: #1e232b;
+  --popover-foreground: #eef0f4;
+  --primary: #6387ef;
+  --primary-foreground: #ffffff;
+  --secondary: #292f38;
+  --secondary-foreground: #eef0f4;
+  --muted: #20252d;
+  --muted-foreground: #9ca4b0;
+  --accent: #25304d;
+  --accent-foreground: #8ba7ff;
+  --destructive: #d96767;
+  --border: #303640;
+  --input: #424a57;
+  --ring: #8ba7ff;
+  --surface-raised: #1e232b;
+  --surface-recessed: #14181e;
+  --surface-hover: #343b46;
+  --hairline: #272d36;
+  --strong: #ffffff;
+  --inactive: #737c89;
+  --inverse: #151920;
+  --success: #72cc98;
+  --success-muted: #193426;
+  --warning: #e1aa4c;
+  --warning-border: #c78f36;
+  --warning-muted: #352a18;
+  --info: #7395ff;
+}
