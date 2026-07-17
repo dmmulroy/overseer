@@ -1,0 +1,39 @@
+package-lock.json
+  s_d889a838f35dfe::t_5597666292ef91 1-1879
+package.json
+  s_dd18cec28e9a42::t_a1659df9e7ef34 1-24
+scripts/capture-evidence.mjs
+  s_dd18cec28e9a42::t_0273d3873c7083 1-72
+src/main.tsx
+  s_dd18cec28e9a42::t_1bee0ae67578f9 1-12
+src/prototype-app.tsx
+  s_dd18cec28e9a42::t_3f92e73aba9fa6 1-289
+src/prototype.css
+  s_dd18cec28e9a42::t_795be0ea8095bf 1-159
+tsconfig.json
+  s_dd18cec28e9a42::t_2888459c34586e 1-21
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.10",
+  "base_commit_sha": "fc211897a0573d622ff3f53363abbb55cea7fbf2",
+  "prompts": {},
+  "sessions": {
+    "s_d889a838f35dfe": {
+      "agent_id": {
+        "tool": "pi",
+        "id": "019f71cd-a6a0-771c-b9de-c28e36263a3b",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Dillon Mulroy <dillon.mulroy@gmail.com>"
+    },
+    "s_dd18cec28e9a42": {
+      "agent_id": {
+        "tool": "pi",
+        "id": "019f71cd-a68c-7ebc-b71d-da401f22d8b3",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Dillon Mulroy <dillon.mulroy@gmail.com>"
+    }
+  }
+}
