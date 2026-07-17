@@ -1,8 +1,8 @@
-# Overseer issue-interface theme prototype
+# Overseer issue discovery prototype
 
-Throwaway Foldkit and `@foldkit/ui` prototype for **Prototype the issue-centric human interface**.
+Throwaway Utility-theme prototype for **Prototype issue discovery and navigation** ([#31](https://github.com/dmmulroy/overseer/issues/31)).
 
-This round deliberately evaluates visual language only. Every direction uses the same realistic attachment-upload fixture, component specimen, and states; layout and interaction decisions belong to later prototypes.
+This round compares the smallest structures that make workspace/project context, issue rows, structured filters, selection, and cached/prefetched transitions legible on desktop and mobile. It deliberately excludes boards, saved views, and query syntax.
 
 ## Run
 
@@ -11,19 +11,19 @@ npm install
 npm run dev
 ```
 
-Open <http://127.0.0.1:4183/prototype/issue-centric?variant=A&mode=light>.
+Open <http://127.0.0.1:4183/prototype/issue-discovery?variant=A>.
 
 Use the floating switcher or left/right arrow keys to compare:
 
-- **A — Utility:** compact neutral controls, crisp boundaries, and operational density.
-- **B — Editorial:** warm paper surfaces, expressive typography, and generous reading rhythm.
-- **C — Desktop:** cool native-app materials, quiet chrome, and restrained hierarchy.
+- **A — Navigator:** persistent workspace/project rail, issue queue, and detail.
+- **B — Index + inspector:** dense project table with a compact selection inspector.
+- **C — Focused route:** one list surface that navigates into one issue surface.
 
-The Light/Dark control switches each direction between intentionally designed color modes without implying where a production preference control should live.
+Try switching projects, cycling each structured filter, hovering or focusing an issue to prefetch it, and selecting it. On narrow screens, selection moves from the list to the issue and **← Issues** returns.
 
 ## Proof
 
-`evidence/` contains browser-captured light/dark desktop and mobile screenshots plus a walkthrough video. With the dev server running, regenerate them using:
+`evidence/` contains desktop/mobile browser screenshots, prefetch/selection proofs, and a walkthrough video. With the dev server running, regenerate them using:
 
 ```sh
 npm run evidence
