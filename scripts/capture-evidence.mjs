@@ -3,7 +3,7 @@ import { access, mkdir, rm } from "node:fs/promises";
 import { constants } from "node:fs";
 import { chromium } from "playwright-core";
 
-const baseUrl = "http://127.0.0.1:4183/prototype/issue-centric";
+const baseUrl = "http://127.0.0.1:4183/prototype/issue-detail";
 const frameDirectory = "evidence/frames";
 const executableCandidates = [
   process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE,
@@ -24,8 +24,7 @@ async function firstExecutable(candidates) {
 }
 
 const executablePath = await firstExecutable(executableCandidates);
-await mkdir("evidence", { recursive: true });
-await rm(frameDirectory, { recursive: true, force: true });
+await rm("evidence", { recursive: true, force: true });
 await mkdir(frameDirectory, { recursive: true });
 
 const browser = await chromium.launch({ executablePath, headless: true });
@@ -54,22 +53,22 @@ async function openSpecimen(page, variant, mode) {
 }
 
 const names = {
-  A: "utility",
-  B: "editorial",
-  C: "desktop",
+  A: "control-strip",
+  B: "steering-rail",
+  C: "work-map",
 };
 
 for (const variant of ["A", "B", "C"]) {
   for (const mode of ["light", "dark"]) {
     await openSpecimen(desktop, variant, mode);
     await desktop.screenshot({
-      path: `evidence/theme-${names[variant]}-${mode}.png`,
+      path: `evidence/detail-${names[variant]}-${mode}.png`,
       fullPage: true,
     });
 
     await openSpecimen(mobile, variant, mode);
     await mobile.screenshot({
-      path: `evidence/theme-${names[variant]}-${mode}-mobile.png`,
+      path: `evidence/detail-${names[variant]}-${mode}-mobile.png`,
       fullPage: true,
     });
   }
@@ -87,18 +86,23 @@ async function captureFrames(count) {
 }
 
 await openSpecimen(desktop, "A", "light");
-for (const variant of ["A", "B", "C"]) {
-  if (variant !== "A") {
-    await desktop.getByRole("button", { name: variant, exact: true }).click();
-    await desktop.waitForSelector(`.variant-${variant.toLowerCase()}`);
-  }
-  await captureFrames(12);
-  await desktop.locator('[title="Switch to dark mode"]').click();
-  await desktop.waitForSelector(".mode-dark");
-  await captureFrames(12);
-  await desktop.locator('[title="Switch to light mode"]').click();
-  await desktop.waitForSelector(".mode-light");
-}
+await captureFrames(12);
+await desktop.getByRole("button", { name: "Claim issue", exact: true }).click();
+await desktop.getByText("claimed by you", { exact: true }).first().waitFor();
+await captureFrames(12);
+await desktop.getByRole("button", { name: "Close issue", exact: true }).click();
+await desktop.getByText("Closed", { exact: true }).first().waitFor();
+await captureFrames(12);
+
+await desktop.getByRole("button", { name: "B", exact: true }).click();
+await desktop.locator(".detail--steering-rail").waitFor();
+await captureFrames(12);
+await desktop.getByRole("button", { name: "C", exact: true }).click();
+await desktop.locator(".detail--work-map").waitFor();
+await captureFrames(12);
+await desktop.locator('[title="Switch to dark mode"]').click();
+await desktop.locator(".mode-dark").waitFor();
+await captureFrames(12);
 
 await browser.close();
 
@@ -113,8 +117,8 @@ execFileSync("ffmpeg", [
   "-c:v", "libx264",
   "-pix_fmt", "yuv420p",
   "-movflags", "+faststart",
-  "evidence/theme-directions-walkthrough.mp4",
+  "evidence/issue-detail-steering-walkthrough.mp4",
 ], { stdio: "inherit" });
 
 await rm(frameDirectory, { recursive: true, force: true });
-console.log("Captured 12 theme screenshots and a light/dark walkthrough.");
+console.log("Captured 12 issue-detail screenshots and an interaction walkthrough.");
