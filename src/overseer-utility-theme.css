@@ -1,0 +1,265 @@
+/*
+ * PROTOTYPE — app-owned output equivalent to adding three entries to Kumo's
+ * THEME_CONFIG. The semantic names stay Kumo-native; product aliases do not
+ * leak into component styles.
+ */
+
+html[data-theme^="overseer-utility-"] {
+  --text-xs: 12px;
+  --text-xs--line-height: 1.333;
+  --text-sm: 13px;
+  --text-sm--line-height: 1.385;
+  --text-base: 14px;
+  --text-base--line-height: 1.5;
+  --text-lg: 16px;
+  --text-lg--line-height: 1.5;
+}
+
+/* A — Faithful: explicitly maps the chosen Utility palette into every Kumo role. */
+html[data-theme="overseer-utility-a"][data-mode="light"] {
+  color-scheme: light;
+  --text-color-kumo-default: #202328;
+  --text-color-kumo-strong: #111318;
+  --text-color-kumo-subtle: #68707a;
+  --text-color-kumo-inactive: #939aa3;
+  --text-color-kumo-placeholder: #7e8792;
+  --text-color-kumo-inverse: #f8f9fb;
+  --text-color-kumo-brand: #2e62e8;
+  --text-color-kumo-link: #2659d0;
+  --text-color-kumo-info: #2659d0;
+  --text-color-kumo-success: #216e4a;
+  --text-color-kumo-warning: #8a5908;
+  --text-color-kumo-danger: #a63232;
+  --color-kumo-canvas: #eef0f2;
+  --color-kumo-elevated: #ffffff;
+  --color-kumo-recessed: #f5f6f7;
+  --color-kumo-base: #ffffff;
+  --color-kumo-tint: #f5f6f7;
+  --color-kumo-contrast: #202328;
+  --color-kumo-overlay: #f8f9fa;
+  --color-kumo-control: #ffffff;
+  --color-kumo-interact: #d8dce1;
+  --color-kumo-fill: #e8ebef;
+  --color-kumo-fill-hover: #dfe3e8;
+  --color-kumo-brand: #2e62e8;
+  --color-kumo-brand-hover: #2452c8;
+  --color-kumo-line: #d8dce1;
+  --color-kumo-hairline: #e8eaed;
+  --color-kumo-focus: #2e62e8;
+  --color-kumo-ring: #2e62e8;
+  --color-kumo-info: #4b7bec;
+  --color-kumo-info-tint: #e8eeff;
+  --color-kumo-success: #21845a;
+  --color-kumo-success-tint: #e7f5ed;
+  --color-kumo-warning: #d69a31;
+  --color-kumo-warning-tint: #fff4d8;
+  --color-kumo-danger: #bd3e3e;
+  --color-kumo-danger-tint: #fff0ee;
+}
+
+html[data-theme="overseer-utility-a"][data-mode="dark"] {
+  color-scheme: dark;
+  --text-color-kumo-default: #eef0f4;
+  --text-color-kumo-strong: #ffffff;
+  --text-color-kumo-subtle: #9ca4b0;
+  --text-color-kumo-inactive: #737c89;
+  --text-color-kumo-placeholder: #818a97;
+  --text-color-kumo-inverse: #151920;
+  --text-color-kumo-brand: #8ba7ff;
+  --text-color-kumo-link: #8ba7ff;
+  --text-color-kumo-info: #9ab2ff;
+  --text-color-kumo-success: #8ad8aa;
+  --text-color-kumo-warning: #e1aa4c;
+  --text-color-kumo-danger: #f08a8a;
+  --color-kumo-canvas: #0e1116;
+  --color-kumo-elevated: #1e232b;
+  --color-kumo-recessed: #14181e;
+  --color-kumo-base: #181c23;
+  --color-kumo-tint: #20252d;
+  --color-kumo-contrast: #eef0f4;
+  --color-kumo-overlay: #20252d;
+  --color-kumo-control: #1e232b;
+  --color-kumo-interact: #424a57;
+  --color-kumo-fill: #292f38;
+  --color-kumo-fill-hover: #343b46;
+  --color-kumo-brand: #6387ef;
+  --color-kumo-brand-hover: #7899f6;
+  --color-kumo-line: #303640;
+  --color-kumo-hairline: #272d36;
+  --color-kumo-focus: #8ba7ff;
+  --color-kumo-ring: #8ba7ff;
+  --color-kumo-info: #7395ff;
+  --color-kumo-info-tint: #25304d;
+  --color-kumo-success: #53ad7a;
+  --color-kumo-success-tint: #193426;
+  --color-kumo-warning: #c78f36;
+  --color-kumo-warning-tint: #352a18;
+  --color-kumo-danger: #d96767;
+  --color-kumo-danger-tint: #3b2022;
+}
+
+/* B — Quiet: compresses the neutral ladder so content carries the hierarchy. */
+html[data-theme="overseer-utility-b"][data-mode="light"] {
+  color-scheme: light;
+  --text-color-kumo-default: #24272b;
+  --text-color-kumo-strong: #111315;
+  --text-color-kumo-subtle: #70767d;
+  --text-color-kumo-inactive: #a3a8ae;
+  --text-color-kumo-placeholder: #898f96;
+  --text-color-kumo-inverse: #f7f7f6;
+  --text-color-kumo-brand: #3159c7;
+  --text-color-kumo-link: #3159c7;
+  --text-color-kumo-info: #3159c7;
+  --text-color-kumo-success: #287252;
+  --text-color-kumo-warning: #855d16;
+  --text-color-kumo-danger: #a43d3d;
+  --color-kumo-canvas: #f4f4f2;
+  --color-kumo-elevated: #ffffff;
+  --color-kumo-recessed: #f7f7f5;
+  --color-kumo-base: #fdfdfc;
+  --color-kumo-tint: #f1f1ef;
+  --color-kumo-contrast: #24272b;
+  --color-kumo-overlay: #f7f7f5;
+  --color-kumo-control: #ffffff;
+  --color-kumo-interact: #dfe1e2;
+  --color-kumo-fill: #ececea;
+  --color-kumo-fill-hover: #e5e5e2;
+  --color-kumo-brand: #3159c7;
+  --color-kumo-brand-hover: #2749aa;
+  --color-kumo-line: #dedfdf;
+  --color-kumo-hairline: #ececea;
+  --color-kumo-focus: #24272b;
+  --color-kumo-ring: #24272b;
+  --color-kumo-info: #5678d4;
+  --color-kumo-info-tint: #edf0fa;
+  --color-kumo-success: #34825f;
+  --color-kumo-success-tint: #edf6f1;
+  --color-kumo-warning: #bc8730;
+  --color-kumo-warning-tint: #faf4e7;
+  --color-kumo-danger: #b94b4b;
+  --color-kumo-danger-tint: #faeded;
+}
+
+html[data-theme="overseer-utility-b"][data-mode="dark"] {
+  color-scheme: dark;
+  --text-color-kumo-default: #e9e9e6;
+  --text-color-kumo-strong: #fbfbfa;
+  --text-color-kumo-subtle: #a1a39f;
+  --text-color-kumo-inactive: #686b68;
+  --text-color-kumo-placeholder: #81847f;
+  --text-color-kumo-inverse: #171918;
+  --text-color-kumo-brand: #93aaf0;
+  --text-color-kumo-link: #93aaf0;
+  --text-color-kumo-info: #9eb3f3;
+  --text-color-kumo-success: #91cfac;
+  --text-color-kumo-warning: #dab36d;
+  --text-color-kumo-danger: #e79a9a;
+  --color-kumo-canvas: #131513;
+  --color-kumo-elevated: #20221f;
+  --color-kumo-recessed: #171917;
+  --color-kumo-base: #1b1d1a;
+  --color-kumo-tint: #242622;
+  --color-kumo-contrast: #e9e9e6;
+  --color-kumo-overlay: #242622;
+  --color-kumo-control: #20221f;
+  --color-kumo-interact: #41443f;
+  --color-kumo-fill: #2b2e29;
+  --color-kumo-fill-hover: #353833;
+  --color-kumo-brand: #647dca;
+  --color-kumo-brand-hover: #7890d7;
+  --color-kumo-line: #343732;
+  --color-kumo-hairline: #292c28;
+  --color-kumo-focus: #e9e9e6;
+  --color-kumo-ring: #e9e9e6;
+  --color-kumo-info: #728bd3;
+  --color-kumo-info-tint: #252b3d;
+  --color-kumo-success: #5c9e78;
+  --color-kumo-success-tint: #203027;
+  --color-kumo-warning: #b38b4a;
+  --color-kumo-warning-tint: #332c20;
+  --color-kumo-danger: #c86e6e;
+  --color-kumo-danger-tint: #392525;
+}
+
+/* C — Delineated: stronger boundaries and state contrast for dense work queues. */
+html[data-theme="overseer-utility-c"][data-mode="light"] {
+  color-scheme: light;
+  --text-color-kumo-default: #18202a;
+  --text-color-kumo-strong: #09111b;
+  --text-color-kumo-subtle: #596573;
+  --text-color-kumo-inactive: #87919b;
+  --text-color-kumo-placeholder: #707b87;
+  --text-color-kumo-inverse: #f7f9fc;
+  --text-color-kumo-brand: #195fcd;
+  --text-color-kumo-link: #1558bd;
+  --text-color-kumo-info: #1558bd;
+  --text-color-kumo-success: #176a43;
+  --text-color-kumo-warning: #80510a;
+  --text-color-kumo-danger: #9f2f38;
+  --color-kumo-canvas: #e7ebef;
+  --color-kumo-elevated: #ffffff;
+  --color-kumo-recessed: #eef1f4;
+  --color-kumo-base: #fbfcfd;
+  --color-kumo-tint: #edf1f5;
+  --color-kumo-contrast: #18202a;
+  --color-kumo-overlay: #f2f5f7;
+  --color-kumo-control: #ffffff;
+  --color-kumo-interact: #c3cad2;
+  --color-kumo-fill: #dfe5ea;
+  --color-kumo-fill-hover: #d2d9e0;
+  --color-kumo-brand: #195fcd;
+  --color-kumo-brand-hover: #104da9;
+  --color-kumo-line: #c8cfd6;
+  --color-kumo-hairline: #d9dee3;
+  --color-kumo-focus: #195fcd;
+  --color-kumo-ring: #195fcd;
+  --color-kumo-info: #3476d9;
+  --color-kumo-info-tint: #e3edfc;
+  --color-kumo-success: #19754a;
+  --color-kumo-success-tint: #e2f2e9;
+  --color-kumo-warning: #c1831d;
+  --color-kumo-warning-tint: #fff0cf;
+  --color-kumo-danger: #b53540;
+  --color-kumo-danger-tint: #fbe8e9;
+}
+
+html[data-theme="overseer-utility-c"][data-mode="dark"] {
+  color-scheme: dark;
+  --text-color-kumo-default: #edf3f8;
+  --text-color-kumo-strong: #ffffff;
+  --text-color-kumo-subtle: #a1adba;
+  --text-color-kumo-inactive: #697685;
+  --text-color-kumo-placeholder: #7f8c9a;
+  --text-color-kumo-inverse: #101820;
+  --text-color-kumo-brand: #80adf4;
+  --text-color-kumo-link: #80adf4;
+  --text-color-kumo-info: #93bbf7;
+  --text-color-kumo-success: #83d4aa;
+  --text-color-kumo-warning: #e5b65d;
+  --text-color-kumo-danger: #f09299;
+  --color-kumo-canvas: #090e13;
+  --color-kumo-elevated: #1b232c;
+  --color-kumo-recessed: #10171e;
+  --color-kumo-base: #151c24;
+  --color-kumo-tint: #202a34;
+  --color-kumo-contrast: #edf3f8;
+  --color-kumo-overlay: #202a34;
+  --color-kumo-control: #1b232c;
+  --color-kumo-interact: #475463;
+  --color-kumo-fill: #28333e;
+  --color-kumo-fill-hover: #354250;
+  --color-kumo-brand: #347bdc;
+  --color-kumo-brand-hover: #4c8de5;
+  --color-kumo-line: #35414d;
+  --color-kumo-hairline: #28333d;
+  --color-kumo-focus: #80adf4;
+  --color-kumo-ring: #80adf4;
+  --color-kumo-info: #4d91e8;
+  --color-kumo-info-tint: #1b3049;
+  --color-kumo-success: #46a677;
+  --color-kumo-success-tint: #173629;
+  --color-kumo-warning: #c99535;
+  --color-kumo-warning-tint: #392d18;
+  --color-kumo-danger: #d65f69;
+  --color-kumo-danger-tint: #402126;
+}
