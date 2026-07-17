@@ -11,6 +11,16 @@ const VariantSchema = Schema.Union([
   Schema.Literal("A"),
   Schema.Literal("B"),
   Schema.Literal("C"),
+  Schema.Literal("D"),
+  Schema.Literal("E"),
+  Schema.Literal("F"),
+  Schema.Literal("G"),
+  Schema.Literal("H"),
+  Schema.Literal("I"),
+  Schema.Literal("J"),
+  Schema.Literal("K"),
+  Schema.Literal("L"),
+  Schema.Literal("M"),
 ]);
 const ConflictSchema = Schema.Union([
   Schema.Literal("none"),
@@ -126,12 +136,27 @@ const variantNames: Readonly<Record<Variant, string>> = {
   A: "Workbench",
   B: "Paper trail",
   C: "Ops console",
+  D: "Solo split",
+  E: "Blueprint",
+  F: "Index",
+  G: "Dispatch",
+  H: "Ledger",
+  I: "Orbit",
+  J: "Notebook",
+  K: "Dock",
+  L: "Signal",
+  M: "Quiet",
 };
 
 function variantFromUrl(): Variant {
   const value = new URL(window.location.href).searchParams.get("variant");
-  if (value === "B" || value === "C") return value;
-  return "A";
+  switch (value) {
+    case "B": case "C": case "D": case "E": case "F": case "G":
+    case "H": case "I": case "J": case "K": case "L": case "M":
+      return value;
+    default:
+      return "A";
+  }
 }
 
 function writeVariantToUrl(variant: Variant): void {
@@ -589,8 +614,305 @@ function variantC(h: ReturnType<typeof html<PrototypeMessage>>, model: Prototype
   ]);
 }
 
+function windowChrome(h: ReturnType<typeof html<PrototypeMessage>>, title: string, model: PrototypeModel): Html {
+  return h.header([h.Class("native-chrome")], [
+    h.div([h.Class("traffic-lights"), h.AriaHidden(true)], [h.i([], []), h.i([], []), h.i([], [])]),
+    h.strong([], [title]),
+    h.div([h.Class("native-presence")], [h.span([], [model.connection === "live" ? "online" : model.connection]), h.b([], ["●"])]),
+  ]);
+}
+
+function soloRail(h: ReturnType<typeof html<PrototypeMessage>>, model: PrototypeModel): Html {
+  const group = (name: string, rows: ReadonlyArray<SeedIssue>) => h.section([h.Class("solo-group")], [
+    h.header([], [h.span([], ["⌄"]), h.strong([], [name]), h.em([], [`${rows.length}`])]),
+    ...rows.map((issue) => Button.view<PrototypeMessage>({
+      onClick: SelectedIssue({ issueNumber: issue.number }),
+      toView: (attributes) => h.button([
+        ...attributes.button,
+        h.Class(`solo-row${issue.number === model.selectedIssue ? " is-selected" : ""}`),
+      ], [
+        h.span([h.Class(`solo-dot solo-dot--${issue.state}`)], ["●"]),
+        h.span([], [issue.title]),
+        h.small([], [`${issue.number}`]),
+      ]),
+    })),
+  ]);
+  return h.aside([h.Class("solo-rail")], [
+    h.div([h.Class("solo-project")], [h.span([], ["⌄"]), h.b([], ["O"]), h.strong([], ["Overseer"])]),
+    group("ACTIVE", issues.slice(0, 3)),
+    group("RECENT", issues.slice(3, 7)),
+    h.div([h.Class("solo-rail-footer")], [h.span([], ["⌄"]), h.b([], ["Personal"])]),
+  ]);
+}
+
+function sparseTrail(h: ReturnType<typeof html<PrototypeMessage>>, model: PrototypeModel): Html {
+  return h.div([h.Class("sparse-trail")], [
+    h.article([], [h.time([], ["14:02"]), h.p([], [h.strong([], ["You"]), " opened the thread"])]),
+    h.article([], [h.time([], ["14:05"]), h.p([], [h.strong([], ["pi/session_01JQ"]), " picked it up", h.span([h.Class("solo-dot solo-dot--open")], ["●"])])]),
+    h.article([], [h.time([], ["14:11"]), h.p([], ["The title and body changed together"])]),
+    model.notice.startsWith("Live change") ? h.article([], [h.time([], ["now"]), h.p([], ["A new revision arrived"])]): h.empty,
+  ]);
+}
+
+function variantD(h: ReturnType<typeof html<PrototypeMessage>>, model: PrototypeModel): Html {
+  if (model.isDeleted) return tombstone(h, model);
+  return h.div([h.Class("variant variant-d solo-frame")], [
+    windowChrome(h, `Overseer — ${model.title}`, model),
+    h.div([h.Class("solo-app")], [
+      soloRail(h, model),
+      h.main([h.Class("solo-workspace")], [
+        h.header([h.Class("solo-toolbar")], [
+          h.div([], [h.strong([], [`#${model.selectedIssue}`]), h.span([], [model.isClosed ? "Closed" : "Open"])]),
+          h.div([], [
+            button(h, "solo-tool", model.isClaimed ? "Release" : "Claim", ToggledClaim()),
+            button(h, "solo-tool", "Edit", StartedEdit()),
+            button(h, "solo-tool solo-tool--primary", model.isClosed ? "Reopen" : "Close", ToggledClosed()),
+          ]),
+        ]),
+        h.div([h.Class("solo-document")], [
+          h.p([h.Class("solo-path")], ["Personal / Overseer / ", h.strong([], [`${model.selectedIssue}`])]),
+          h.h1([], [model.title]),
+          h.div([h.Class("solo-rule")], []),
+          h.p([h.Class("solo-lede")], ["A focused place to decide what happens next, with the working history close enough to trust but quiet enough to ignore."]),
+          h.div([h.Class("solo-two-up")], [
+            h.section([], [h.h2([], ["Current shape"]), h.p([], ["One active owner, one downstream decision, and a parent effort that is nearly complete."]), h.div([h.Class("solo-keyline")], [h.span([], ["Parent"]), h.a([h.Href("#10")], ["Specify the MVP"]), h.span([], ["Next"]), h.a([h.Href("#24")], ["Lock the specification"])])]),
+            h.section([], [h.h2([], ["Recent movement"]), sparseTrail(h, model)]),
+          ]),
+        ]),
+        h.footer([h.Class("solo-statusbar")], [
+          button(h, "solo-status-action", "↩ Focus", SimulatedRealtime()),
+          h.div([], [h.span([], [`seq ${model.sequence}`]), h.span([], [model.isClaimed ? "claimed" : "free"]), h.span([], [model.connection]), h.b([], ["●"])]),
+        ]),
+      ]),
+    ]),
+  ]);
+}
+
+function variantE(h: ReturnType<typeof html<PrototypeMessage>>, model: PrototypeModel): Html {
+  return h.div([h.Class("variant variant-e blueprint")], [
+    h.aside([h.Class("blueprint-rail")], [
+      h.b([h.Class("blueprint-mark")], ["O"]),
+      h.nav([], [h.a([h.Href("#")], ["01"]), h.a([h.Href("#")], ["02"]), h.a([h.Href("#")], ["03"])]),
+      h.span([], ["ISSUE / 023"]),
+    ]),
+    h.main([h.Class("blueprint-stage")], [
+      h.header([], [h.span([], ["OVERSEER / PERSONAL"]), connectionPill(h, model)]),
+      h.section([h.Class("blueprint-sheet")], [
+        h.div([h.Class("blueprint-number")], ["23"]),
+        h.p([h.Class("blueprint-kicker")], [model.isClaimed ? "IN MOTION" : "AVAILABLE"]),
+        h.h1([], [model.title]),
+        h.div([h.Class("blueprint-actions")], [button(h, "blueprint-button", "Take the thread", ToggledClaim()), button(h, "blueprint-button", "Make a change", StartedEdit())]),
+        h.div([h.Class("blueprint-columns")], [
+          h.section([], [h.span([], ["01 / SIGNAL"]), h.h2([], ["One thing needs attention"]), h.p([], ["The interface direction is open. Everything behind it is settled enough to move."])]),
+          h.section([], [h.span([], ["02 / MOTION"]), h.h2([], ["15 of 18 complete"]), h.p([], ["This thread is the visible edge of a larger decision map."]), h.progress([h.Max("18"), h.Value("15")], [])]),
+          h.section([], [h.span([], ["03 / NEXT"]), h.h2([], ["Lock the shape"]), h.p([], ["The next move is waiting on this one, not hidden in a queue."])]),
+        ]),
+      ]),
+      h.footer([], [h.span([], [model.notice]), h.span([], [`PROJECT SEQUENCE ${model.sequence}`])]),
+    ]),
+  ]);
+}
+
+function variantF(h: ReturnType<typeof html<PrototypeMessage>>, model: PrototypeModel): Html {
+  return h.div([h.Class("variant variant-f index-view")], [
+    h.header([h.Class("index-header")], [
+      h.div([], [h.b([], ["O"]), h.h1([], ["Overseer"]), h.span([], ["/ Personal"])]),
+      h.div([], [connectionPill(h, model), button(h, "index-new", "New issue", SimulatedRealtime())]),
+    ]),
+    h.main([], [
+      h.div([h.Class("index-intro")], [h.p([], ["PROJECT 01"]), h.h2([], ["Eight threads, three still moving."]), h.span([], ["The list is the interface. Open one only when it earns the space."])]),
+      h.div([h.Class("index-table")], [
+        h.header([], [h.span([], ["State"]), h.span([], ["Issue"]), h.span([], ["Signal"]), h.span([], ["Changed"])]),
+        ...issues.map((issue) => h.div([h.Class("index-entry")], [
+          Button.view<PrototypeMessage>({
+            onClick: SelectedIssue({ issueNumber: issue.number }),
+            toView: (attributes) => h.button([...attributes.button, h.Class("index-entry-row")], [
+              h.span([h.Class(`index-state index-state--${issue.state}`)], [issue.state]),
+              h.span([], [h.small([], [`${String(issue.number).padStart(3, "0")}`]), h.strong([], [issue.title])]),
+              h.span([], [issue.relation]),
+              h.time([], [issue.updated]),
+            ]),
+          }),
+          issue.number === model.selectedIssue ? h.section([h.Class("index-expansion")], [
+            h.p([], ["A decision surface for a single owner working with several agents. Quiet until something changes."]),
+            h.div([], [h.span([], [model.isClaimed ? "pi/session_01JQ" : "unclaimed"]), h.span([], [`sequence ${model.sequence}`]), h.span([], ["parent 010"])]),
+            h.nav([], [button(h, "index-link", "Edit", StartedEdit()), button(h, "index-link", model.isClosed ? "Reopen" : "Close", ToggledClosed()), button(h, "index-link", "Open thread →", SimulatedRealtime())]),
+          ]) : h.empty,
+        ])),
+      ]),
+    ]),
+  ]);
+}
+
+function variantG(h: ReturnType<typeof html<PrototypeMessage>>, model: PrototypeModel): Html {
+  return h.div([h.Class("variant variant-g dispatch")], [
+    h.header([h.Class("dispatch-header")], [h.b([], ["OVERSEER"]), h.nav([], [h.a([h.Href("#")], ["Threads"]), h.a([h.Href("#")], ["People"]), h.a([h.Href("#")], ["Project"])]), h.span([], ["D"])]),
+    h.div([h.Class("dispatch-strip")], issues.slice(0, 5).map((issue) => button(h, issue.number === model.selectedIssue ? "dispatch-ticket is-active" : "dispatch-ticket", `${issue.number}  ${issue.title}`, SelectedIssue({ issueNumber: issue.number })))),
+    h.main([h.Class("dispatch-grid")], [
+      h.section([h.Class("dispatch-story")], [
+        h.p([h.Class("dispatch-overline")], ["OPEN THREAD / 23"]),
+        h.h1([], [model.title]),
+        h.p([h.Class("dispatch-deck")], ["A short brief lives here. The operational detail stays at the edges until it becomes relevant."]),
+        h.div([h.Class("dispatch-byline")], [h.b([], ["pi"]), h.span([], [model.isClaimed ? "Working now" : "Waiting for an owner"]), h.time([], ["14 min"])]),
+        h.blockquote([], ["“Prioritize steering clarity over feature parity. I should understand the frontier at a glance.”"]),
+      ]),
+      h.aside([h.Class("dispatch-margin")], [
+        h.div([], [h.span([], ["POSITION"]), h.strong([], ["15 / 18"])]),
+        h.div([], [h.span([], ["UPSTREAM"]), h.strong([], ["MVP map"])]),
+        h.div([], [h.span([], ["DOWNSTREAM"]), h.strong([], ["Lock spec"])]),
+        h.div([], [h.span([], ["SYNC"]), h.strong([], [model.connection])]),
+      ]),
+      h.section([h.Class("dispatch-notes")], [
+        h.h2([], ["Field notes"]),
+        sparseTrail(h, model),
+        h.div([h.Class("dispatch-compose")], [h.span([], ["Add a direction, link, or correction"]), button(h, "dispatch-send", "↗", SimulatedRealtime())]),
+      ]),
+    ]),
+  ]);
+}
+
+function variantH(h: ReturnType<typeof html<PrototypeMessage>>, model: PrototypeModel): Html {
+  return h.div([h.Class("variant variant-h ledger")], [
+    h.header([h.Class("ledger-bar")], [h.b([], ["overseer.db"]), h.span([], ["project / personal"]), h.div([], [h.span([], [`rows ${issues.length}`]), h.span([], [`seq ${model.sequence}`]), h.span([], ["● live"])])]),
+    h.main([], [
+      h.div([h.Class("ledger-query")], [h.code([], ["issues where project = personal order by changed desc"]), button(h, "ledger-run", "Run ↵", SimulatedRealtime())]),
+      h.table([h.Class("ledger-table")], [
+        h.thead([], [h.tr([], [h.th([], ["№"]), h.th([], ["state"]), h.th([], ["title"]), h.th([], ["assignee"]), h.th([], ["relation"]), h.th([], ["age"])])]),
+        h.tbody([], issues.flatMap((issue) => [
+          h.tr([h.Class(issue.number === model.selectedIssue ? "is-selected" : "")], [
+            h.td([], [String(issue.number)]),
+            h.td([], [h.span([h.Class(`ledger-pip ledger-pip--${issue.state}`)], ["●"]), issue.state]),
+            h.td([], [button(h, "ledger-title", issue.title, SelectedIssue({ issueNumber: issue.number }))]),
+            h.td([], [issue.number === 23 && model.isClaimed ? "pi/01JQ" : "—"]),
+            h.td([], [issue.relation]),
+            h.td([], [issue.updated]),
+          ]),
+          issue.number === model.selectedIssue ? h.tr([h.Class("ledger-detail")], [h.td([h.Colspan(6)], [
+            h.div([], [
+              h.section([], [h.span([], ["ABSTRACT"]), h.p([], ["Find a visual language that makes one thread easy to read and the surrounding work easy to sense."])]),
+              h.section([], [h.span([], ["PATH"]), h.code([], ["map/010 → issue/023 → issue/024"])]),
+              h.section([], [h.span([], ["COMMANDS"]), h.nav([], [button(h, "ledger-command", "edit", StartedEdit()), button(h, "ledger-command", "claim", ToggledClaim()), button(h, "ledger-command", "close", ToggledClosed())])]),
+            ]),
+          ])]) : h.empty,
+        ])),
+      ]),
+    ]),
+    h.footer([h.Class("ledger-footer")], [h.span([], ["cached · 18ms"]), h.span([], ["↑↓ move  ↵ open  e edit  c close"])]),
+  ]);
+}
+
+function variantI(h: ReturnType<typeof html<PrototypeMessage>>, model: PrototypeModel): Html {
+  return h.div([h.Class("variant variant-i orbit")], [
+    h.header([h.Class("orbit-header")], [h.b([], ["Overseer"]), h.span([], ["Personal constellation"]), connectionPill(h, model)]),
+    h.main([h.Class("orbit-canvas")], [
+      h.div([h.Class("orbit-line orbit-line--a")], []), h.div([h.Class("orbit-line orbit-line--b")], []), h.div([h.Class("orbit-line orbit-line--c")], []),
+      h.button([h.Class("orbit-node orbit-node--map"), h.OnClick(SelectedIssue({ issueNumber: 10 }))], [h.small([], ["parent"]), h.strong([], ["10"]), h.span([], ["MVP map"])]),
+      h.button([h.Class("orbit-node orbit-node--api"), h.OnClick(SelectedIssue({ issueNumber: 20 }))], [h.small([], ["parallel"]), h.strong([], ["20"]), h.span([], ["API contract"])]),
+      h.button([h.Class("orbit-node orbit-node--current")], [h.small([], [model.isClaimed ? "in motion" : "open"]), h.strong([], ["23"]), h.span([], ["Interface"])]),
+      h.button([h.Class("orbit-node orbit-node--next"), h.OnClick(SelectedIssue({ issueNumber: 24 }))], [h.small([], ["waiting"]), h.strong([], ["24"]), h.span([], ["Lock spec"])]),
+      h.div([h.Class("orbit-legend")], [h.span([], ["● open"]), h.span([], ["● done"]), h.span([], ["— blocks"])]),
+    ]),
+    h.section([h.Class("orbit-drawer")], [
+      h.div([h.Class("orbit-drawer-title")], [h.span([], [`${model.selectedIssue} / 28`]), h.h1([], [model.title])]),
+      h.p([], ["The center of the map is a readable thread, not a board. Relationships explain why it matters right now."]),
+      h.div([h.Class("orbit-drawer-meta")], [h.span([], [model.isClaimed ? "pi/session_01JQ" : "unclaimed"]), h.span([], ["15 of 18"]), h.span([], [`seq ${model.sequence}`])]),
+      h.nav([], [button(h, "orbit-action", "Edit", StartedEdit()), button(h, "orbit-action", model.isClaimed ? "Release" : "Claim", ToggledClaim()), button(h, "orbit-action orbit-action--primary", "Move forward", SimulatedRealtime())]),
+    ]),
+  ]);
+}
+
+function variantJ(h: ReturnType<typeof html<PrototypeMessage>>, model: PrototypeModel): Html {
+  return h.div([h.Class("variant variant-j notebook")], [
+    h.aside([h.Class("notebook-tabs")], [h.b([], ["O"]), ...issues.slice(0, 6).map((issue) => button(h, issue.number === model.selectedIssue ? "notebook-tab is-active" : "notebook-tab", String(issue.number).padStart(2, "0"), SelectedIssue({ issueNumber: issue.number })))]),
+    h.main([h.Class("notebook-page")], [
+      h.header([], [h.span([], ["PERSONAL / OVERSEER"]), h.time([], ["JUL 17 · 14:16"])]),
+      h.article([], [
+        h.p([h.Class("notebook-number")], [`No. ${model.selectedIssue}`]),
+        h.h1([], [model.title]),
+        h.p([h.Class("notebook-summary")], ["A working note on how a human should meet a piece of agent-driven work: enough context to decide, no ceremony to get there."]),
+        h.div([h.Class("notebook-rule")], [h.span([], [model.isClaimed ? "claimed / pi" : "available"]), h.span([], [model.isClosed ? "closed" : "open"]), h.span([], ["rev 8"])]),
+        h.section([h.Class("notebook-body")], [
+          h.div([], [h.h2([], ["Observation"]), h.p([], ["The important shape is not a dashboard. It is a page with memory, pressure, and a clear next move."])]),
+          h.aside([], [h.p([], ["Parent · 10"]), h.p([], ["Next · 24"]), h.p([], ["Progress · 15/18"])]),
+        ]),
+        h.section([h.Class("notebook-log")], [h.h2([], ["Margin log"]), sparseTrail(h, model)]),
+      ]),
+      h.footer([], [button(h, "notebook-action", "Write", StartedEdit()), button(h, "notebook-action", "Mark", ToggledLabel()), button(h, "notebook-action", "Resolve", ToggledClosed())]),
+    ]),
+  ]);
+}
+
+function variantK(h: ReturnType<typeof html<PrototypeMessage>>, model: PrototypeModel): Html {
+  return h.div([h.Class("variant variant-k dock-frame")], [
+    windowChrome(h, "Overseer", model),
+    h.div([h.Class("dock-app")], [
+      h.nav([h.Class("dock-icons")], [h.b([], ["O"]), button(h, "dock-icon is-active", "⌁", SimulatedRealtime()), button(h, "dock-icon", "◫", SimulatedRealtime()), button(h, "dock-icon", "◎", SimulatedRealtime()), h.span([], ["D"])]),
+      h.aside([h.Class("dock-list")], [
+        h.header([], [h.strong([], ["Threads"]), h.span([], ["3 open"])]),
+        ...issues.slice(0, 7).map((issue) => Button.view<PrototypeMessage>({
+          onClick: SelectedIssue({ issueNumber: issue.number }),
+          toView: (attributes) => h.button([...attributes.button, h.Class(`dock-row${issue.number === model.selectedIssue ? " is-selected" : ""}`)], [h.span([], [String(issue.number)]), h.div([], [h.strong([], [issue.title]), h.small([], [issue.relation])]), h.i([], [issue.updated])]),
+        })),
+      ]),
+      h.main([h.Class("dock-focus")], [
+        h.header([], [h.span([], [`Thread ${model.selectedIssue}`]), h.div([], [button(h, "dock-mini", "•••", SimulatedRealtime()), button(h, "dock-mini", "×", ToggledClosed())])]),
+        h.article([], [
+          h.div([h.Class("dock-state")], [h.span([], [model.isClosed ? "closed" : "open"]), h.span([], [model.isClaimed ? "pi is here" : "unclaimed"])]),
+          h.h1([], [model.title]),
+          h.p([], ["This page keeps the current thought large and the surrounding project at arm’s reach."]),
+          h.section([h.Class("dock-context")], [h.div([], [h.span([], ["From"]), h.strong([], ["MVP map"])]), h.div([], [h.span([], ["Toward"]), h.strong([], ["Locked spec"])]), h.div([], [h.span([], ["Motion"]), h.strong([], ["15 / 18"])])]),
+          sparseTrail(h, model),
+        ]),
+        h.div([h.Class("dock-command")], [h.span([], ["⌘"]), h.p([], ["Type a note or action…"]), button(h, "dock-go", "Return", SimulatedRealtime())]),
+      ]),
+    ]),
+  ]);
+}
+
+function variantL(h: ReturnType<typeof html<PrototypeMessage>>, model: PrototypeModel): Html {
+  return h.div([h.Class("variant variant-l signal")], [
+    h.aside([h.Class("signal-panel")], [
+      h.header([], [h.b([], ["O"]), h.span([], ["OVERSEER"])]),
+      h.div([h.Class("signal-count")], [h.span([], ["15"]), h.i([], ["/"]), h.span([], ["18"])]),
+      h.p([], ["The project is almost ready to leave planning."]),
+      h.footer([], [h.span([], ["PERSONAL"]), h.span([], [model.connection.toUpperCase()])]),
+    ]),
+    h.main([h.Class("signal-main")], [
+      h.header([], [h.span([], [`ISSUE ${String(model.selectedIssue).padStart(3, "0")}`]), h.nav([], [button(h, "signal-link", "claim", ToggledClaim()), button(h, "signal-link", "edit", StartedEdit()), button(h, "signal-link", "close", ToggledClosed())])]),
+      h.h1([], [model.title]),
+      h.div([h.Class("signal-rule")], []),
+      h.section([h.Class("signal-layout")], [
+        h.p([], ["One interface decision sits between a nearly finished map and the specification that follows it."]),
+        h.dl([], [h.div([], [h.dt([], ["NOW"]), h.dd([], [model.isClaimed ? "pi/session_01JQ" : "Unclaimed"])]), h.div([], [h.dt([], ["THEN"]), h.dd([], ["Lock the MVP"])]), h.div([], [h.dt([], ["SYNC"]), h.dd([], [`${model.sequence}`])])]),
+      ]),
+      h.footer([], [h.blockquote([], ["Make the work legible before making it powerful."]), button(h, "signal-primary", "Advance the thread →", SimulatedRealtime())]),
+    ]),
+  ]);
+}
+
+function variantM(h: ReturnType<typeof html<PrototypeMessage>>, model: PrototypeModel): Html {
+  return h.div([h.Class("variant variant-m quiet")], [
+    h.header([h.Class("quiet-header")], [h.b([], ["Overseer"]), h.nav([], [h.a([h.Href("#")], ["Personal"]), h.a([h.Href("#")], ["Issues"])]), h.span([], [model.connection])]),
+    h.main([h.Class("quiet-main")], [
+      h.aside([h.Class("quiet-aside")], [h.span([], [`${model.selectedIssue}`]), h.p([], [model.isClosed ? "Closed" : "Open"]), h.p([], [model.isClaimed ? "Claimed by pi" : "Unclaimed"])]),
+      h.article([h.Class("quiet-article")], [
+        h.h1([], [model.title]),
+        h.p([h.Class("quiet-lede")], ["A small decision at the edge of a larger plan."]),
+        h.p([], ["The page gives the thought room. History appears as punctuation, relationships as quiet footnotes, and actions only when the reader reaches for them."]),
+        h.section([h.Class("quiet-links")], [h.a([h.Href("#10")], ["Came from  ·  Specify the MVP"]), h.a([h.Href("#24")], ["Leads to  ·  Lock the specification"])]),
+        h.section([h.Class("quiet-history")], [
+          h.h2([], ["Today"]),
+          sparseTrail(h, model),
+        ]),
+        h.nav([h.Class("quiet-actions")], [button(h, "quiet-action", "Edit", StartedEdit()), button(h, "quiet-action", model.isClaimed ? "Release" : "Claim", ToggledClaim()), button(h, "quiet-action", model.isClosed ? "Reopen" : "Close", ToggledClosed())]),
+      ]),
+      h.aside([h.Class("quiet-folio")], [h.span([], [`sequence ${model.sequence}`]), h.span([], ["15 / 18"])]),
+    ]),
+  ]);
+}
+
 function switcher(h: ReturnType<typeof html<PrototypeMessage>>, model: PrototypeModel): Html {
-  const order: ReadonlyArray<Variant> = ["A", "B", "C"];
+  const order: ReadonlyArray<Variant> = ["A", "B", "C", "D", "E", "F", "G", "H", "I", "J", "K", "L", "M"];
   const currentIndex = order.indexOf(model.variant);
   const previous = order[(currentIndex + order.length - 1) % order.length] ?? "A";
   const next = order[(currentIndex + 1) % order.length] ?? "A";
@@ -602,11 +924,28 @@ function switcher(h: ReturnType<typeof html<PrototypeMessage>>, model: Prototype
   ]);
 }
 
+function activeVariant(h: ReturnType<typeof html<PrototypeMessage>>, model: PrototypeModel): Html {
+  switch (model.variant) {
+    case "A": return variantA(h, model);
+    case "B": return variantB(h, model);
+    case "C": return variantC(h, model);
+    case "D": return variantD(h, model);
+    case "E": return variantE(h, model);
+    case "F": return variantF(h, model);
+    case "G": return variantG(h, model);
+    case "H": return variantH(h, model);
+    case "I": return variantI(h, model);
+    case "J": return variantJ(h, model);
+    case "K": return variantK(h, model);
+    case "L": return variantL(h, model);
+    case "M": return variantM(h, model);
+  }
+}
+
 function view(model: PrototypeModel): Html {
   const h = html<PrototypeMessage>();
-  const active = model.variant === "A" ? variantA(h, model) : model.variant === "B" ? variantB(h, model) : variantC(h, model);
   return h.div([h.Class("prototype-root")], [
-    active,
+    activeVariant(h, model),
     import.meta.env.DEV ? switcher(h, model) : h.empty,
   ]);
 }

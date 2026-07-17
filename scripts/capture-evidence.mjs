@@ -38,38 +38,45 @@ async function frames(count) {
   }
 }
 
-await openVariant("A");
-await still("variant-a-workbench");
-await openVariant("B");
-await still("variant-b-paper-trail");
-await openVariant("C");
-await still("variant-c-ops-console", false);
+const variantProofs = [
+  ["A", "variant-a-workbench", true],
+  ["B", "variant-b-paper-trail", true],
+  ["C", "variant-c-ops-console", false],
+  ["D", "variant-d-solo-split", false],
+  ["E", "variant-e-blueprint", false],
+  ["F", "variant-f-index", false],
+  ["G", "variant-g-dispatch", false],
+  ["H", "variant-h-ledger", false],
+  ["I", "variant-i-orbit", false],
+  ["J", "variant-j-notebook", false],
+  ["K", "variant-k-dock", false],
+  ["L", "variant-l-signal", false],
+  ["M", "variant-m-quiet", false],
+];
+
+for (const [variant, name, fullPage] of variantProofs) {
+  await openVariant(variant);
+  await still(name, fullPage);
+}
+
+await openVariant("D");
+await frames(8);
+for (const variant of ["E", "F", "G", "H", "I", "J", "K", "L", "M"]) {
+  await page.getByRole("button", { name: variant, exact: true }).click();
+  await page.waitForSelector(`.variant-${variant.toLowerCase()}`);
+  await frames(8);
+}
 
 await openVariant("A");
-await frames(12);
-
 await page.getByRole("button", { name: "Test conflict", exact: true }).click();
 await still("conflict-state", false);
-await frames(12);
-await page.getByRole("button", { name: "Use current", exact: true }).click();
-await frames(4);
-
-await page.getByRole("button", { name: "B", exact: true }).click();
-await page.waitForSelector(".variant-b");
-await frames(12);
-
-await page.getByRole("button", { name: "C", exact: true }).click();
-await page.waitForSelector(".variant-c");
-await frames(12);
-
-await page.getByRole("button", { name: "Live", exact: false }).click();
 await frames(8);
+
+await openVariant("C");
 await page.getByRole("button", { name: "Delete", exact: true }).click();
 await page.getByRole("dialog", { name: "Delete Issue" }).waitFor();
 await still("delete-confirmation", false);
 await frames(8);
-await page.getByRole("button", { name: "Cancel", exact: true }).click();
-await frames(4);
 
 await browser.close();
 
@@ -88,4 +95,4 @@ execFileSync("ffmpeg", [
 ], { stdio: "inherit" });
 
 await rm(frameDirectory, { recursive: true, force: true });
-console.log(`Captured ${frameNumber} browser frames and five proof screenshots.`);
+console.log(`Captured ${frameNumber} browser frames and ${variantProofs.length + 2} proof screenshots.`);
