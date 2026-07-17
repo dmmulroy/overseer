@@ -1,0 +1,19 @@
+docs/research/cloudflare-topology-without-websockets.md
+  s_dd18cec28e9a42::t_80b633e57d684c 1-152
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.10",
+  "base_commit_sha": "ce0e716ab8dad0dcbc00d3e50eed1ccef6b41b52",
+  "prompts": {},
+  "sessions": {
+    "s_dd18cec28e9a42": {
+      "agent_id": {
+        "tool": "pi",
+        "id": "019f71cd-a68c-7ebc-b71d-da401f22d8b3",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Dillon Mulroy <dillon.mulroy@gmail.com>"
+    }
+  }
+}
