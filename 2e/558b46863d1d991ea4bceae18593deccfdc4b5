@@ -1,0 +1,19 @@
+docs/research/47-tailwind-shadcn-base-ui.md
+  s_51989994ddb360::t_61a6e71aa0dc8c 1-251
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.10",
+  "base_commit_sha": "2e558b46863d1d991ea4bceae18593deccfdc4b5",
+  "prompts": {},
+  "sessions": {
+    "s_51989994ddb360": {
+      "agent_id": {
+        "tool": "pi",
+        "id": "019f722b-db71-77a0-b598-38d61a1ab399",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Dillon Mulroy <dillon.mulroy@gmail.com>"
+    }
+  }
+}
