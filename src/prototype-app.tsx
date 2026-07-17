@@ -16,9 +16,9 @@ const variantMeta: Record<Variant, { name: string; thesis: string; contract: str
     contract: "Explicit core + state tokens",
   },
   B: {
-    name: "Ember",
-    thesis: "Pairs cool utility surfaces with a warm vermilion action signal and plum graphite darks.",
-    contract: "Warm signal / cool graphite",
+    name: "Graphite",
+    thesis: "Keeps Faithful's neutral surfaces but lowers the action signal into a sober blue-black.",
+    contract: "Neutral surfaces / ink signal",
   },
   C: {
     name: "Delineated",
@@ -26,9 +26,9 @@ const variantMeta: Record<Variant, { name: string; thesis: string; contract: str
     contract: "High-separation surfaces",
   },
   D: {
-    name: "Signal",
-    thesis: "Pushes Utility toward technical blue-greens with an electric teal interaction signal.",
-    contract: "Teal signal / blue graphite",
+    name: "Iris",
+    thesis: "Keeps the cool utility ladder and nudges only interaction roles from cobalt toward blue-violet.",
+    contract: "Neutral surfaces / iris signal",
   },
 };
 
@@ -196,7 +196,7 @@ function FoundationContract({ variant }: { variant: Variant }) {
         <div className="contract-badges">
           <Badge variant="success">Kumo 2.8</Badge>
           <Badge variant="outline">light + dark</Badge>
-          <Badge variant="secondary">Inter Variable</Badge>
+          <Badge variant="secondary">Geist UI</Badge>
         </div>
       </div>
 

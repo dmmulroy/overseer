@@ -1,7 +1,7 @@
 * { box-sizing: border-box; }
 
 html { min-width: 320px; background: var(--color-kumo-canvas); }
-body { margin: 0; min-width: 320px; color: var(--text-color-kumo-default); background: var(--color-kumo-canvas); font-family: InterVariable, Inter, ui-sans-serif, system-ui, sans-serif; font-feature-settings: "cv02", "cv03", "cv04", "cv11"; }
+body { margin: 0; min-width: 320px; color: var(--text-color-kumo-default); background: var(--color-kumo-canvas); font-family: Geist, ui-sans-serif, system-ui, sans-serif; }
 a { color: inherit; text-decoration: none; }
 code { font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace; }
 
@@ -36,6 +36,11 @@ code { font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace; }
 .prototype-heading .prototype-kicker,
 .eyebrow { color: var(--text-color-kumo-link); font-size: 11px; font-weight: 700; letter-spacing: .085em; text-transform: uppercase; }
 .review-state { display: flex; align-items: center; gap: 12px; flex: none; font-size: 13px; color: var(--text-color-kumo-subtle); }
+.product-shell button:not(.issue-row):not(.project-picker),
+.product-shell input,
+.foundation-section button,
+.foundation-section input,
+.review-state button { font-size: 13px; line-height: 16px; }
 
 .product-shell {
   overflow: hidden;

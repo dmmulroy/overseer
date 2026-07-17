@@ -48,7 +48,7 @@ async function open(page, variant, mode) {
   }
 }
 
-const names = { A: "faithful", B: "ember", C: "delineated", D: "signal" };
+const names = { A: "faithful", B: "graphite", C: "delineated", D: "iris" };
 for (const variant of ["A", "B", "C", "D"]) {
   for (const mode of ["light", "dark"]) {
     await open(desktop, variant, mode);
@@ -68,12 +68,12 @@ const controlType = await desktop.evaluate(() => {
   const state = buttons.find((button) => button.textContent?.includes("State: open"));
   const filter = document.querySelector('input[placeholder="Filter issues…"]');
   return {
-    newIssue: newIssue && getComputedStyle(newIssue).fontSize,
+    newIssue: newIssue && { fontFamily: getComputedStyle(newIssue).fontFamily, fontSize: getComputedStyle(newIssue).fontSize },
     state: state && { fontSize: getComputedStyle(state).fontSize, height: getComputedStyle(state).height },
     filter: filter && getComputedStyle(filter).fontSize,
   };
 });
-if (controlType.newIssue !== "12px" || controlType.state?.fontSize !== "12px" || controlType.state?.height !== "26px" || controlType.filter !== "12px") {
+if (!controlType.newIssue?.fontFamily.startsWith("Geist") || controlType.newIssue?.fontSize !== "13px" || controlType.state?.fontSize !== "13px" || controlType.state?.height !== "26px" || controlType.filter !== "13px") {
   errors.push(new Error(`Compact control typography regressed: ${JSON.stringify(controlType)}`));
 }
 await desktop.keyboard.press("ArrowRight");
