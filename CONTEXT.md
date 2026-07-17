@@ -34,8 +34,24 @@ _Avoid_: Child ticket
 A directed prerequisite between issues in the same project: one issue is blocked by another, and the other blocks it. Blocking relations reject self-links, duplicates, and cycles, including through preserved relations to deleted Issues. Hierarchy and blocking are independent graphs, so the same Issue pair may participate in both and cycles are checked separately. A relation touching a deleted Issue is inactive until restoration. A closed blocker also makes the relation inactive; reopening it reactivates the relation.
 _Avoid_: Dependency (when the direction is unspecified)
 
+**Authenticated principal**:
+A verified request identity: either the single human or one independently managed Agent deployment. Every Authenticated principal has equal authority in the MVP; it is not a User account.
+_Avoid_: User, account
+
+**Agent deployment**:
+An independently credentialed device, runner, or integration under which many concurrent Agent sessions may operate. Replacing its credential identity creates a new Agent deployment; prior attribution is not migrated.
+_Avoid_: Agent, user
+
+**Agent session**:
+One logical agent run or conversation on an Agent deployment, correlated by a caller-provided session ID that remains stable across requests and reconnects. Its optional harness name and session ID are untrusted metadata, never authority.
+_Avoid_: Request ID, credential
+
+**Actor**:
+An immutable attribution value captured on a Comment or Timeline event, identifying either the human or an Agent deployment. Agent-session metadata is captured separately, and an Actor is not an independently addressable entity.
+_Avoid_: User, author
+
 **Assignee**:
-An optional free-form identity string indicating who has cooperatively claimed an issue. An unassigned issue is unclaimed.
+An optional free-form identity string indicating who has cooperatively claimed an Issue. It is not tied to an Actor or enforced as ownership; an unassigned Issue is unclaimed, and Agent clients conventionally use `<harness-or-agent>/<session-id>`.
 _Avoid_: Owner, lease
 
 **Label**:
