@@ -1,0 +1,35 @@
+{
+  "name": "overseer-foldkit-effect-cloudflare-spike",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "check": "tsc -p tsconfig.worker.json && tsc -p tsconfig.browser.json",
+    "check:runtime": "node scripts/check-effect-runtime.mjs",
+    "test": "npm run test:browser && npm run test:workerd",
+    "test:browser": "vitest run --config vitest.browser.config.ts",
+    "test:workerd": "vitest run --config vitest.workerd.config.ts"
+  },
+  "dependencies": {
+    "@effect/platform-browser": "4.0.0-beta.97",
+    "@effect/platform-node": "4.0.0-beta.97",
+    "@effect/platform-node-shared": "4.0.0-beta.97",
+    "@effect/sql-sqlite-do": "4.0.0-beta.97",
+    "@foldkit/ui": "0.128.1",
+    "alchemy": "2.0.0-beta.62",
+    "effect": "4.0.0-beta.97",
+    "foldkit": "0.128.1"
+  },
+  "devDependencies": {
+    "@cloudflare/vitest-pool-workers": "0.18.5",
+    "@cloudflare/workers-types": "5.20260710.1",
+    "@effect/vitest": "4.0.0-beta.97",
+    "@types/node": "24.0.15",
+    "happy-dom": "20.10.6",
+    "typescript": "5.9.3",
+    "vitest": "4.1.10",
+    "wrangler": "4.111.0"
+  },
+  "overrides": {
+    "effect": "$effect"
+  }
+}

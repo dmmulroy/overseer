@@ -1,0 +1,20 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "lib": ["ESNext"],
+    "types": [
+      "@cloudflare/workers-types",
+      "@cloudflare/vitest-pool-workers/types",
+      "node",
+      "vitest/globals"
+    ]
+  },
+  "include": [
+    "alchemy.run.ts",
+    "src/shared-api.ts",
+    "src/worker.ts",
+    "test/worker.test.ts",
+    "env.d.ts",
+    "vitest.workerd.config.ts"
+  ]
+}

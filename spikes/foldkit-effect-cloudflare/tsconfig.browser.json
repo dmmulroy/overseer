@@ -1,0 +1,13 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "lib": ["ESNext", "DOM", "DOM.Iterable"],
+    "types": ["node", "vitest/globals"]
+  },
+  "include": [
+    "src/shared-api.ts",
+    "src/frontend/**/*.ts",
+    "test/browser.test.ts",
+    "vitest.browser.config.ts"
+  ]
+}
