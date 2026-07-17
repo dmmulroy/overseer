@@ -1,0 +1,130 @@
+{
+  "generatedAt": "2026-07-17T01:30:36.799Z",
+  "runtime": {
+    "browser": "150.0.7871.128",
+    "viewport": "1280x820",
+    "projectIssues": 400,
+    "cachedRouteSamples": 30
+  },
+  "budgets": {
+    "cachedRoutePaintP95Ms": 100,
+    "inpMs": 200,
+    "lcpMs": 2500,
+    "cls": 0.1
+  },
+  "measurements": {
+    "cachedRoutePaintP95Ms": 16.800000071525574,
+    "cachedRoutePaintMaxMs": 22.700000047683716,
+    "prefetchHitPaintMs": 17.200000047683716,
+    "prefetchHitNetworkStarts": 0,
+    "activeBaselineMs": 506.60000002384186,
+    "activeWithBackgroundMs": 504.39999997615814,
+    "lcpMs": 244,
+    "cls": 0,
+    "inpMs": 24
+  },
+  "exercised": {
+    "migration": {
+      "canonicalV1Discarded": true,
+      "draftV1Migrated": true,
+      "persistedSnapshotsRestored": 40
+    },
+    "cancellation": [
+      {
+        "event": "started",
+        "issueNumber": 160,
+        "priority": "background",
+        "at": 1452.5
+      },
+      {
+        "event": "aborted",
+        "issueNumber": 160,
+        "priority": "background",
+        "at": 1483.3000000715256
+      }
+    ],
+    "deduplication": [
+      {
+        "event": "started",
+        "issueNumber": 161,
+        "priority": "active",
+        "at": 1500.3999999761581
+      },
+      {
+        "event": "completed",
+        "issueNumber": 161,
+        "priority": "active",
+        "at": 1623.5
+      }
+    ],
+    "constrained": {
+      "saveData": [],
+      "twoG": [],
+      "threeG": [
+        {
+          "event": "started",
+          "issueNumber": 182,
+          "priority": "background",
+          "at": 4045.2000000476837
+        }
+      ]
+    },
+    "reconnect": {
+      "result": {
+        "_tag": "Replayed",
+        "from": 11,
+        "to": 13,
+        "cursor": 13
+      },
+      "persistedCursor": 13,
+      "restored": {
+        "recovered": false,
+        "restoredSnapshots": 55,
+        "draftPreserved": true
+      },
+      "loadSnapshotCalls": 0
+    },
+    "quota": {
+      "before": {
+        "snapshots": 55,
+        "timelinePages": 21,
+        "queries": 6,
+        "drafts": 2
+      },
+      "eviction": {
+        "evictedQueries": 6,
+        "evictedTimelinePages": 21,
+        "remainingCandidateBytes": 0
+      },
+      "after": {
+        "snapshots": 55,
+        "timelinePages": 0,
+        "queries": 0,
+        "drafts": 2
+      },
+      "draftPreserved": true
+    },
+    "corruptionRecovery": {
+      "result": {
+        "recovered": true,
+        "restoredSnapshots": 0,
+        "draftPreserved": true
+      },
+      "draftPreserved": true
+    }
+  },
+  "gates": {
+    "canonicalRebuildAndDraftMigration": true,
+    "canonicalCorruptionRecovery": true,
+    "cachedRoutePaintP95": true,
+    "prefetchHitHasNoBlockingRead": true,
+    "semanticClickNavigation": true,
+    "requestCancellation": true,
+    "requestDeduplication": true,
+    "activeRequestNotDelayed": true,
+    "constrainedNetworkPolicy": true,
+    "reconnectGapReplayed": true,
+    "quotaAwareEvictionPreservesDrafts": true,
+    "goodCoreWebVitals": true
+  }
+}
