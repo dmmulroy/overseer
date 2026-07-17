@@ -1,0 +1,21 @@
+src/prototype-app.tsx
+  s_1c127f6e4c7f26::t_26009a228155c2 19-21,29-31,199
+src/prototype.css
+  s_1c127f6e4c7f26::t_05cc2aeef5c527 4,39-43
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.10",
+  "base_commit_sha": "5c4fd9719351681d407853653b0ae07047153cbb",
+  "prompts": {},
+  "sessions": {
+    "s_1c127f6e4c7f26": {
+      "agent_id": {
+        "tool": "pi",
+        "id": "019f71e1-090f-72ad-bd5d-37a5ade0bc02",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Dillon Mulroy <dillon.mulroy@gmail.com>"
+    }
+  }
+}
