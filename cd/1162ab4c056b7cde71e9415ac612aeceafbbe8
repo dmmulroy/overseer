@@ -1,0 +1,51 @@
+spikes/foldkit-effect-cloudflare/alchemy.run.ts
+  s_2e62eccf42d363::t_760e12089e7ded 1-21
+spikes/foldkit-effect-cloudflare/env.d.ts
+  s_1aa0dbe6f47d9b::t_99578d8a1617c0 1-11
+spikes/foldkit-effect-cloudflare/package-lock.json
+  s_1aa0dbe6f47d9b::t_1210717b535f10 1-6205
+spikes/foldkit-effect-cloudflare/src/frontend/browser-project-socket.ts
+  s_2e62eccf42d363::t_0cd11f0053e681 1-63
+spikes/foldkit-effect-cloudflare/src/frontend/project-http.ts
+  s_2e62eccf42d363::t_1a8f63eeb0fe4b 1-26
+spikes/foldkit-effect-cloudflare/src/frontend/project-message.ts
+  s_a8bd0c42ab4e0b::t_72963cec5e5bda 1-28
+spikes/foldkit-effect-cloudflare/tsconfig.browser.json
+  s_2e62eccf42d363::t_563f28276b089b 1-13
+spikes/foldkit-effect-cloudflare/tsconfig.worker.json
+  s_2e62eccf42d363::t_1e91445a4fe9c1 1-20
+spikes/foldkit-effect-cloudflare/wrangler.jsonc
+  s_1aa0dbe6f47d9b::t_78dedec0c1c2a8 1-20
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.10",
+  "base_commit_sha": "cd1162ab4c056b7cde71e9415ac612aeceafbbe8",
+  "prompts": {},
+  "sessions": {
+    "s_1aa0dbe6f47d9b": {
+      "agent_id": {
+        "tool": "pi",
+        "id": "019f6bd5-bc65-7498-a4be-28e0c02658cc",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Dillon Mulroy <dillon.mulroy@gmail.com>"
+    },
+    "s_2e62eccf42d363": {
+      "agent_id": {
+        "tool": "pi",
+        "id": "019f6849-ad14-7d9d-a43b-6c0ff6cdef74",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Dillon Mulroy <dillon.mulroy@gmail.com>"
+    },
+    "s_a8bd0c42ab4e0b": {
+      "agent_id": {
+        "tool": "pi",
+        "id": "019f6d96-65f1-738c-a454-42946c25bca3",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Dillon Mulroy <dillon.mulroy@gmail.com>"
+    }
+  }
+}
