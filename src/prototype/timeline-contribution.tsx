@@ -35,7 +35,7 @@ const variants: ReadonlyArray<Variant> = ["A", "B", "C"];
 const variantMeta: Readonly<Record<Variant, { readonly name: string; readonly thesis: string }>> = {
   A: {
     name: "Narrative thread",
-    thesis: "Treat the body as the opening contribution, keep comments chronological, and compress adjacent mechanics into readable digests.",
+    thesis: "Treat the body as the opening contribution, summarize structured changes before the discussion, and keep comments chronological.",
   },
   B: {
     name: "Brief + checkpoints",
@@ -200,10 +200,6 @@ function VariantA({ draft, onDraftChange }: { readonly draft: string; readonly o
 
       <div className="section-heading"><h2>Conversation</h2><span>3 comments · 9 changes</span></div>
       <section className="thread" aria-label="Issue timeline">
-        <Comment kind="agent" time="1 hour ago">
-          <p>I reproduced the restart by interrupting part 4 of 12. Confirmed part tokens survive on the server, but the browser discards its local upload session.</p>
-          <Attachment name="upload-reconnect.mp4" meta="0:24 · 3.8 MB" kind="video" />
-        </Comment>
         <section className="event-digest">
           <button type="button" className="digest-toggle" onClick={() => setDigestExpanded((value) => !value)} aria-expanded={digestExpanded}>
             <span><ChevronDown size={14} className={digestExpanded ? "is-open" : ""} /> 4 changes · 48–31 minutes ago</span>
@@ -218,6 +214,10 @@ function VariantA({ draft, onDraftChange }: { readonly draft: string; readonly o
             </ol>
           )}
         </section>
+        <Comment kind="agent" time="1 hour ago">
+          <p>I reproduced the restart by interrupting part 4 of 12. Confirmed part tokens survive on the server, but the browser discards its local upload session.</p>
+          <Attachment name="upload-reconnect.mp4" meta="0:24 · 3.8 MB" kind="video" />
+        </Comment>
         <Comment kind="human" time="21 minutes ago">
           <p>Please preserve the comment draft even when the upload itself is cancelled. The text is the contribution; the file should not hold it hostage.</p>
         </Comment>

@@ -6,7 +6,7 @@ This is a review artifact, not production code and not a product decision. It us
 
 ## Variants
 
-- **A — Narrative thread:** the body is the opening contribution, comments form a literal chronology, and adjacent structured events collapse into a digest.
+- **A — Narrative thread:** the body is the opening contribution, one structured-changes digest precedes the discussion, and comments then form a literal chronology.
 - **B — Brief + checkpoints:** the issue brief stays pinned beside an outcome-oriented notebook grouping contributions, evidence, and mechanics.
 - **C — Conversation + ledger:** conversation stays central while complete structured changes and files occupy parallel views (mobile uses channel tabs).
 
