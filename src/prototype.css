@@ -1,0 +1,67 @@
+@import url('https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&family=Geist+Mono:wght@400;500&display=swap');
+
+:root { font-family: Geist, sans-serif; color: #202124; background: #f7f7f5; font-synthesis: none; }
+* { box-sizing: border-box; }
+body { margin: 0; }
+button, textarea { font: inherit; }
+button { border: 1px solid #c9cbc7; border-radius: 5px; background: #fff; color: #292b2a; padding: 7px 11px; cursor: pointer; }
+button:hover:not(:disabled) { border-color: #8e918c; background: #f3f4f1; }
+button:disabled { opacity: .5; cursor: not-allowed; }
+button.primary { background: #176b55; border-color: #176b55; color: #fff; }
+code { font-family: 'Geist Mono', monospace; font-size: 11px; }
+.pipeline-strip { min-height: 38px; padding: 8px 24px; display: flex; align-items: center; justify-content: center; gap: 9px; background: #18201e; color: #dfe8e4; font-size: 12px; overflow-x: auto; white-space: nowrap; }
+.pipeline-strip span { color: #789088; }
+.site-header { height: 52px; border-bottom: 1px solid #d8dad6; background: #fff; padding: 0 24px; display: flex; justify-content: space-between; align-items: center; }
+.site-header a { color: #202124; text-decoration: none; font-weight: 650; }
+.site-header span { color: #737773; font-size: 12px; }
+.page { width: min(1050px, calc(100% - 32px)); margin: 38px auto 80px; }
+.heading { display: flex; justify-content: space-between; gap: 24px; align-items: flex-start; margin-bottom: 24px; }
+.heading h1 { margin: 3px 0 7px; font-size: 27px; letter-spacing: -.03em; }
+.heading p:not(.eyebrow) { margin: 0; max-width: 720px; color: #696d69; font-size: 13px; line-height: 1.55; }
+.eyebrow { margin: 0; text-transform: uppercase; letter-spacing: .08em; color: #737773; font-size: 10px; font-weight: 650; }
+.heading-actions, .editor-actions { display: flex; gap: 8px; align-items: center; }
+.breadcrumbs { margin-bottom: 18px; color: #747874; font-size: 13px; }
+.breadcrumbs a { color: #176b55; }
+.issue-list, .editor-card, .ownership, .metadata, .lab { background: #fff; border: 1px solid #d8dad6; border-radius: 7px; box-shadow: 0 1px 1px rgba(20, 25, 22, .03); }
+.issue-row { display: grid; grid-template-columns: 58px 1fr auto; gap: 12px; padding: 13px 15px; align-items: center; color: #262827; text-decoration: none; border-bottom: 1px solid #e5e6e3; }
+.issue-row:last-child { border-bottom: 0; }
+.issue-row:hover { background: #f8faf8; }
+.issue-row span, .issue-row em { color: #737773; font-size: 12px; font-style: normal; }
+.issue-row strong { font-size: 13px; font-weight: 550; }
+.empty { padding: 42px; border: 1px dashed #c9cbc7; border-radius: 7px; text-align: center; color: #737773; }
+.error-banner { display: grid; gap: 7px; margin: 0 0 18px; padding: 12px 14px; border: 1px solid #d7a5a0; border-radius: 6px; background: #fff5f3; color: #742d29; font-size: 13px; }
+.error-banner button { justify-self: start; }
+.error-banner code { max-height: 80px; overflow: auto; white-space: pre-wrap; }
+.metadata { display: grid; grid-template-columns: repeat(5, 1fr); margin: 16px 0 0; overflow: hidden; }
+.metadata div { padding: 11px 13px; border-right: 1px solid #e3e4e1; min-width: 0; }
+.metadata div:last-child { border-right: 0; }
+.metadata dt { color: #858984; text-transform: uppercase; font-size: 9px; letter-spacing: .08em; }
+.metadata dd { margin: 4px 0 0; font-family: 'Geist Mono', monospace; font-size: 10px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.lab { margin-top: 16px; padding: 12px 14px; }
+.lab > div:first-child { display: flex; justify-content: space-between; margin-bottom: 10px; font-size: 12px; }
+.lab > div:first-child span { color: #777b77; font-family: 'Geist Mono', monospace; }
+.lab-actions { display: flex; flex-wrap: wrap; gap: 7px; }
+.editor-card { padding: 16px; }
+.editor-label { display: flex; justify-content: space-between; margin-bottom: 9px; font-size: 12px; }
+.editor-label span { color: #777b77; }
+textarea { width: 100%; min-height: 94px; resize: vertical; border: 1px solid #c8cbc6; border-radius: 5px; padding: 10px 11px; color: #242625; background: #fcfcfb; line-height: 1.5; }
+textarea:focus { outline: 2px solid rgba(23,107,85,.22); border-color: #176b55; }
+.editor-actions { justify-content: flex-end; margin-top: 10px; }
+.editor-actions span { margin-right: auto; color: #7b7f7a; font-size: 11px; }
+.incoming { margin-top: 10px; padding: 11px 12px; border-left: 3px solid #a36e12; background: #fff8e9; color: #5f4618; font-size: 12px; }
+.incoming p { font-family: 'Geist Mono', monospace; }
+.incoming span { margin-left: 8px; color: #806a42; }
+.command-error { display: block; margin-top: 10px; padding: 9px; background: #fff1ef; color: #792d29; white-space: pre-wrap; }
+.ownership { margin-top: 16px; padding: 15px 18px; }
+.ownership h2 { margin: 0 0 9px; font-size: 14px; }
+.ownership ul { margin: 0; padding-left: 20px; color: #5e625e; font-size: 12px; line-height: 1.7; }
+@media (max-width: 720px) {
+  .site-header span { display: none; }
+  .heading { flex-direction: column; }
+  .metadata { grid-template-columns: 1fr 1fr; }
+  .metadata div { border-bottom: 1px solid #e3e4e1; }
+  .issue-row { grid-template-columns: 45px 1fr; }
+  .issue-row em { grid-column: 2; }
+  .editor-actions { flex-wrap: wrap; }
+  .editor-actions span { width: 100%; }
+}
