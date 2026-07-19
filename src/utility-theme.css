@@ -1,0 +1,83 @@
+/* PROTOTYPE — approved Crisp semantic theme consumed by app-owned shadcn/Base UI source. */
+
+html[data-theme="overseer-crisp"] {
+  --radius: 5px;
+  --control-font-size: 13px;
+  --control-height: 28px;
+  --control-padding-x: 10px;
+  --control-radius: 4px;
+}
+
+html[data-theme="overseer-crisp"][data-mode="light"] {
+  color-scheme: light;
+  --background: #e7ebef;
+  --foreground: #18202a;
+  --card: #fbfcfd;
+  --card-foreground: #18202a;
+  --popover: #ffffff;
+  --popover-foreground: #18202a;
+  --primary: #195fcd;
+  --primary-foreground: #ffffff;
+  --secondary: #dfe5ea;
+  --secondary-foreground: #18202a;
+  --muted: #edf1f5;
+  --muted-foreground: #596573;
+  --accent: #e3edfc;
+  --accent-foreground: #1558bd;
+  --destructive: #b53540;
+  --border: #c8cfd6;
+  --input: #bcc5ce;
+  --ring: #195fcd;
+  --surface-raised: #ffffff;
+  --surface-recessed: #eef1f4;
+  --surface-hover: #d2d9e0;
+  --hairline: #d9dee3;
+  --strong: #09111b;
+  --inactive: #87919b;
+  --inverse: #f7f9fc;
+  --success: #19754a;
+  --success-foreground: #ffffff;
+  --success-muted: #e2f2e9;
+  --warning: #80510a;
+  --warning-foreground: #ffffff;
+  --warning-border: #c1831d;
+  --warning-muted: #fff0cf;
+  --info: #3476d9;
+}
+
+html[data-theme="overseer-crisp"][data-mode="dark"] {
+  color-scheme: dark;
+  --background: #090e13;
+  --foreground: #edf3f8;
+  --card: #151c24;
+  --card-foreground: #edf3f8;
+  --popover: #1b232c;
+  --popover-foreground: #edf3f8;
+  --primary: #347bdc;
+  --primary-foreground: #ffffff;
+  --secondary: #28333e;
+  --secondary-foreground: #edf3f8;
+  --muted: #202a34;
+  --muted-foreground: #a1adba;
+  --accent: #1b3049;
+  --accent-foreground: #80adf4;
+  --destructive: #d65f69;
+  --border: #35414d;
+  --input: #475463;
+  --ring: #80adf4;
+  --surface-raised: #1b232c;
+  --surface-recessed: #10171e;
+  --surface-hover: #354250;
+  --hairline: #28333d;
+  --strong: #ffffff;
+  --inactive: #697685;
+  --inverse: #101820;
+  --success: #83d4aa;
+  --success-foreground: #10251c;
+  --success-muted: #173629;
+  --warning: #e5b65d;
+  --warning-foreground: #281c08;
+  --warning-border: #c99535;
+  --warning-muted: #392d18;
+  --info: #4d91e8;
+}

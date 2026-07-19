@@ -1,0 +1,47 @@
+import { mergeProps } from "@base-ui/react/merge-props";
+import { useRender } from "@base-ui/react/use-render";
+import { cva, type VariantProps } from "class-variance-authority";
+
+import { cn } from "@/lib/utils";
+
+const badgeVariants = cva(
+  "inline-flex h-5 w-fit shrink-0 items-center justify-center whitespace-nowrap rounded-full border border-transparent px-2 text-xs leading-none font-medium",
+  {
+    variants: {
+      variant: {
+        default: "bg-primary text-primary-foreground",
+        secondary: "bg-secondary text-secondary-foreground",
+        success: "bg-success-muted text-success",
+        warning: "bg-warning-muted text-warning",
+        destructive: "bg-destructive/10 text-destructive",
+        outline: "border-border bg-transparent text-foreground",
+      },
+    },
+    defaultVariants: {
+      variant: "default",
+    },
+  },
+);
+
+/** A compact semantic badge backed by shadcn source and Base UI rendering. */
+function Badge({
+  className,
+  variant = "default",
+  render,
+  ...props
+}: useRender.ComponentProps<"span"> & VariantProps<typeof badgeVariants>) {
+  return useRender({
+    defaultTagName: "span",
+    props: mergeProps<"span">(
+      { className: cn(badgeVariants({ variant }), className) },
+      props,
+    ),
+    render,
+    state: {
+      slot: "badge",
+      variant,
+    },
+  });
+}
+
+export { Badge };
