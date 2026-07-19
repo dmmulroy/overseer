@@ -18,10 +18,10 @@ import { Badge } from "@/ui/components/badge";
 import { Button } from "@/ui/components/button";
 import { Select, type SelectOption } from "@/ui/components/select";
 
-// PROTOTYPE — Three issue discovery structures, switchable with ?variant= on
+// PROTOTYPE — Four issue discovery structures, switchable with ?variant= on
 // /prototype/issue-discovery. All variants use the approved Crisp foundation.
 
-type Variant = "A" | "B" | "C";
+type Variant = "A" | "B" | "C" | "D";
 type Mode = "light" | "dark";
 type Freshness = "fresh" | "refreshing" | "stale";
 type ProjectId = "personal-overseer" | "personal-household" | "northstar-launchpad";
@@ -73,11 +73,12 @@ type InitialState = {
   readonly filters: Filters;
 };
 
-const variantOrder: ReadonlyArray<Variant> = ["A", "B", "C"];
+const variantOrder: ReadonlyArray<Variant> = ["A", "B", "C", "D"];
 const variantMeta: Readonly<Record<Variant, { readonly name: string; readonly thesis: string }>> = {
   A: { name: "Triage rail", thesis: "Workspace context, issue queue, and selected issue stay spatially anchored in three panes." },
   B: { name: "Issue ledger", thesis: "A full-width comparison table keeps scanning primary and opens selection in a bottom dock." },
   C: { name: "Route stack", thesis: "A compact list owns the screen; selection navigates to one focused issue and Back restores filters." },
+  D: { name: "Rail + route", thesis: "A persistent context rail frames one focused route, with the full structured filter strip kept visible." },
 };
 
 const projects: Readonly<Record<ProjectId, Project>> = {
@@ -200,7 +201,7 @@ function parseInitialState(): InitialState {
   const labelParam = params.get("label");
   const blockingParam = params.get("blocking_status");
   return {
-    variant: variantParam === "B" || variantParam === "C" ? variantParam : "A",
+    variant: variantParam === "B" || variantParam === "C" || variantParam === "D" ? variantParam : "A",
     mode: modeParam === "dark" ? "dark" : "light",
     freshness: freshnessParam === "refreshing" || freshnessParam === "stale" ? freshnessParam : "fresh",
     projectId,
@@ -359,6 +360,22 @@ function Detail({ issue, source, onBack, compact = false }: {
   );
 }
 
+function ContextRail({ projectId, onProject }: { readonly projectId: ProjectId; readonly onProject: (projectId: ProjectId) => void }) {
+  return (
+    <aside className="context-rail" aria-label="Workspace and project navigation">
+      <div className="rail-heading"><span>Workspaces</span><Button aria-label="Add project" variant="ghost" size="icon"><Plus aria-hidden="true" className="size-3.5" /></Button></div>
+      <div className="workspace-group"><strong><span>P</span> Personal</strong>
+        <button className={projectId === "personal-overseer" ? "active" : ""} type="button" onClick={() => onProject("personal-overseer")}>Overseer <small>5</small></button>
+        <button className={projectId === "personal-household" ? "active" : ""} type="button" onClick={() => onProject("personal-household")}>Household <small>1</small></button>
+      </div>
+      <div className="workspace-group"><strong><span>N</span> Northstar Studio</strong>
+        <button className={projectId === "northstar-launchpad" ? "active" : ""} type="button" onClick={() => onProject("northstar-launchpad")}>Launchpad <small>2</small></button>
+      </div>
+      <p className="poll-note">This visible list checks for changes every 30 seconds.</p>
+    </aside>
+  );
+}
+
 function VariantA({ projectId, issues, filters, selected, warmedIssueId, freshness, source, routeOpen, onProject, onFilters, onSelect, onWarm, onBack, onRetry }: VariantProps) {
   const project = projects[projectId];
   return (
@@ -366,17 +383,7 @@ function VariantA({ projectId, issues, filters, selected, warmedIssueId, freshne
       <AppHeader freshness={freshness} onRetry={onRetry} />
       <FreshnessNotice freshness={freshness} onRetry={onRetry} />
       <div className="triage-layout">
-        <aside className="context-rail" aria-label="Workspace and project navigation">
-          <div className="rail-heading"><span>Workspaces</span><Button aria-label="Add project" variant="ghost" size="icon"><Plus aria-hidden="true" className="size-3.5" /></Button></div>
-          <div className="workspace-group"><strong><span>P</span> Personal</strong>
-            <button className={projectId === "personal-overseer" ? "active" : ""} type="button" onClick={() => onProject("personal-overseer")}>Overseer <small>5</small></button>
-            <button className={projectId === "personal-household" ? "active" : ""} type="button" onClick={() => onProject("personal-household")}>Household <small>1</small></button>
-          </div>
-          <div className="workspace-group"><strong><span>N</span> Northstar Studio</strong>
-            <button className={projectId === "northstar-launchpad" ? "active" : ""} type="button" onClick={() => onProject("northstar-launchpad")}>Launchpad <small>2</small></button>
-          </div>
-          <p className="poll-note">This visible list checks for changes every 30 seconds.</p>
-        </aside>
+        <ContextRail projectId={projectId} onProject={onProject} />
         <main className="queue-pane">
           <div className="mobile-context"><Select ariaLabel="Switch workspace and project" value={projectId} options={projectOptions} onValueChange={onProject} /></div>
           <header className="queue-heading"><div><span>{project.workspace}</span><h1>{project.name}</h1></div><small>{issues.length} results</small></header>
@@ -464,6 +471,41 @@ function VariantC({ projectId, issues, filters, selected, warmedIssueId, freshne
           </section>
         )}
       </main>
+    </div>
+  );
+}
+
+function VariantD({ projectId, issues, filters, selected, warmedIssueId, freshness, source, routeOpen, onProject, onFilters, onSelect, onWarm, onBack, onRetry }: VariantProps) {
+  const project = projects[projectId];
+  return (
+    <div className="product-shell variant-d">
+      <AppHeader freshness={freshness} onRetry={onRetry} />
+      <FreshnessNotice freshness={freshness} onRetry={onRetry} />
+      <div className="hybrid-layout">
+        <ContextRail projectId={projectId} onProject={onProject} />
+        <main className="hybrid-page">
+          <div className="mobile-context"><Select ariaLabel="Switch workspace and project" value={projectId} options={projectOptions} onValueChange={onProject} /></div>
+          <header className="hybrid-heading">
+            <div><span>{project.workspace}</span><h1>{routeOpen ? `Issue #${selected.number}` : `${project.name} issues`}</h1><p>{routeOpen ? "Focused issue" : "Choose one issue to continue. Filters remain in the URL for Back."}</p></div>
+            {!routeOpen ? <Button><Plus aria-hidden="true" className="size-3.5" /> New issue</Button> : null}
+          </header>
+          {routeOpen ? <Detail issue={selected} source={source} onBack={onBack} /> : (
+            <section className="hybrid-list-card">
+              <FilterStrip filters={filters} onChange={onFilters} resultCount={issues.length} />
+              <div className="route-rows">
+                {issues.length === 0 ? <EmptyIssues onReset={() => onFilters({ state: "open", assignee: "any", label: "any", blocking: "any" })} /> : issues.map((issue) => (
+                  <button key={issue.id} className="route-row" type="button" onClick={() => onSelect(issue)} onMouseEnter={() => onWarm(issue.id)} onFocus={() => onWarm(issue.id)}>
+                    <StateMark state={issue.state} />
+                    <span className="route-row-copy"><strong>{issue.title}</strong><span>#{issue.number} · {issue.assignee ?? "Unassigned"} · {issue.comments} comments</span><IssueLabels labels={issue.labels.slice(0, 2)} /></span>
+                    <span className="route-row-end"><time>{issue.updated}</time>{issue.blockerCount > 0 ? <Badge variant="warning">Blocked</Badge> : null}<CacheHint issue={issue} warmed={warmedIssueId === issue.id} /><ChevronRight aria-hidden="true" /></span>
+                  </button>
+                ))}
+              </div>
+              <footer className="route-footer">Only this visible page polls. Prefetched issues do not start background timers.</footer>
+            </section>
+          )}
+        </main>
+      </div>
     </div>
   );
 }
@@ -603,7 +645,7 @@ export function IssueDiscoveryPrototype() {
         <div><p>PROTOTYPE · ISSUE #41 · CRISP FOUNDATION</p><h1>{variant} — {variantMeta[variant].name}</h1></div>
         <p>{variantMeta[variant].thesis}</p>
       </header>
-      {variant === "A" ? <VariantA {...variantProps} /> : variant === "B" ? <VariantB {...variantProps} /> : <VariantC {...variantProps} />}
+      {variant === "A" ? <VariantA {...variantProps} /> : variant === "B" ? <VariantB {...variantProps} /> : variant === "C" ? <VariantC {...variantProps} /> : <VariantD {...variantProps} />}
       <PrototypeSwitcher variant={variant} mode={mode} freshness={freshness} onCycle={cycle} onVariant={setVariant} onMode={setMode} onFreshness={setFreshness} />
     </div>
   );

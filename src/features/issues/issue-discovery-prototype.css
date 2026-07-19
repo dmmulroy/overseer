@@ -208,6 +208,20 @@
 .route-footer { padding: 12px 16px; color: var(--muted-foreground); background: var(--surface-recessed); font-size: 9px; text-align: center; }
 .route-page > .issue-detail .back-button { display: inline-flex; }
 
+/* D — persistent context from A, explicit filters from B, focused routing from C. */
+.hybrid-layout { display: grid; grid-template-columns: 185px minmax(0, 1fr); min-height: 680px; background: var(--surface-recessed); }
+.hybrid-page { min-width: 0; padding: 25px clamp(18px, 3vw, 42px) 45px; }
+.hybrid-page > .mobile-context { display: none; }
+.hybrid-heading, .hybrid-list-card, .hybrid-page > .issue-detail { width: min(920px, 100%); margin-inline: auto; }
+.hybrid-heading { display: flex; min-height: 91px; padding-bottom: 16px; align-items: flex-end; justify-content: space-between; gap: 18px; }
+.hybrid-heading span { color: var(--muted-foreground); font-size: 10px; }
+.hybrid-heading h1 { margin: 3px 0; color: var(--strong); font-size: 26px; line-height: 1.05; letter-spacing: -.035em; }
+.hybrid-heading p { margin: 0; color: var(--muted-foreground); font-size: 11px; }
+.hybrid-list-card, .hybrid-page > .issue-detail { overflow: hidden; border: 1px solid var(--border); border-radius: var(--control-radius); background: var(--card); box-shadow: 0 8px 25px color-mix(in srgb, var(--foreground) 7%, transparent); }
+.hybrid-list-card .filter-strip { flex-wrap: wrap; }
+.hybrid-list-card .route-row { min-height: 76px; }
+.hybrid-page > .issue-detail .back-button { display: inline-flex; }
+
 .prototype-switcher {
   position: fixed;
   z-index: 100;
@@ -310,6 +324,16 @@
   .route-heading h1 { font-size: 22px; }
   .route-row { padding-inline: 13px; }
   .route-page > .issue-detail .detail-inner { padding-inline: 17px; }
+
+  .hybrid-layout { display: block; min-height: 640px; }
+  .hybrid-page { min-height: 640px; padding: 0 0 40px; }
+  .hybrid-page > .mobile-context { display: block; padding: 11px 11px 0; }
+  .hybrid-page > .mobile-context [data-slot="select-trigger"] { width: 100%; }
+  .hybrid-heading { min-height: 95px; padding: 17px 14px; align-items: flex-end; }
+  .hybrid-heading h1 { font-size: 23px; }
+  .hybrid-list-card, .hybrid-page > .issue-detail { border-right: 0; border-left: 0; border-radius: 0; box-shadow: none; }
+  .hybrid-list-card .filter-strip { padding-inline: 11px; }
+  .hybrid-page > .issue-detail .detail-inner { padding-inline: 17px; }
 
   .detail-inner { padding: 24px 17px 40px; }
   .detail-inner h2 { font-size: 28px; }

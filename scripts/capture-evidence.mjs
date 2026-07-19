@@ -73,8 +73,8 @@ async function open(page, variant, mode, freshness = "fresh") {
   }
 }
 
-const names = { A: "triage-rail", B: "issue-ledger", C: "route-stack" };
-for (const variant of ["A", "B", "C"]) {
+const names = { A: "triage-rail", B: "issue-ledger", C: "route-stack", D: "rail-route" };
+for (const variant of ["A", "B", "C", "D"]) {
   for (const mode of ["light", "dark"]) {
     await open(desktop, variant, mode);
     await desktop.screenshot({ path: `evidence/issue-discovery-${variant.toLowerCase()}-${names[variant]}-${mode}-desktop.png`, fullPage: true });
@@ -107,6 +107,15 @@ await mobile.getByRole("button", { name: /Prototype issue detail steering/ }).cl
 await mobile.getByRole("button", { name: /Issues/ }).waitFor();
 await mobile.screenshot({ path: "evidence/issue-discovery-mobile-detail-proof.png", fullPage: true });
 
+await open(desktop, "D", "light");
+await desktop.getByRole("button", { name: /Prototype issue detail steering/ }).click();
+await desktop.getByRole("heading", { name: "Prototype issue detail steering in shadcn/Base UI" }).waitFor();
+await desktop.screenshot({ path: "evidence/issue-discovery-d-rail-route-detail-desktop.png", fullPage: false });
+await open(mobile, "D", "dark");
+await mobile.getByRole("button", { name: /Prototype issue detail steering/ }).click();
+await mobile.getByRole("button", { name: /Issues/ }).waitFor();
+await mobile.screenshot({ path: "evidence/issue-discovery-d-rail-route-detail-mobile.png", fullPage: true });
+
 await open(desktop, "A", "light");
 await desktop.keyboard.press("ArrowRight");
 await desktop.waitForFunction(() => new URL(location.href).searchParams.get("variant") === "B");
@@ -115,4 +124,4 @@ await desktop.waitForFunction(() => new URL(location.href).searchParams.get("mod
 
 await browser.close();
 if (errors.length > 0) throw new AggregateError(errors, "Prototype browser checks failed");
-console.log("Captured 12 desktop/mobile light/dark views and 5 interaction/freshness proofs; URL, keyboard, Crisp controls, console, and overflow checks passed.");
+console.log("Captured 16 desktop/mobile light/dark views and 7 interaction/freshness proofs; URL, keyboard, Crisp controls, console, and overflow checks passed.");
