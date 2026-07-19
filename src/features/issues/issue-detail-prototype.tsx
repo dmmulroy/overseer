@@ -58,7 +58,7 @@ const variantMeta: Readonly<Record<IssueDetailVariant, IssueDetailVariantMeta>> 
   },
   B: {
     name: "Steering rail",
-    thesis: "A durable rail owns claim, state, and action discovery while the issue reads as a calm work brief.",
+    thesis: "A durable right rail owns claim and state while the issue reads as a calm work brief.",
   },
   C: {
     name: "Readiness board",
@@ -369,8 +369,8 @@ function VariantA({ issue, links, onAction }: VariantProps) {
 
 function VariantB({ issue, links, onAction }: VariantProps) {
   return (
-    <article className="detail-variant-b grid bg-card lg:grid-cols-[270px_minmax(0,1fr)]" data-variant="B">
-      <aside className="border-b border-border bg-surface-recessed p-5 lg:border-r lg:border-b-0 lg:p-6">
+    <article className="detail-variant-b grid bg-card lg:grid-cols-[minmax(0,1fr)_290px]" data-variant="B">
+      <aside className="order-2 border-t border-border bg-surface-recessed p-5 lg:border-t-0 lg:border-l lg:p-6">
         <ButtonLink href="#issues" variant="ghost" className="mb-5">
           <ArrowLeft aria-hidden="true" size={13} /> Issues
         </ButtonLink>
@@ -397,7 +397,7 @@ function VariantB({ issue, links, onAction }: VariantProps) {
         <div className="mt-5"><ReviewGate /></div>
       </aside>
 
-      <div className="min-w-0 px-5 py-7 sm:px-8 lg:px-12 lg:py-10">
+      <div className="order-1 min-w-0 px-5 py-7 sm:px-8 lg:px-12 lg:py-10">
         <header className="max-w-4xl">
           <p className="font-mono text-[10px] tracking-widest text-muted-foreground">PERSONAL / OVERSEER / ISSUE</p>
           <h1 className="mt-3 text-3xl font-semibold leading-[1.08] tracking-tight text-strong sm:text-5xl">

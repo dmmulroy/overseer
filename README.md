@@ -20,7 +20,7 @@ Open:
 ## Directions
 
 - **A — Command header:** identity and immediately applicable actions lead, followed by a compact state strip and supporting detail.
-- **B — Steering rail:** claim, state, Labels, review status, and primary actions stay in a left rail beside a work brief.
+- **B — Steering rail:** claim, state, Labels, review status, and primary actions stay in a right rail beside a work brief.
 - **C — Readiness board:** resolved prerequisites, the current Issue, and downstream work become the main steering canvas.
 
 All directions use realistic #42 state, show the HATEOAS-discovered action set, and update applicable links after in-memory claim/release and close/reopen actions.
