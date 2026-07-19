@@ -1,0 +1,143 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+@import "shadcn/tailwind.css";
+@import "@fontsource-variable/geist";
+
+@custom-variant dark (&:is(.dark *));
+
+@theme inline {
+  --font-sans: "Geist Variable", ui-sans-serif, system-ui, sans-serif;
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-destructive-muted: var(--destructive-muted);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-surface-raised: var(--surface-raised);
+  --color-surface-recessed: var(--surface-recessed);
+  --color-surface-hover: var(--surface-hover);
+  --color-hairline: var(--hairline);
+  --color-strong: var(--strong);
+  --color-inactive: var(--inactive);
+  --color-inverse: var(--inverse);
+  --color-success: var(--success);
+  --color-success-foreground: var(--success-foreground);
+  --color-success-muted: var(--success-muted);
+  --color-warning: var(--warning);
+  --color-warning-foreground: var(--warning-foreground);
+  --color-warning-muted: var(--warning-muted);
+  --color-info: var(--info);
+  --color-info-foreground: var(--info-foreground);
+  --color-info-muted: var(--info-muted);
+  --radius-sm: 2px;
+  --radius-md: var(--radius);
+  --radius-lg: 6px;
+  --radius-xl: 8px;
+}
+
+:root {
+  color-scheme: light;
+  --radius: 4px;
+  --control-radius: 4px;
+  --control-height: 28px;
+  --control-padding-x: 10px;
+  --control-font-size: 13px;
+  --background: #e7ebef;
+  --foreground: #18202a;
+  --card: #fbfcfd;
+  --card-foreground: #18202a;
+  --popover: #ffffff;
+  --popover-foreground: #18202a;
+  --primary: #195fcd;
+  --primary-foreground: #ffffff;
+  --secondary: #dfe5ea;
+  --secondary-foreground: #18202a;
+  --muted: #edf1f5;
+  --muted-foreground: #596573;
+  --accent: #e3edfc;
+  --accent-foreground: #1558bd;
+  --destructive: #b53540;
+  --destructive-foreground: #ffffff;
+  --destructive-muted: #f9e7e8;
+  --border: #c8cfd6;
+  --input: #bcc5ce;
+  --ring: #195fcd;
+  --surface-raised: #ffffff;
+  --surface-recessed: #eef1f4;
+  --surface-hover: #d2d9e0;
+  --hairline: #d9dee3;
+  --strong: #09111b;
+  --inactive: #87919b;
+  --inverse: #f7f9fc;
+  --success: #19754a;
+  --success-foreground: #145f3c;
+  --success-muted: #e2f2e9;
+  --warning: #c1831d;
+  --warning-foreground: #80510a;
+  --warning-muted: #fff0cf;
+  --info: #3476d9;
+  --info-foreground: #1558bd;
+  --info-muted: #e3edfc;
+}
+
+.dark {
+  color-scheme: dark;
+  --background: #090e13;
+  --foreground: #edf3f8;
+  --card: #151c24;
+  --card-foreground: #edf3f8;
+  --popover: #1b232c;
+  --popover-foreground: #edf3f8;
+  --primary: #347bdc;
+  --primary-foreground: #ffffff;
+  --secondary: #28333e;
+  --secondary-foreground: #edf3f8;
+  --muted: #202a34;
+  --muted-foreground: #a1adba;
+  --accent: #1b3049;
+  --accent-foreground: #80adf4;
+  --destructive: #d65f69;
+  --destructive-foreground: #ffffff;
+  --destructive-muted: #3b2228;
+  --border: #35414d;
+  --input: #475463;
+  --ring: #80adf4;
+  --surface-raised: #1b232c;
+  --surface-recessed: #10171e;
+  --surface-hover: #354250;
+  --hairline: #28333d;
+  --strong: #ffffff;
+  --inactive: #697685;
+  --inverse: #101820;
+  --success: #83d4aa;
+  --success-foreground: #83d4aa;
+  --success-muted: #173629;
+  --warning: #c99535;
+  --warning-foreground: #e5b65d;
+  --warning-muted: #392d18;
+  --info: #4d91e8;
+  --info-foreground: #80adf4;
+  --info-muted: #1b3049;
+}
+
+@layer base {
+  * { @apply border-border outline-ring/50; }
+  html { @apply bg-background font-sans text-foreground; min-width: 320px; }
+  body { @apply m-0 min-w-80 bg-background text-foreground antialiased; }
+  button, select { font: inherit; }
+  a { color: inherit; text-decoration: none; }
+}
