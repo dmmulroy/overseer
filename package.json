@@ -1,0 +1,55 @@
+{
+  "name": "overseer",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=22.12.0"
+  },
+  "devEngines": {
+    "packageManager": {
+      "name": "npm",
+      "version": "12.0.1",
+      "onFail": "download"
+    }
+  },
+  "scripts": {
+    "build": "vite build && npm run build:worker",
+    "build:worker": "esbuild src/runtime/gateway.ts --bundle --format=esm --platform=browser --conditions=workerd,worker,browser --outfile=build/gateway.js",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:browser": "vitest run tests/browser",
+    "test:workerd": "vitest run tests/http tests/workerd",
+    "check": "npm run typecheck && npm test && npm run build",
+    "deploy": "npm run build && alchemy deploy",
+    "dev": "alchemy dev"
+  },
+  "dependencies": {
+    "@effect/sql-sqlite-do": "4.0.0-beta.98",
+    "effect": "4.0.0-beta.98",
+    "jose": "6.1.2",
+    "react": "19.2.7",
+    "react-dom": "19.2.7"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "5.20260719.1",
+    "@tailwindcss/vite": "4.3.3",
+    "@types/node": "24.13.3",
+    "@types/react": "19.2.17",
+    "@types/react-dom": "19.2.3",
+    "@vitejs/plugin-react": "6.0.3",
+    "axe-core": "4.12.1",
+    "esbuild": "0.28.1",
+    "miniflare": "4.20260714.0",
+    "playwright": "1.61.1",
+    "tailwindcss": "4.3.3",
+    "typescript": "6.0.3",
+    "vite": "8.1.5",
+    "vitest": "4.1.10",
+    "alchemy": "2.0.0-beta.62"
+  },
+  "overrides": {
+    "effect": "4.0.0-beta.98",
+    "@effect/sql-sqlite-do": "4.0.0-beta.98"
+  }
+}
