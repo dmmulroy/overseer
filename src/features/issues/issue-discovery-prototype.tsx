@@ -487,7 +487,6 @@ function VariantD({ projectId, issues, filters, selected, warmedIssueId, freshne
           <div className="mobile-context"><Select ariaLabel="Switch workspace and project" value={projectId} options={projectOptions} onValueChange={onProject} /></div>
           <header className="hybrid-heading">
             <div><span>{project.workspace}</span><h1>{routeOpen ? `Issue #${selected.number}` : `${project.name} issues`}</h1><p>{routeOpen ? "Focused issue" : "Choose one issue to continue. Filters remain in the URL for Back."}</p></div>
-            {!routeOpen ? <Button><Plus aria-hidden="true" className="size-3.5" /> New issue</Button> : null}
           </header>
           {routeOpen ? <Detail issue={selected} source={source} onBack={onBack} /> : (
             <section className="hybrid-list-card">
