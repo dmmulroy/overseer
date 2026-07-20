@@ -20,6 +20,7 @@ export async function startGateway(config: GatewayFixtureConfig): Promise<Minifl
     entryPoints: ["tests/fixtures/gateway-worker.ts"],
     bundle: true,
     conditions: ["workerd", "worker", "browser"],
+    external: ["cloudflare:workers"],
     format: "esm",
     platform: "browser",
     target: "es2022",
@@ -33,6 +34,9 @@ export async function startGateway(config: GatewayFixtureConfig): Promise<Minifl
   return new Miniflare({
     compatibilityDate: "2026-07-19",
     modules: [{ type: "ESModule", path: "gateway.js", contents: output.text }],
+    durableObjects: {
+      CATALOG: { className: "TestWorkspaceCatalog", useSQLite: true },
+    },
     outboundService: (request: Request) => {
       const url = new URL(request.url);
       if (

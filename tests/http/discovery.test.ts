@@ -1,6 +1,9 @@
+import { createHash } from "node:crypto";
+import * as Schema from "effect/Schema";
 import { exportJWK, generateKeyPair, SignJWT, type CryptoKey } from "jose";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { Miniflare } from "miniflare";
+import { SchemaIndex } from "../../src/contract/http-api.ts";
 import { startGateway } from "../fixtures/gateway.ts";
 
 const issuer = "https://overseer-test.cloudflareaccess.com";
@@ -285,13 +288,61 @@ describe("authenticated API discovery", () => {
     });
     expect(schemas.status).toBe(200);
     expect(schemas.headers.get("etag")).not.toBeNull();
-    await expect(schemas.json()).resolves.toEqual({
-      items: [],
+    const schemaIndex = Schema.decodeUnknownSync(SchemaIndex)(await schemas.json());
+    expect(schemaIndex).toMatchObject({
+      items: [
+        { href: expect.stringMatching(/^\/api\/schemas\/sha256-[0-9a-f]{64}\/create_workspace$/) },
+        { href: expect.stringMatching(/^\/api\/schemas\/sha256-[0-9a-f]{64}\/rename_workspace$/) },
+      ],
       links: {
         self: { href: "/api/schemas" },
         openapi: { href: "/api/openapi.json" },
       },
     });
+    const requestSchema = await gateway.dispatchFetch(
+      `https://overseer.test${schemaIndex.items[0]?.href ?? ""}`,
+      { headers: { "cf-access-jwt-assertion": assertion } },
+    );
+    expect(requestSchema.status).toBe(200);
+    expect(requestSchema.headers.get("content-type")).toBe("application/schema+json");
+    expect(requestSchema.headers.get("cache-control")).toBe(
+      "public, max-age=31536000, immutable",
+    );
+    const schemaDocument: unknown = await requestSchema.json();
+    expect(schemaDocument).toMatchObject({
+      $schema: "https://json-schema.org/draft/2020-12/schema",
+      type: "object",
+      properties: {
+        headers: { properties: { "idempotency-key": { type: "string" } } },
+        body: { properties: { name: { type: "string" } } },
+      },
+    });
+    if (typeof schemaDocument !== "object" || schemaDocument === null) {
+      throw new Error("Request schema response was not an object");
+    }
+    const canonicalSchema = Object.fromEntries(
+      Object.entries(schemaDocument).filter(([key]) => key !== "$schema" && key !== "$id"),
+    );
+    const contentHash = createHash("sha256")
+      .update(JSON.stringify(canonicalSchema))
+      .digest("hex");
+    expect(schemaIndex.items[0]?.href).toContain(`/sha256-${contentHash}/`);
+
+    const renameSchema = await gateway.dispatchFetch(
+      `https://overseer.test${schemaIndex.items[1]?.href ?? ""}`,
+      { headers: { "cf-access-jwt-assertion": assertion } },
+    );
+    const renameDocument: unknown = await renameSchema.json();
+    if (typeof renameDocument !== "object" || renameDocument === null) {
+      throw new Error("Rename schema response was not an object");
+    }
+    const canonicalRenameSchema = Object.fromEntries(
+      Object.entries(renameDocument).filter(([key]) => key !== "$schema" && key !== "$id"),
+    );
+    const renameContentHash = createHash("sha256")
+      .update(JSON.stringify(canonicalRenameSchema))
+      .digest("hex");
+    expect(schemaIndex.items[1]?.href).toContain(`/sha256-${renameContentHash}/`);
 
     const openapi = await gateway.dispatchFetch("https://overseer.test/api/openapi.json", {
       headers: {

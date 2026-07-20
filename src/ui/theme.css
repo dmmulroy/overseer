@@ -62,6 +62,22 @@ button { padding: 0 14px; background: var(--accent); color: var(--accent-foregro
 .brand { font-size: 18px; font-weight: 720; letter-spacing: -0.025em; }
 .rail-section { margin-top: 34px; }
 .rail-footer { margin-top: auto; }
+.workspace-buttons { display: grid; gap: 6px; }
+.workspace-button {
+  width: 100%;
+  justify-content: flex-start;
+  overflow: hidden;
+  padding: 0 8px;
+  background: transparent;
+  color: var(--foreground);
+  text-align: left;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.workspace-button.selected { background: var(--accent); color: var(--accent-foreground); }
+.mobile-workspace-selector { display: grid; gap: 2px; color: var(--muted); font-size: 10px; }
+.mobile-workspace-selector select { max-width: 170px; padding: 0 24px 0 8px; }
+.mobile-header .workspace-buttons, .context-rail .mobile-workspace-selector { display: none; }
 .eyebrow { margin: 0 0 8px; color: var(--muted); font-size: 11px; font-weight: 700; letter-spacing: 0.09em; text-transform: uppercase; }
 .muted { margin: 0; color: var(--muted); font-size: 14px; }
 .theme-control { display: grid; gap: 6px; color: var(--muted); font-size: 12px; }
@@ -83,6 +99,8 @@ button { padding: 0 14px; background: var(--accent); color: var(--accent-foregro
 .state-card h1 { margin: 0; font-size: clamp(26px, 5vw, 38px); line-height: 1.08; letter-spacing: -0.035em; }
 .state-card p:not(.eyebrow) { max-width: 44ch; margin: 16px 0 0; color: var(--muted); line-height: 1.6; }
 .state-card button { margin-top: 24px; }
+.stale-notice { display: grid; gap: 4px; margin-top: 20px; border-left: 3px solid var(--focus); padding-left: 12px; color: var(--muted); font-size: 13px; }
+.stale-notice strong { color: var(--foreground); }
 .loading-mark { width: 32px; height: 4px; margin-bottom: 24px; overflow: hidden; background: var(--border); }
 .loading-mark::after { display: block; width: 50%; height: 100%; background: var(--foreground); content: ""; animation: loading 1.2s ease-in-out infinite alternate; }
 @keyframes loading { from { transform: translateX(0); } to { transform: translateX(100%); } }

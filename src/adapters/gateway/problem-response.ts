@@ -18,7 +18,9 @@ const problemPolicies: Readonly<Record<ProblemCode, ProblemPolicy>> = {
   authentication_required: { retryable: false, status: 401, title: "Authentication required" },
   authentication_unavailable: { retryable: true, status: 503, title: "Authentication unavailable" },
   gateway_unavailable: { retryable: true, status: 503, title: "Gateway unavailable" },
+  idempotency_key_reused: { retryable: false, status: 409, title: "Idempotency key reused" },
   internal_error: { retryable: true, status: 500, title: "Internal error" },
+  malformed_request: { retryable: false, status: 400, title: "Malformed request" },
   method_not_allowed: { retryable: false, status: 405, title: "Method not allowed" },
   origin_not_allowed: { retryable: false, status: 403, title: "Origin not allowed" },
   representation_not_acceptable: {
@@ -27,6 +29,9 @@ const problemPolicies: Readonly<Record<ProblemCode, ProblemPolicy>> = {
     title: "Representation not acceptable",
   },
   resource_not_found: { retryable: false, status: 404, title: "Resource not found" },
+  service_unavailable: { retryable: true, status: 503, title: "Service unavailable" },
+  unsupported_media_type: { retryable: false, status: 415, title: "Unsupported media type" },
+  validation_failed: { retryable: false, status: 422, title: "Request validation failed" },
 };
 
 /** Input for one safe expected-problem projection. */
@@ -34,17 +39,26 @@ export type ProblemInput = {
   readonly code: ProblemCode;
   readonly detail: string;
   readonly requestId: RequestId;
+  readonly errors?: ReadonlyArray<{
+    readonly code: string;
+    readonly path: string;
+    readonly message: string;
+  }>;
+  readonly details?: Readonly<Record<string, unknown>>;
+  readonly links?: Readonly<Record<string, { readonly href: string; readonly method?: string; readonly schema?: string }>>;
   readonly headers?: Readonly<Record<string, string>>;
 };
 
 /** Configured renderer for safe RFC 9457 problems. */
 export type ProblemResponder = (input: ProblemInput) => Response;
 
-/** Construct a problem renderer rooted at an application-owned URL. */
-export function makeProblemResponder(problemTypeBaseUrl: URL): ProblemResponder {
-  return (input) => {
-    const policy = problemPolicies[input.code];
-    const problem = ProblemDocument.make({
+/** Construct one safe RFC 9457 document rooted at an application-owned URL. */
+function makeProblemDocument(
+  problemTypeBaseUrl: URL,
+  input: ProblemInput,
+): ProblemDocument {
+  const policy = problemPolicies[input.code];
+  return ProblemDocument.make({
       type: new URL(encodeURIComponent(input.code), problemTypeBaseUrl).href,
       title: policy.title,
       status: policy.status,
@@ -52,8 +66,16 @@ export function makeProblemResponder(problemTypeBaseUrl: URL): ProblemResponder 
       code: input.code,
       request_id: input.requestId,
       retryable: policy.retryable,
-    });
+      ...(input.errors === undefined ? {} : { errors: input.errors }),
+      ...(input.details === undefined ? {} : { details: input.details }),
+    ...(input.links === undefined ? {} : { links: input.links }),
+  });
+}
 
+/** Construct a problem renderer rooted at an application-owned URL. */
+export function makeProblemResponder(problemTypeBaseUrl: URL): ProblemResponder {
+  return (input) => {
+    const problem = makeProblemDocument(problemTypeBaseUrl, input);
     return new Response(JSON.stringify(problem), {
       status: problem.status,
       headers: {

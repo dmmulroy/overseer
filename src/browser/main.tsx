@@ -1,7 +1,8 @@
 import { StrictMode } from "react";
+import { RegistryProvider } from "@effect/atom-react";
+import { RouterProvider } from "@tanstack/react-router";
 import { createRoot } from "react-dom/client";
-import { makeBrowserResources } from "../adapters/browser/effect-http-resources.ts";
-import { AppShell } from "./shell/app-shell.tsx";
+import { router } from "./route-tree.tsx";
 import { ThemeProvider } from "../ui/theme-provider.tsx";
 import "../ui/theme.css";
 
@@ -10,12 +11,12 @@ if (root === null) {
   throw new Error("Overseer root element is missing");
 }
 
-const resources = makeBrowserResources();
-
 createRoot(root).render(
   <StrictMode>
-    <ThemeProvider>
-      <AppShell resources={resources} />
-    </ThemeProvider>
+    <RegistryProvider defaultIdleTTL={5 * 60 * 1_000}>
+      <ThemeProvider>
+        <RouterProvider router={router} />
+      </ThemeProvider>
+    </RegistryProvider>
   </StrictMode>,
 );

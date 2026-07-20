@@ -13,6 +13,16 @@ import {
   accessAssertionVerifierLayer,
 } from "../../src/adapters/gateway/access-principal.ts";
 import { makeGatewayApplication } from "../../src/adapters/gateway/gateway-application.ts";
+import { makeCatalogRpcClient } from "../../src/adapters/gateway/catalog-rpc-client.ts";
+import { makeCatalog } from "../../src/application/catalog/catalog.ts";
+import type {
+  CatalogCommand,
+  CatalogOutcome,
+  CatalogRead,
+} from "../../src/application/catalog/catalog-rpc.ts";
+import { TestWorkspaceCatalog } from "./workspace-catalog.ts";
+
+export { TestWorkspaceCatalog };
 import {
   ExactOrigin,
   HttpsOrigin,
@@ -35,8 +45,18 @@ class TestGatewayApplication extends Context.Service<
   >
 >()("@overseer/test/GatewayApplication") {}
 
+type CatalogStub = {
+  readonly read: (request: CatalogRead) => Promise<CatalogOutcome>;
+  readonly command: (request: CatalogCommand) => Promise<CatalogOutcome>;
+};
+
+type CatalogNamespace = {
+  readonly getByName: (name: string) => CatalogStub;
+};
+
 type GatewayEnvironment = {
   readonly ASSETS?: { readonly fetch: (request: Request) => Promise<Response> };
+  readonly CATALOG: CatalogNamespace;
   readonly ACCESS_AUDIENCE: string;
   readonly ACCESS_ISSUER: string;
   readonly ALLOWED_ORIGIN: string;
@@ -48,6 +68,7 @@ let application:
 
 function makeHandler(
   configuration: typeof TestGatewayConfiguration.Type,
+  catalogNamespace: CatalogNamespace,
 ): Promise<(request: Request) => Promise<Response>> {
   const runtime = ManagedRuntime.make(
     Layer.effect(
@@ -59,6 +80,15 @@ function makeHandler(
           problemTypeBaseUrl: new URL("/problems/", configuration.allowedOrigin),
         },
         Effect.succeed(configuration.accessAudience),
+        makeCatalog(
+          makeCatalogRpcClient(() => {
+            const catalogStub = catalogNamespace.getByName("default");
+            return {
+              read: (request) => Effect.tryPromise(() => catalogStub.read(request)),
+              command: (request) => Effect.tryPromise(() => catalogStub.command(request)),
+            };
+          }),
+        ),
       ),
     ).pipe(
       Layer.provide(
@@ -102,7 +132,7 @@ export default {
       });
     }
 
-    application ??= makeHandler(decoded.success);
+    application ??= makeHandler(decoded.success, env.CATALOG);
     return (await application)(request);
   },
 };

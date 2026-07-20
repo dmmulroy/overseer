@@ -7,6 +7,8 @@ import {
   accessAssertionVerifierLayer,
 } from "../adapters/gateway/access-principal.ts";
 import { makeGatewayApplication } from "../adapters/gateway/gateway-application.ts";
+import { makeCatalogRpcClient } from "../adapters/gateway/catalog-rpc-client.ts";
+import { makeCatalog } from "../application/catalog/catalog.ts";
 import {
   GatewayDeploymentConfiguration,
   GatewayRuntimeConfiguration,
@@ -68,12 +70,16 @@ const GatewayLive = Gateway.make(
     const configuration = yield* GatewayRuntimeConfiguration;
     const accessAudience = Config.schema(AccessAudience, "ACCESS_AUDIENCE");
 
-    yield* WorkspaceCatalog.from(Gateway);
+    const catalogs = yield* WorkspaceCatalog.from(Gateway);
     yield* ProjectObject.from(Gateway);
+    const catalog = makeCatalog(
+      makeCatalogRpcClient(() => catalogs.getByName("default")),
+    );
 
     const fetch = yield* makeGatewayApplication(
       configuration,
       accessAudience,
+      catalog,
     ).pipe(
       Effect.provide(
         accessAssertionVerifierLayer(configuration.accessIssuer),

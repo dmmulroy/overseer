@@ -1,8 +1,10 @@
+import * as Schema from "effect/Schema";
 import { exportJWK, generateKeyPair, SignJWT } from "jose";
 import { chromium, type Browser, type BrowserContext, type Page } from "playwright";
 import axe from "axe-core";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import type { Miniflare } from "miniflare";
+import { WorkspaceRepresentation } from "../../src/contract/http-api.ts";
 import { startGateway } from "../fixtures/gateway.ts";
 
 declare global {
@@ -18,6 +20,7 @@ let context: BrowserContext;
 let gateway: Miniflare;
 let page: Page;
 let gatewayUrl: URL;
+let assertion: string;
 
 async function expectNoAccessibilityViolations(target: Page): Promise<void> {
   await target.addScriptTag({ content: axe.source });
@@ -25,10 +28,28 @@ async function expectNoAccessibilityViolations(target: Page): Promise<void> {
   expect(accessibility.violations).toEqual([]);
 }
 
+async function seedWorkspace(name: string, key: string): Promise<string> {
+  const response = await gateway.dispatchFetch("http://localhost/api/workspaces", {
+    method: "POST",
+    headers: {
+      "cf-access-jwt-assertion": assertion,
+      "content-type": "application/json",
+      "idempotency-key": key,
+      origin: "http://localhost",
+    },
+    body: JSON.stringify({ name }),
+  });
+  expect(response.status).toBe(201);
+  const workspace = Schema.decodeUnknownSync(WorkspaceRepresentation)(
+    await response.json(),
+  );
+  return workspace.id;
+}
+
 beforeAll(async () => {
   const keyPair = await generateKeyPair("RS256");
   const publicJwk = await exportJWK(keyPair.publicKey);
-  const assertion = await new SignJWT({ email: "owner@example.com", type: "app" })
+  assertion = await new SignJWT({ email: "owner@example.com", type: "app" })
     .setProtectedHeader({ alg: "RS256", kid: "browser", typ: "JWT" })
     .setAudience(audience)
     .setIssuer(issuer)
@@ -118,6 +139,62 @@ describe("authenticated application shell", () => {
     await expectNoAccessibilityViolations(page);
   });
 
+  it("keeps URL-backed Workspace context through pointer, keyboard, stale, and unavailable states", async () => {
+    const personalId = await seedWorkspace("Personal context", "browser-workspace-personal");
+    const overseerId = await seedWorkspace("Overseer context", "browser-workspace-overseer");
+    let releaseWorkspaces: (() => void) | undefined;
+    const workspacesReleased = new Promise<void>((resolve) => {
+      releaseWorkspaces = resolve;
+    });
+    await page.route("**/api/workspaces", async (route) => {
+      await workspacesReleased;
+      await route.continue();
+    });
+
+    const navigation = page.goto(
+      new URL(`/?workspace_id=${personalId}`, gatewayUrl).href,
+    );
+    await page.getByRole("status", { name: "Loading Workspace context" }).waitFor();
+    expect(new URL(page.url()).searchParams.get("workspace_id")).toBe(personalId);
+    releaseWorkspaces?.();
+    await navigation;
+    await page.getByRole("heading", { name: "Personal context" }).waitFor();
+
+    await page.getByRole("button", { name: "Select Overseer context Workspace" }).click();
+    await expect.poll(() => new URL(page.url()).searchParams.get("workspace_id")).toBe(overseerId);
+    await page.getByRole("heading", { name: "Overseer context" }).waitFor();
+    await page.locator(".context-rail .brand").click();
+    await expect.poll(() => new URL(page.url()).searchParams.get("workspace_id")).toBe(overseerId);
+
+    const personalButton = page.getByRole("button", { name: "Select Personal context Workspace" });
+    await personalButton.focus();
+    await personalButton.press("Enter");
+    await expect.poll(() => new URL(page.url()).searchParams.get("workspace_id")).toBe(personalId);
+
+    await page.setViewportSize({ width: 390, height: 844 });
+    const workspaceSelector = page.getByRole("combobox", { name: "Workspace" });
+    expect(await workspaceSelector.inputValue()).toBe(personalId);
+
+    await page.unroute("**/api/workspaces");
+    await page.route("**/api/workspaces", (route) => route.abort("internetdisconnected"));
+    await page.getByRole("button", { name: "Refresh Workspaces" }).click();
+    await page.getByText("Workspace data may be stale").waitFor();
+    expect(new URL(page.url()).searchParams.get("workspace_id")).toBe(personalId);
+    expect(await page.getByRole("heading", { name: "Personal context" }).isVisible()).toBe(true);
+    await expectNoAccessibilityViolations(page);
+
+    await page.close();
+    page = await context.newPage();
+    await page.route("**/api/workspaces", (route) => route.abort("internetdisconnected"));
+    await page.goto(new URL(`/?workspace_id=${personalId}`, gatewayUrl).href);
+    await page.getByRole("heading", { name: "Workspace context unavailable" }).waitFor();
+    expect(new URL(page.url()).searchParams.get("workspace_id")).toBe(personalId);
+    await page.unroute("**/api/workspaces");
+    await page.getByRole("button", { name: "Retry Workspaces" }).click();
+    await page.getByRole("heading", { name: "Personal context" }).waitFor();
+    expect(new URL(page.url()).searchParams.get("workspace_id")).toBe(personalId);
+  });
+
   it("applies persisted and live system themes before rendering", async () => {
     await page.addInitScript(() => localStorage.setItem("overseer-theme", "dark"));
     let releaseScript: (() => void) | undefined;
@@ -133,7 +210,7 @@ describe("authenticated application shell", () => {
     expect(await page.evaluate(() => document.documentElement.classList.contains("dark"))).toBe(true);
     releaseScript?.();
     await navigation;
-    await page.getByRole("heading", { name: "No workspaces yet" }).waitFor();
+    await page.locator("main h1").filter({ hasText: /No workspaces yet|Overseer context/ }).waitFor();
     expect(await page.getByRole("combobox", { name: "Theme" }).inputValue()).toBe("dark");
     await expectNoAccessibilityViolations(page);
 

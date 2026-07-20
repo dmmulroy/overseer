@@ -162,15 +162,24 @@ export const applyConditionalResponse: (
       crypto.subtle.digest("SHA-256", bodyBytes)
     );
     const etag = `"${Encoding.encodeBase64Url(new Uint8Array(digest))}"`;
+    const pathname = new URL(
+      options.request.url,
+      "https://gateway.invalid",
+    ).pathname;
+    const cacheControl = pathname.startsWith("/api/schemas/sha256-")
+      ? "public, max-age=31536000, immutable"
+      : "private, no-cache";
     const headers = Headers.setAll(options.response.headers, {
-      "cache-control": "private, no-cache",
+      "cache-control": cacheControl,
       "content-type": contentType,
       etag,
       vary: "Accept",
       "x-request-id": options.requestId,
     });
 
-    if (validatorMatches(options.request.headers["if-none-match"], etag)) {
+    const isConditionalRead = options.request.method === "GET" ||
+      options.request.method === "HEAD";
+    if (isConditionalRead && validatorMatches(options.request.headers["if-none-match"], etag)) {
       return HttpServerResponse.empty({
         status: 304,
         headers: Headers.remove(headers, "content-type"),
