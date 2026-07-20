@@ -95,30 +95,41 @@ const problemAtStatus = (status: ProblemStatus) =>
     HttpApiSchema.status(status),
   );
 const endpointProblems = ([404, 405, 406, 503] as const).map(problemAtStatus);
+const conditionalReadHeaders = {
+  accept: Schema.optionalKey(Schema.String),
+  "if-none-match": Schema.optionalKey(Schema.String),
+};
+const OpenApiDocument = Schema.Unknown.pipe(
+  HttpApiSchema.asJson({ contentType: DiscoveryMediaTypes.openapi }),
+);
 const discover = HttpApiEndpoint.get("discover", DiscoveryPaths.root, {
+  headers: conditionalReadHeaders,
   success: DiscoveryDocument,
   error: endpointProblems,
 });
 const headDiscovery = HttpApiEndpoint.head("headDiscovery", DiscoveryPaths.root, {
-  success: Schema.Void,
+  headers: conditionalReadHeaders,
+  success: DiscoveryDocument,
   error: endpointProblems,
 });
 const discoverSchemas = HttpApiEndpoint.get("discoverSchemas", DiscoveryPaths.schemas, {
+  headers: conditionalReadHeaders,
   success: SchemaIndex,
   error: endpointProblems,
 });
 const headSchemas = HttpApiEndpoint.head("headSchemas", DiscoveryPaths.schemas, {
-  success: Schema.Void,
+  headers: conditionalReadHeaders,
+  success: SchemaIndex,
   error: endpointProblems,
 });
 const openApi = HttpApiEndpoint.get("openApi", DiscoveryPaths.openapi, {
-  success: Schema.Unknown.pipe(
-    HttpApiSchema.asJson({ contentType: DiscoveryMediaTypes.openapi }),
-  ),
+  headers: conditionalReadHeaders,
+  success: OpenApiDocument,
   error: endpointProblems,
 });
 const headOpenApi = HttpApiEndpoint.head("headOpenApi", DiscoveryPaths.openapi, {
-  success: Schema.Void,
+  headers: conditionalReadHeaders,
+  success: OpenApiDocument,
   error: endpointProblems,
 });
 

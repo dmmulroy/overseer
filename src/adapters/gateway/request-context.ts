@@ -1,12 +1,13 @@
 import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
+import type { HttpServerRequest } from "effect/unstable/http/HttpServerRequest";
 import {
   AgentSessionId,
-  HarnessName,
   AuthenticatedPrincipal,
+  HarnessName,
   type RequestId,
 } from "../../domain/actor.ts";
-import { problemResponse } from "./problem-response.ts";
+import type { ProblemResponder } from "./problem-response.ts";
 
 /** Untrusted Agent-session correlation metadata parsed at HTTP ingress. */
 export const AgentSession = Schema.Struct({
@@ -23,44 +24,54 @@ export type MutationMetadata = {
 };
 
 function parseHumanMutationMetadata(
-  request: Request,
+  request: HttpServerRequest,
   allowedOrigin: URL,
   requestId: RequestId,
+  respond: ProblemResponder,
 ): MutationMetadata | Response {
-  if (request.headers.get("origin") !== allowedOrigin.origin) {
-    return problemResponse({
+  if (request.headers.origin !== allowedOrigin.origin) {
+    return respond({
       code: "origin_not_allowed",
       detail: "The request Origin is not allowed for this stage.",
       requestId,
     });
   }
+
   return { agentSession: null };
 }
 
 function parseAgentMutationMetadata(
-  request: Request,
+  request: HttpServerRequest,
   requestId: RequestId,
+  respond: ProblemResponder,
 ): MutationMetadata | Response {
-  const sessionId = request.headers.get("overseer-session-id");
-  if (sessionId === null) {
-    return problemResponse({
+  const sessionId = request.headers["overseer-session-id"];
+
+  if (sessionId === undefined) {
+    return respond({
       code: "agent_session_required",
       detail: "Agent mutations require Overseer-Session-Id.",
       requestId,
     });
   }
+
   const parsedSessionId = Schema.decodeUnknownOption(AgentSessionId)(sessionId);
-  const harness = request.headers.get("overseer-harness");
-  const parsedHarness = harness === null
+  const harness = request.headers["overseer-harness"];
+  const parsedHarness = harness === undefined
     ? Option.none<HarnessName>()
     : Schema.decodeUnknownOption(HarnessName)(harness);
-  if (Option.isNone(parsedSessionId) || (harness !== null && Option.isNone(parsedHarness))) {
-    return problemResponse({
+
+  if (
+    Option.isNone(parsedSessionId) ||
+    (harness !== undefined && Option.isNone(parsedHarness))
+  ) {
+    return respond({
       code: "agent_session_invalid",
       detail: "Agent-session metadata must be bounded visible ASCII.",
       requestId,
     });
   }
+
   return {
     agentSession: AgentSession.make({
       sessionId: parsedSessionId.value,
@@ -71,13 +82,16 @@ function parseAgentMutationMetadata(
 
 /** Enforce human Origin or parse required Agent-session metadata for unsafe requests. */
 export function parseMutationMetadata(
-  request: Request,
+  request: HttpServerRequest,
   principal: AuthenticatedPrincipal,
   allowedOrigin: URL,
   requestId: RequestId,
+  respond: ProblemResponder,
 ): MutationMetadata | Response {
   return AuthenticatedPrincipal.match(principal, {
-    HumanPrincipal: () => parseHumanMutationMetadata(request, allowedOrigin, requestId),
-    AgentDeploymentPrincipal: () => parseAgentMutationMetadata(request, requestId),
+    HumanPrincipal: () =>
+      parseHumanMutationMetadata(request, allowedOrigin, requestId, respond),
+    AgentDeploymentPrincipal: () =>
+      parseAgentMutationMetadata(request, requestId, respond),
   });
 }

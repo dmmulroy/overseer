@@ -17,7 +17,7 @@ export async function startGateway(config: GatewayFixtureConfig): Promise<Minifl
     await buildVite({ logLevel: "silent" });
   }
   const bundle = await build({
-    entryPoints: ["src/runtime/gateway.ts"],
+    entryPoints: ["tests/fixtures/gateway-worker.ts"],
     bundle: true,
     conditions: ["workerd", "worker", "browser"],
     format: "esm",

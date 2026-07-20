@@ -39,3 +39,5 @@ npm/overseer-darwin-*/
 npm/overseer-linux-*/
 npm/overseer-win32-*/
 npm/overseer/dist/
+.agent-repos
+repos/

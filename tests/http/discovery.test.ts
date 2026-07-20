@@ -49,6 +49,25 @@ async function agentAssertion(): Promise<string> {
 }
 
 describe("authenticated API discovery", () => {
+  it("rejects invalid Gateway configuration before authentication", async () => {
+    const invalidGateway = await startGateway({
+      accessAudience: "",
+      accessIssuer: "not-an-origin",
+      accessJwks: JSON.stringify({ keys: [] }),
+      allowedOrigin: "not-an-origin",
+    });
+    try {
+      const response = await invalidGateway.dispatchFetch("https://overseer.test/api");
+      expect(response.status).toBe(503);
+      await expect(response.json()).resolves.toMatchObject({
+        code: "gateway_unavailable",
+        retryable: true,
+      });
+    } finally {
+      await invalidGateway.dispose();
+    }
+  });
+
   it("discloses only a safe problem when the Access assertion is missing", async () => {
     const response = await gateway.dispatchFetch("https://overseer.test/api");
 
@@ -56,7 +75,7 @@ describe("authenticated API discovery", () => {
     expect(response.headers.get("content-type")).toBe("application/problem+json");
     expect(response.headers.get("www-authenticate")).toBe("Cloudflare-Access");
     await expect(response.json()).resolves.toMatchObject({
-      type: "https://overseer.dev/problems/authentication_required",
+      type: "https://overseer.test/problems/authentication_required",
       title: "Authentication required",
       status: 401,
       code: "authentication_required",

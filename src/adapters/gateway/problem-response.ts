@@ -37,32 +37,41 @@ export type ProblemInput = {
   readonly headers?: Readonly<Record<string, string>>;
 };
 
-/** Render an expected failure as an RFC 9457 problem. */
-export function problemResponse(input: ProblemInput): Response {
-  const policy = problemPolicies[input.code];
-  const problem = ProblemDocument.make({
-    type: `https://overseer.dev/problems/${input.code}`,
-    title: policy.title,
-    status: policy.status,
-    detail: input.detail,
-    code: input.code,
-    request_id: input.requestId,
-    retryable: policy.retryable,
-  });
-  return new Response(JSON.stringify(problem), {
-    status: problem.status,
-    headers: {
-      "cache-control": "no-store",
-      "content-type": DiscoveryMediaTypes.problem,
-      "x-request-id": input.requestId,
-      ...input.headers,
-    },
-  });
+/** Configured renderer for safe RFC 9457 problems. */
+export type ProblemResponder = (input: ProblemInput) => Response;
+
+/** Construct a problem renderer rooted at an application-owned URL. */
+export function makeProblemResponder(problemTypeBaseUrl: URL): ProblemResponder {
+  return (input) => {
+    const policy = problemPolicies[input.code];
+    const problem = ProblemDocument.make({
+      type: new URL(encodeURIComponent(input.code), problemTypeBaseUrl).href,
+      title: policy.title,
+      status: policy.status,
+      detail: input.detail,
+      code: input.code,
+      request_id: input.requestId,
+      retryable: policy.retryable,
+    });
+
+    return new Response(JSON.stringify(problem), {
+      status: problem.status,
+      headers: {
+        "cache-control": "no-store",
+        "content-type": DiscoveryMediaTypes.problem,
+        "x-request-id": input.requestId,
+        ...input.headers,
+      },
+    });
+  };
 }
 
 /** Render a safe authentication problem. */
-export function authenticationProblem(requestId: RequestId): Response {
-  return problemResponse({
+export function authenticationProblem(
+  respond: ProblemResponder,
+  requestId: RequestId,
+): Response {
+  return respond({
     code: "authentication_required",
     detail: "A valid Cloudflare Access assertion is required.",
     requestId,

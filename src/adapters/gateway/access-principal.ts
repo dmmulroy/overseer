@@ -3,15 +3,17 @@ import {
   errors as JoseErrors,
   jwtVerify,
 } from "jose";
+import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
+import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as Redacted from "effect/Redacted";
 import * as Schema from "effect/Schema";
 import {
   AgentDeploymentId,
+  AuthenticatedPrincipal,
   EmailAddress,
   HumanPrincipalId,
-  AuthenticatedPrincipal,
 } from "../../domain/actor.ts";
 
 const InvalidAccessIdentityReason = Schema.Literals([
@@ -39,7 +41,9 @@ class InvalidAccessIdentity extends Schema.TaggedErrorClass<InvalidAccessIdentit
   }
 }
 
-function parseAccessIdentity(claims: Record<string, unknown>): AuthenticatedPrincipal | InvalidAccessIdentity {
+function parseAccessIdentity(
+  claims: Record<string, unknown>,
+): AuthenticatedPrincipal | InvalidAccessIdentity {
   if (claims.type !== "app") {
     return new InvalidAccessIdentity("unsupported_token_type");
   }
@@ -58,6 +62,7 @@ function parseAccessIdentity(claims: Record<string, unknown>): AuthenticatedPrin
 
   const subject = Schema.decodeUnknownOption(HumanPrincipalId)(claims.sub);
   const email = Schema.decodeUnknownOption(EmailAddress)(claims.email);
+
   return Option.isSome(subject) && Option.isSome(email)
     ? AuthenticatedPrincipal.cases.HumanPrincipal.make({
         subject: subject.value,
@@ -73,12 +78,6 @@ export const AccessAudience = Schema.String.check(Schema.isMinLength(1)).pipe(
 
 /** Cloudflare Access application audience accepted by the Gateway. */
 export type AccessAudience = typeof AccessAudience.Type;
-
-/** Parsed configuration needed to validate Access assertions. */
-export type AccessConfiguration = {
-  readonly audience: AccessAudience;
-  readonly issuer: URL;
-};
 
 const AccessAuthenticationFailureReason = Schema.Literals([
   "missing_assertion",
@@ -121,46 +120,62 @@ function classifyVerificationFailure(cause: unknown): AccessAuthenticationFailed
       !(cause instanceof JoseErrors.JOSEError)
     ? "verification_unavailable"
     : "invalid_assertion";
+
   return new AccessAuthenticationFailed({ reason, cause });
 }
 
-/** Verify one Access assertion against a configured application. */
-export type AccessAssertionVerifier = (
-  assertion: Redacted.Redacted<string> | null,
-) => Effect.Effect<AuthenticatedPrincipal, AccessAuthenticationFailed>;
+/** Effect service that verifies Cloudflare Access assertions. */
+export class AccessAssertionVerifier extends Context.Service<
+  AccessAssertionVerifier,
+  {
+    readonly verify: (
+      assertion: Redacted.Redacted<string>,
+      audience: AccessAudience,
+    ) => Effect.Effect<AuthenticatedPrincipal, AccessAuthenticationFailed>;
+  }
+>()("@overseer/gateway/AccessAssertionVerifier") {}
 
-/** Construct an Access verifier that reuses the remote key-set cache. */
-export function makeAccessAssertionVerifier(
-  config: AccessConfiguration,
-): AccessAssertionVerifier {
-  const keySet = createRemoteJWKSet(
-    new URL("/cdn-cgi/access/certs", config.issuer),
-  );
-  return Effect.fn("GatewayAccess.verifyAssertion")(function* (assertion) {
-    if (assertion === null || Redacted.value(assertion).length === 0) {
-      return yield* Effect.fail(new AccessAuthenticationFailed({
-        reason: "missing_assertion",
-        cause: new Error("The Access assertion header is missing"),
-      }));
-    }
+/** Build an Access verifier layer with one isolate-scoped remote key-set cache. */
+export function accessAssertionVerifierLayer(
+  issuer: URL,
+): Layer.Layer<AccessAssertionVerifier> {
+  return Layer.sync(AccessAssertionVerifier, () => {
+    const keySet = createRemoteJWKSet(
+      new URL("/cdn-cgi/access/certs", issuer),
+    );
 
-    const verified = yield* Effect.tryPromise({
-      try: () =>
-        jwtVerify(Redacted.value(assertion), keySet, {
-          algorithms: ["RS256"],
-          audience: config.audience,
-          issuer: config.issuer.origin,
-          requiredClaims: ["exp", "iat"],
-          typ: "JWT",
-        }),
-      catch: classifyVerificationFailure,
+    const verify = Effect.fn("GatewayAccess.verifyAssertion")(function* (
+      assertion: Redacted.Redacted<string>,
+      audience: AccessAudience,
+    ) {
+      if (Redacted.value(assertion).length === 0) {
+        return yield* Effect.fail(new AccessAuthenticationFailed({
+          reason: "missing_assertion",
+          cause: new Error("The Access assertion header is missing"),
+        }));
+      }
+
+      const verified = yield* Effect.tryPromise({
+        try: () =>
+          jwtVerify(Redacted.value(assertion), keySet, {
+            algorithms: ["RS256"],
+            audience,
+            issuer: issuer.origin,
+            requiredClaims: ["exp", "iat"],
+            typ: "JWT",
+          }),
+        catch: classifyVerificationFailure,
+      });
+      const identity = parseAccessIdentity(verified.payload);
+
+      return identity instanceof InvalidAccessIdentity
+        ? yield* Effect.fail(new AccessAuthenticationFailed({
+            reason: "invalid_identity",
+            cause: identity,
+          }))
+        : identity;
     });
-    const identity = parseAccessIdentity(verified.payload);
-    return identity instanceof InvalidAccessIdentity
-      ? yield* Effect.fail(new AccessAuthenticationFailed({
-          reason: "invalid_identity",
-          cause: identity,
-        }))
-      : identity;
+
+    return AccessAssertionVerifier.of({ verify });
   });
 }

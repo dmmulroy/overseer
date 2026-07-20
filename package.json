@@ -14,13 +14,13 @@
     }
   },
   "scripts": {
-    "build": "vite build && npm run build:worker",
-    "build:worker": "esbuild src/runtime/gateway.ts --bundle --format=esm --platform=browser --conditions=workerd,worker,browser --outfile=build/gateway.js",
+    "build": "vite build",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:browser": "vitest run tests/browser",
     "test:workerd": "vitest run tests/http tests/workerd",
-    "check": "npm run typecheck && npm test && npm run build",
+    "check": "npm run typecheck && npm test && npm run build && npm run check:reminder",
+    "check:reminder": "node scripts/check-reminder.mjs",
     "deploy": "npm run build && alchemy deploy",
     "dev": "alchemy dev"
   },

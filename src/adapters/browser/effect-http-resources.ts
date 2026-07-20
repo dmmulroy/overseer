@@ -15,7 +15,9 @@ export class OverseerHttpClient extends AtomHttpApi.Service<OverseerHttpClient>(
   },
 ) {}
 
-const discovery = OverseerHttpClient.query("discovery", "discover", {});
+const discovery = OverseerHttpClient.query("discovery", "discover", {
+  headers: {},
+});
 
 /** Current state of the generated discovery query. */
 export type DiscoverySnapshot = Atom.Type<typeof discovery>;

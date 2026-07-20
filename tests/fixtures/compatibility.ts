@@ -20,6 +20,7 @@ export async function startCompatibilityFixture(): Promise<Miniflare> {
     compatibilityDate: "2026-07-19",
     modules: [{ type: "ESModule", path: "worker.js", contents: output.text }],
     durableObjects: {
+      ABORTING: { className: "AbortingCompatibilityObject", useSQLite: true },
       COMPATIBILITY: { className: "CompatibilityObject", useSQLite: true },
     },
   });

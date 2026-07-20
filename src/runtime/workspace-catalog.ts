@@ -1,22 +1,39 @@
-import type { DurableObjectState } from "@cloudflare/workers-types";
+import * as SqliteClient from "@effect/sql-sqlite-do/SqliteClient";
+import * as Cloudflare from "alchemy/Cloudflare";
 import * as Effect from "effect/Effect";
 import { migrateCatalog } from "../adapters/catalog-sqlite/catalog-migrations.ts";
 
-/** Singleton Catalog Durable Object; binding-only and never an HTTP ingress. */
-export class WorkspaceCatalog {
-  /** Construct and migrate the singleton Catalog before it accepts work. */
-  constructor(ctx: DurableObjectState) {
-    ctx.blockConcurrencyWhile(() =>
-      Effect.runPromise(
-        migrateCatalog(ctx.storage).pipe(
+type WorkspaceCatalogShape = Readonly<Record<never, never>>;
+
+/** Singleton Catalog Durable Object identifier for Workspace discovery. */
+export class WorkspaceCatalog extends Cloudflare.DurableObject<
+  WorkspaceCatalog,
+  WorkspaceCatalogShape
+>()(
+  "WorkspaceCatalog",
+) {}
+
+/** Alchemy V2 implementation layer for the SQLite-backed Workspace Catalog. */
+const WorkspaceCatalogLive = WorkspaceCatalog.make(
+  Effect.gen(function* () {
+    const state = yield* Cloudflare.DurableObjectState;
+
+    return Effect.gen(function* () {
+      yield* state.blockConcurrencyWhile(() =>
+        migrateCatalog.pipe(
           Effect.tapError((error) =>
-            Effect.sync(() => {
-              console.error("Catalog initialization failed", { error_type: error._tag });
-            })
+            Effect.logError("Catalog initialization failed").pipe(
+              Effect.annotateLogs({ error_type: error._tag }),
+            )
           ),
           Effect.orDie,
-        ),
-      )
-    );
-  }
-}
+          Effect.provide(SqliteClient.layer({ storage: state.raw.storage })),
+        )
+      );
+
+      return {};
+    });
+  }),
+);
+
+export default WorkspaceCatalogLive;

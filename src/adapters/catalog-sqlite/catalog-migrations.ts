@@ -1,6 +1,7 @@
-import type { DurableObjectStorage } from "@cloudflare/workers-types";
+import * as SqliteMigrator from "@effect/sql-sqlite-do/SqliteMigrator";
 import * as Effect from "effect/Effect";
 import * as Schema from "effect/Schema";
+import type * as SqlClient from "effect/unstable/sql/SqlClient";
 
 /** The Catalog schema could not be migrated. */
 export class CatalogMigrationFailed extends Schema.TaggedErrorClass<CatalogMigrationFailed>()(
@@ -16,22 +17,16 @@ export class CatalogMigrationFailed extends Schema.TaggedErrorClass<CatalogMigra
   }
 }
 
-/** Apply the ordered Catalog schema bootstrap to one Durable Object. */
-export const migrateCatalog: (
-  storage: DurableObjectStorage,
-) => Effect.Effect<void, CatalogMigrationFailed> =
-  Effect.fn("CatalogMigrations.migrate")(function* (storage) {
-    yield* Effect.try({
-      try: () => {
-        storage.sql.exec(`
-          CREATE TABLE IF NOT EXISTS overseer_migrations (
-            version INTEGER PRIMARY KEY,
-            applied_at TEXT NOT NULL
-          );
-          INSERT OR IGNORE INTO overseer_migrations (version, applied_at)
-            VALUES (1, datetime('now'));
-        `);
-      },
-      catch: (cause) => new CatalogMigrationFailed(cause),
-    });
-  });
+const migrations = SqliteMigrator.fromRecord({
+  "1_initialize_catalog": Effect.void,
+});
+
+/** Apply the ordered Catalog migrations through the current SQL client. */
+export const migrateCatalog: Effect.Effect<
+  void,
+  CatalogMigrationFailed,
+  SqlClient.SqlClient
+> = SqliteMigrator.run({ loader: migrations }).pipe(
+  Effect.mapError((cause) => new CatalogMigrationFailed(cause)),
+  Effect.asVoid,
+);
