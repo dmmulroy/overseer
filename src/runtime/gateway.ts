@@ -1,125 +1,207 @@
-import type { JSONWebKeySet } from "jose";
-export { ProjectObject } from "./project.ts";
-export { WorkspaceCatalog } from "./workspace-catalog.ts";
+import * as Effect from "effect/Effect";
+import * as Option from "effect/Option";
+import * as Redacted from "effect/Redacted";
+import * as Result from "effect/Result";
+import * as Schema from "effect/Schema";
 import {
-  AccessAuthenticationFailed,
-  verifyAccessAssertion,
+  AccessAudience,
+  makeAccessAssertionVerifier,
+  type AccessAssertionVerifier,
   type AccessConfiguration,
 } from "../adapters/gateway/access-principal.ts";
 import { handleApiRequest } from "../adapters/gateway/gateway-http.ts";
-import { authenticationProblem } from "../adapters/gateway/problem-response.ts";
+import {
+  authenticationProblem,
+  problemResponse,
+} from "../adapters/gateway/problem-response.ts";
 import { parseMutationMetadata } from "../adapters/gateway/request-context.ts";
+import { RequestId } from "../domain/actor.ts";
+
+export { ProjectObject } from "./project.ts";
+export { WorkspaceCatalog } from "./workspace-catalog.ts";
 
 /** Raw bindings available only at the Gateway composition root. */
 type GatewayEnvironment = {
   readonly ASSETS?: { readonly fetch: (request: Request) => Promise<Response> };
   readonly ACCESS_AUDIENCE: string;
   readonly ACCESS_ISSUER: string;
-  readonly ACCESS_JWKS?: string;
   readonly ALLOWED_ORIGIN: string;
 };
 
-function isJsonWebKeySet(input: unknown): input is JSONWebKeySet {
-  return typeof input === "object" &&
-    input !== null &&
-    "keys" in input &&
-    Array.isArray(input.keys) &&
-    input.keys.every(
-      (key) =>
-        typeof key === "object" &&
-        key !== null &&
-        "kty" in key &&
-        typeof key.kty === "string",
-    );
+type CachedAccessVerifier = {
+  readonly audience: AccessConfiguration["audience"];
+  readonly issuer: string;
+  readonly verify: AccessAssertionVerifier;
+};
+
+// The Worker isolate owns JOSE's remote key cache. A binding change replaces it.
+let cachedAccessVerifier: CachedAccessVerifier | null = null;
+
+function accessVerifierFor(config: AccessConfiguration): AccessAssertionVerifier {
+  if (
+    cachedAccessVerifier === null ||
+    cachedAccessVerifier.audience !== config.audience ||
+    cachedAccessVerifier.issuer !== config.issuer.origin
+  ) {
+    cachedAccessVerifier = {
+      audience: config.audience,
+      issuer: config.issuer.origin,
+      verify: makeAccessAssertionVerifier(config),
+    };
+  }
+  return cachedAccessVerifier.verify;
 }
 
-type ParsedGatewayConfiguration =
-  | {
-      readonly _tag: "ValidGatewayConfiguration";
-      readonly access: AccessConfiguration;
-      readonly allowedOrigin: string;
-    }
-  | { readonly _tag: "InvalidGatewayConfiguration" };
+type ValidGatewayConfiguration = {
+  readonly _tag: "ValidGatewayConfiguration";
+  readonly access: AccessConfiguration;
+  readonly allowedOrigin: URL;
+};
 
-function parseGatewayConfiguration(env: GatewayEnvironment): ParsedGatewayConfiguration {
-  try {
-    const issuer = new URL(env.ACCESS_ISSUER);
-    const allowedOrigin = new URL(env.ALLOWED_ORIGIN);
-    if (
-      env.ACCESS_AUDIENCE.length === 0 ||
-      issuer.protocol !== "https:" ||
-      issuer.origin !== env.ACCESS_ISSUER.replace(/\/$/, "") ||
-      allowedOrigin.origin !== env.ALLOWED_ORIGIN
-    ) {
-      return { _tag: "InvalidGatewayConfiguration" };
-    }
+const GatewayConfigurationField = Schema.Literals([
+  "ACCESS_AUDIENCE",
+  "ACCESS_ISSUER",
+  "ALLOWED_ORIGIN",
+]);
+type GatewayConfigurationField = typeof GatewayConfigurationField.Type;
 
-    let jwks: JSONWebKeySet | null = null;
-    if (env.ACCESS_JWKS !== undefined) {
-      const parsed: unknown = JSON.parse(env.ACCESS_JWKS);
-      if (!isJsonWebKeySet(parsed)) {
-        return { _tag: "InvalidGatewayConfiguration" };
-      }
-      jwks = parsed;
-    }
-    return {
-      _tag: "ValidGatewayConfiguration",
-      access: {
-        audience: env.ACCESS_AUDIENCE,
-        issuer: issuer.origin,
-        jwks,
-      },
-      allowedOrigin: allowedOrigin.origin,
-    };
-  } catch {
-    return { _tag: "InvalidGatewayConfiguration" };
+class InvalidGatewayConfiguration extends Schema.TaggedErrorClass<InvalidGatewayConfiguration>()(
+  "InvalidGatewayConfiguration",
+  {
+    field: GatewayConfigurationField,
+    message: Schema.String,
+    cause: Schema.Defect(),
+  },
+) {
+  constructor(field: GatewayConfigurationField, cause: unknown) {
+    super({ field, message: `The ${field} Gateway configuration is invalid`, cause });
   }
 }
 
+function parseUrlConfiguration(
+  input: string,
+  field: "ACCESS_ISSUER" | "ALLOWED_ORIGIN",
+): URL | InvalidGatewayConfiguration {
+  try {
+    return new URL(input);
+  } catch (cause) {
+    return new InvalidGatewayConfiguration(field, cause);
+  }
+}
+
+function parseGatewayConfiguration(
+  env: GatewayEnvironment,
+): ValidGatewayConfiguration | InvalidGatewayConfiguration {
+  const audience = Schema.decodeUnknownOption(AccessAudience)(env.ACCESS_AUDIENCE);
+  if (Option.isNone(audience)) {
+    return new InvalidGatewayConfiguration(
+      "ACCESS_AUDIENCE",
+      new Error("The Access audience is empty"),
+    );
+  }
+  const issuer = parseUrlConfiguration(env.ACCESS_ISSUER, "ACCESS_ISSUER");
+  if (issuer instanceof InvalidGatewayConfiguration) {
+    return issuer;
+  }
+  if (
+    issuer.protocol !== "https:" ||
+    issuer.origin !== env.ACCESS_ISSUER.replace(/\/$/, "")
+  ) {
+    return new InvalidGatewayConfiguration(
+      "ACCESS_ISSUER",
+      new Error("The Access issuer must be an HTTPS origin"),
+    );
+  }
+  const allowedOrigin = parseUrlConfiguration(env.ALLOWED_ORIGIN, "ALLOWED_ORIGIN");
+  if (allowedOrigin instanceof InvalidGatewayConfiguration) {
+    return allowedOrigin;
+  }
+  if (allowedOrigin.origin !== env.ALLOWED_ORIGIN) {
+    return new InvalidGatewayConfiguration(
+      "ALLOWED_ORIGIN",
+      new Error("The allowed Origin must be an exact origin"),
+    );
+  }
+  return {
+    _tag: "ValidGatewayConfiguration",
+    access: {
+      audience: audience.value,
+      issuer,
+    },
+    allowedOrigin,
+  };
+}
+
+/** Authenticate and serve one Gateway request at the Cloudflare entrypoint. */
 export default {
   async fetch(request: Request, env: GatewayEnvironment): Promise<Response> {
-    const requestId = crypto.randomUUID();
-    const configuration = parseGatewayConfiguration(env);
-    if (configuration._tag === "InvalidGatewayConfiguration") {
-      return new Response("Overseer is unavailable", {
-        status: 503,
-        headers: { "cache-control": "no-store", "x-request-id": requestId },
-      });
-    }
-    const principal = await verifyAccessAssertion(
-      request.headers.get("cf-access-jwt-assertion"),
-      configuration.access,
-    );
-    if (principal instanceof AccessAuthenticationFailed) {
-      return authenticationProblem(requestId);
-    }
-
-    const isSafe = request.method === "GET" || request.method === "HEAD" || request.method === "OPTIONS";
-    const mutationMetadata = isSafe
-      ? { agentSession: null }
-      : parseMutationMetadata(
-          request,
-          principal,
-          configuration.allowedOrigin,
+    const requestId = RequestId.make(crypto.randomUUID());
+    try {
+      const configuration = parseGatewayConfiguration(env);
+      if (configuration instanceof InvalidGatewayConfiguration) {
+        console.error("Gateway configuration invalid", {
+          field: configuration.field,
+          error_type: configuration._tag,
+        });
+        return problemResponse({
+          code: "gateway_unavailable",
+          detail: "The Gateway configuration is invalid.",
           requestId,
-        );
-    if (mutationMetadata instanceof Response) {
-      return mutationMetadata;
-    }
+        });
+      }
+      const assertion = request.headers.get("cf-access-jwt-assertion");
+      const authentication = await Effect.runPromise(
+        Effect.result(accessVerifierFor(configuration.access)(
+          assertion === null ? null : Redacted.make(assertion),
+        )),
+      );
+      if (Result.isFailure(authentication)) {
+        return authentication.failure.reason === "verification_unavailable"
+          ? problemResponse({
+              code: "authentication_unavailable",
+              detail: "Overseer could not verify the Access assertion.",
+              requestId,
+            })
+          : authenticationProblem(requestId);
+      }
+      const principal = authentication.success;
 
-    if (new URL(request.url).pathname.startsWith("/api")) {
-      return handleApiRequest(request, {
-        principal,
+      const isSafe = request.method === "GET" ||
+        request.method === "HEAD" ||
+        request.method === "OPTIONS";
+      const mutationMetadata = isSafe
+        ? { agentSession: null }
+        : parseMutationMetadata(
+            request,
+            principal,
+            configuration.allowedOrigin,
+            requestId,
+          );
+      if (mutationMetadata instanceof Response) {
+        return mutationMetadata;
+      }
+
+      const pathname = new URL(request.url).pathname;
+      if (pathname === "/api" || pathname.startsWith("/api/")) {
+        return handleApiRequest(request, { requestId });
+      }
+      if (env.ASSETS === undefined) {
+        return new Response("Application assets are unavailable", {
+          status: 503,
+          headers: { "cache-control": "no-store", "x-request-id": requestId },
+        });
+      }
+      return await env.ASSETS.fetch(request);
+    } catch (cause) {
+      console.error("Gateway request defect", {
+        request_id: requestId,
+        error_type: cause instanceof Error ? cause.name : "unknown",
+      });
+      return problemResponse({
+        code: "internal_error",
+        detail: "Overseer could not complete the request.",
         requestId,
-        agentSession: mutationMetadata.agentSession,
       });
     }
-    if (env.ASSETS === undefined) {
-      return new Response("Application assets are unavailable", {
-        status: 503,
-        headers: { "cache-control": "no-store", "x-request-id": requestId },
-      });
-    }
-    return env.ASSETS.fetch(request);
   },
 };

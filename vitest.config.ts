@@ -1,5 +1,6 @@
 import { defineConfig } from "vitest/config";
 
+/** Run Overseer's HTTP, browser, and workerd integration suites. */
 export default defineConfig({
   test: {
     include: ["tests/**/*.test.ts"],

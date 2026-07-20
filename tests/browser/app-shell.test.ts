@@ -19,6 +19,12 @@ let gateway: Miniflare;
 let page: Page;
 let gatewayUrl: URL;
 
+async function expectNoAccessibilityViolations(target: Page): Promise<void> {
+  await target.addScriptTag({ content: axe.source });
+  const accessibility = await target.evaluate(async () => window.axe.run());
+  expect(accessibility.violations).toEqual([]);
+}
+
 beforeAll(async () => {
   const keyPair = await generateKeyPair("RS256");
   const publicJwk = await exportJWK(keyPair.publicKey);
@@ -88,8 +94,8 @@ describe("authenticated application shell", () => {
     expect(await page.getByRole("button", { name: "Retry" }).isVisible()).toBe(true);
   });
 
-  it("renders an accessible empty shell through the protected Gateway", async () => {
-    await page.goto(gatewayUrl.href);
+  it("renders an accessible empty shell outside the exact API namespace", async () => {
+    await page.goto(new URL("/apiary", gatewayUrl).href);
 
     const emptyHeading = page.getByRole("heading", { name: "No workspaces yet" });
     await emptyHeading.waitFor();
@@ -98,9 +104,7 @@ describe("authenticated application shell", () => {
     expect(await page.getByRole("combobox", { name: "Theme" }).inputValue()).toBe("system");
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
 
-    await page.addScriptTag({ content: axe.source });
-    const accessibility = await page.evaluate(async () => window.axe.run());
-    expect(accessibility.violations).toEqual([]);
+    await expectNoAccessibilityViolations(page);
   });
 
   it("uses compact mobile context without horizontal overflow", async () => {
@@ -111,9 +115,7 @@ describe("authenticated application shell", () => {
     expect(await page.getByRole("navigation", { name: "Workspace and Project context" }).isVisible()).toBe(false);
     expect(await page.getByText("No Project selected").isVisible()).toBe(true);
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
-    await page.addScriptTag({ content: axe.source });
-    const accessibility = await page.evaluate(async () => window.axe.run());
-    expect(accessibility.violations).toEqual([]);
+    await expectNoAccessibilityViolations(page);
   });
 
   it("applies persisted and live system themes before rendering", async () => {
@@ -133,9 +135,7 @@ describe("authenticated application shell", () => {
     await navigation;
     await page.getByRole("heading", { name: "No workspaces yet" }).waitFor();
     expect(await page.getByRole("combobox", { name: "Theme" }).inputValue()).toBe("dark");
-    await page.addScriptTag({ content: axe.source });
-    const accessibility = await page.evaluate(async () => window.axe.run());
-    expect(accessibility.violations).toEqual([]);
+    await expectNoAccessibilityViolations(page);
 
     await page.getByRole("combobox", { name: "Theme" }).selectOption("system");
     await page.emulateMedia({ colorScheme: "light" });

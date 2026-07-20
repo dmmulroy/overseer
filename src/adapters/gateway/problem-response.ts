@@ -1,41 +1,59 @@
-/** Stable RFC 9457 fields returned for an expected Gateway failure. */
-export type Problem = {
-  readonly type: string;
-  readonly title: string;
-  readonly status: number;
-  readonly detail: string;
-  readonly code: string;
-  readonly request_id: string;
+import {
+  DiscoveryMediaTypes,
+  ProblemDocument,
+  type ProblemCode,
+  type ProblemStatus,
+} from "../../contract/http-api.ts";
+import type { RequestId } from "../../domain/actor.ts";
+
+type ProblemPolicy = {
   readonly retryable: boolean;
+  readonly status: ProblemStatus;
+  readonly title: string;
+};
+
+const problemPolicies: Readonly<Record<ProblemCode, ProblemPolicy>> = {
+  agent_session_invalid: { retryable: false, status: 400, title: "Agent session invalid" },
+  agent_session_required: { retryable: false, status: 400, title: "Agent session required" },
+  authentication_required: { retryable: false, status: 401, title: "Authentication required" },
+  authentication_unavailable: { retryable: true, status: 503, title: "Authentication unavailable" },
+  gateway_unavailable: { retryable: true, status: 503, title: "Gateway unavailable" },
+  internal_error: { retryable: true, status: 500, title: "Internal error" },
+  method_not_allowed: { retryable: false, status: 405, title: "Method not allowed" },
+  origin_not_allowed: { retryable: false, status: 403, title: "Origin not allowed" },
+  representation_not_acceptable: {
+    retryable: false,
+    status: 406,
+    title: "Representation not acceptable",
+  },
+  resource_not_found: { retryable: false, status: 404, title: "Resource not found" },
 };
 
 /** Input for one safe expected-problem projection. */
 export type ProblemInput = {
-  readonly code: string;
+  readonly code: ProblemCode;
   readonly detail: string;
-  readonly requestId: string;
-  readonly retryable?: boolean;
-  readonly status: number;
-  readonly title: string;
+  readonly requestId: RequestId;
   readonly headers?: Readonly<Record<string, string>>;
 };
 
 /** Render an expected failure as an RFC 9457 problem. */
 export function problemResponse(input: ProblemInput): Response {
-  const problem: Problem = {
+  const policy = problemPolicies[input.code];
+  const problem = ProblemDocument.make({
     type: `https://overseer.dev/problems/${input.code}`,
-    title: input.title,
-    status: input.status,
+    title: policy.title,
+    status: policy.status,
     detail: input.detail,
     code: input.code,
     request_id: input.requestId,
-    retryable: input.retryable ?? false,
-  };
+    retryable: policy.retryable,
+  });
   return new Response(JSON.stringify(problem), {
     status: problem.status,
     headers: {
       "cache-control": "no-store",
-      "content-type": "application/problem+json",
+      "content-type": DiscoveryMediaTypes.problem,
       "x-request-id": input.requestId,
       ...input.headers,
     },
@@ -43,13 +61,11 @@ export function problemResponse(input: ProblemInput): Response {
 }
 
 /** Render a safe authentication problem. */
-export function authenticationProblem(requestId: string): Response {
+export function authenticationProblem(requestId: RequestId): Response {
   return problemResponse({
     code: "authentication_required",
     detail: "A valid Cloudflare Access assertion is required.",
     requestId,
-    status: 401,
-    title: "Authentication required",
     headers: { "www-authenticate": "Cloudflare-Access" },
   });
 }

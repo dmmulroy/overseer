@@ -1,66 +1,74 @@
-import type { JWTPayload } from "jose";
+import * as Schema from "effect/Schema";
+
+const visibleAscii = /^[!-~]+$/;
+
+/** Stable identity for the authenticated human principal. */
+export const HumanPrincipalId = Schema.String.check(
+  Schema.isMinLength(1),
+  Schema.isMaxLength(256),
+).pipe(Schema.brand("HumanPrincipalId"));
+
+/** Stable identity for the authenticated human principal. */
+export type HumanPrincipalId = typeof HumanPrincipalId.Type;
+
+/** Identity-provider-verified human email address. */
+export const EmailAddress = Schema.String.check(
+  Schema.isMinLength(3),
+  Schema.isMaxLength(320),
+  Schema.isPattern(/^[^\s@]+@[^\s@]+$/),
+).pipe(Schema.brand("EmailAddress"));
+
+/** Identity-provider-verified human email address. */
+export type EmailAddress = typeof EmailAddress.Type;
+
+/** Stable credential identity for one Agent deployment. */
+export const AgentDeploymentId = Schema.String.check(
+  Schema.isMinLength(1),
+  Schema.isMaxLength(256),
+  Schema.isPattern(visibleAscii),
+).pipe(Schema.brand("AgentDeploymentId"));
+
+/** Stable credential identity for one Agent deployment. */
+export type AgentDeploymentId = typeof AgentDeploymentId.Type;
+
+/** Caller-provided correlation identity for one Agent session. */
+export const AgentSessionId = Schema.String.check(
+  Schema.isMinLength(1),
+  Schema.isMaxLength(128),
+  Schema.isPattern(visibleAscii),
+).pipe(Schema.brand("AgentSessionId"));
+
+/** Caller-provided correlation identity for one Agent session. */
+export type AgentSessionId = typeof AgentSessionId.Type;
+
+/** Optional caller-provided Agent harness name. */
+export const HarnessName = Schema.String.check(
+  Schema.isMinLength(1),
+  Schema.isMaxLength(64),
+  Schema.isPattern(visibleAscii),
+).pipe(Schema.brand("HarnessName"));
+
+/** Optional caller-provided Agent harness name. */
+export type HarnessName = typeof HarnessName.Type;
+
+/** Gateway-generated request correlation identity. */
+export const RequestId = Schema.String.check(Schema.isUUID(4)).pipe(
+  Schema.brand("RequestId"),
+);
+
+/** Gateway-generated request correlation identity. */
+export type RequestId = typeof RequestId.Type;
 
 /** A principal established by a validated Cloudflare Access assertion. */
-export type AuthenticatedPrincipal =
-  | {
-      readonly _tag: "HumanPrincipal";
-      readonly subject: string;
-      readonly email: string;
-    }
-  | {
-      readonly _tag: "AgentDeploymentPrincipal";
-      readonly clientId: string;
-    };
+export const AuthenticatedPrincipal = Schema.TaggedUnion({
+  HumanPrincipal: {
+    subject: HumanPrincipalId,
+    email: EmailAddress,
+  },
+  AgentDeploymentPrincipal: {
+    deploymentId: AgentDeploymentId,
+  },
+});
 
-/** Failure to parse identity claims from an otherwise valid Access assertion. */
-export class InvalidAccessIdentity extends Error {
-  /** Stable discriminant for identity-claim failures. */
-  readonly _tag = "InvalidAccessIdentity" as const;
-
-  /** Machine-readable reason the verified claims do not identify a principal. */
-  readonly reason:
-    | "missing_human_claims"
-    | "missing_agent_client_id"
-    | "unsupported_token_type";
-
-  /** Construct an identity-claim parsing failure. */
-  constructor(reason: InvalidAccessIdentity["reason"]) {
-    super("The Access assertion does not identify a supported principal");
-    this.reason = reason;
-  }
-}
-
-/** Parse verified Access claims into an Overseer principal. */
-export function parseAccessIdentity(
-  claims: JWTPayload,
-): AuthenticatedPrincipal | InvalidAccessIdentity {
-  if (claims.type !== "app") {
-    return new InvalidAccessIdentity("unsupported_token_type");
-  }
-
-  if (
-    typeof claims.common_name === "string" &&
-    (claims.sub === undefined || claims.sub === "")
-  ) {
-    const clientId = claims.common_name.trim();
-    return clientId.length > 0
-      ? { _tag: "AgentDeploymentPrincipal", clientId }
-      : new InvalidAccessIdentity("missing_agent_client_id");
-  }
-
-  if (
-    typeof claims.sub === "string" &&
-    claims.sub.length > 0 &&
-    typeof claims.email === "string" &&
-    claims.email.includes("@") &&
-    !claims.email.includes(" ")
-  ) {
-    return {
-      _tag: "HumanPrincipal",
-      subject: claims.sub,
-      email: claims.email,
-    };
-  }
-
-  return new InvalidAccessIdentity("missing_human_claims");
-}
+/** A principal established by a validated Cloudflare Access assertion. */
+export type AuthenticatedPrincipal = typeof AuthenticatedPrincipal.Type;

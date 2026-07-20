@@ -33,6 +33,19 @@ export async function startGateway(config: GatewayFixtureConfig): Promise<Minifl
   return new Miniflare({
     compatibilityDate: "2026-07-19",
     modules: [{ type: "ESModule", path: "gateway.js", contents: output.text }],
+    outboundService: (request: Request) => {
+      const url = new URL(request.url);
+      if (
+        request.method === "GET" &&
+        url.origin === config.accessIssuer &&
+        url.pathname === "/cdn-cgi/access/certs"
+      ) {
+        return new Response(config.accessJwks, {
+          headers: { "content-type": "application/json" },
+        });
+      }
+      return new Response("Not found", { status: 404 });
+    },
     ...(config.assetsDirectory === undefined
       ? {}
       : {
@@ -49,7 +62,6 @@ export async function startGateway(config: GatewayFixtureConfig): Promise<Minifl
     bindings: {
       ACCESS_AUDIENCE: config.accessAudience,
       ACCESS_ISSUER: config.accessIssuer,
-      ACCESS_JWKS: config.accessJwks,
       ALLOWED_ORIGIN: config.allowedOrigin,
     },
   });

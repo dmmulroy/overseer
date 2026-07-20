@@ -6,7 +6,12 @@
     <meta name="color-scheme" content="light dark" />
     <script>
       (() => {
-        const saved = localStorage.getItem("overseer-theme");
+        let saved = null;
+        try {
+          saved = localStorage.getItem("overseer-theme");
+        } catch {
+          // Restricted storage still falls back to the live system preference.
+        }
         const preference = saved === "light" || saved === "dark" ? saved : "system";
         const resolved = preference === "system"
           ? (matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light")

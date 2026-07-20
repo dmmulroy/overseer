@@ -42,6 +42,7 @@ async function agentAssertion(): Promise<string> {
     .setProtectedHeader({ alg: "RS256", kid: "test", typ: "JWT" })
     .setAudience(audience)
     .setIssuer(issuer)
+    .setSubject("")
     .setIssuedAt()
     .setExpirationTime("5 minutes")
     .sign(privateKey);
@@ -63,13 +64,46 @@ describe("authenticated API discovery", () => {
     });
   });
 
-  it("rejects a forged Access assertion before protected discovery", async () => {
-    const response = await gateway.dispatchFetch("https://overseer.test/api", {
+  it("rejects forged and non-expiring Access assertions before protected discovery", async () => {
+    const forged = await gateway.dispatchFetch("https://overseer.test/api", {
       headers: { "cf-access-jwt-assertion": "forged.assertion.value" },
     });
 
-    expect(response.status).toBe(401);
-    expect(await response.text()).not.toContain("/api/workspaces");
+    expect(forged.status).toBe(401);
+    expect(await forged.text()).not.toContain("/api/workspaces");
+
+    const nonExpiring = await new SignJWT({ email: "owner@example.com", type: "app" })
+      .setProtectedHeader({ alg: "RS256", kid: "test", typ: "JWT" })
+      .setAudience(audience)
+      .setIssuer(issuer)
+      .setSubject("human-subject")
+      .setIssuedAt()
+      .sign(privateKey);
+    const missingExpiry = await gateway.dispatchFetch("https://overseer.test/api", {
+      headers: { "cf-access-jwt-assertion": nonExpiring },
+    });
+    expect(missingExpiry.status).toBe(401);
+  });
+
+  it("returns a retryable problem when Access verification is unavailable", async () => {
+    const unavailableGateway = await startGateway({
+      accessAudience: audience,
+      accessIssuer: issuer,
+      accessJwks: "not-json",
+      allowedOrigin: "https://overseer.test",
+    });
+    try {
+      const response = await unavailableGateway.dispatchFetch("https://overseer.test/api", {
+        headers: { "cf-access-jwt-assertion": await humanAssertion() },
+      });
+      expect(response.status).toBe(503);
+      await expect(response.json()).resolves.toMatchObject({
+        code: "authentication_unavailable",
+        retryable: true,
+      });
+    } finally {
+      await unavailableGateway.dispose();
+    }
   });
 
   it("enforces human Origin and Agent-session metadata before unsafe routing", async () => {
@@ -124,6 +158,22 @@ describe("authenticated API discovery", () => {
     expect(unchanged.status).toBe(304);
     expect(unchanged.headers.get("etag")).toBe(etag);
     expect(await unchanged.text()).toBe("");
+
+    const weakList = await gateway.dispatchFetch("https://overseer.test/api", {
+      headers: {
+        "cf-access-jwt-assertion": assertion,
+        "if-none-match": `"different", W/${etag ?? ""}`,
+      },
+    });
+    expect(weakList.status).toBe(304);
+
+    const wildcard = await gateway.dispatchFetch("https://overseer.test/api", {
+      headers: {
+        "cf-access-jwt-assertion": assertion,
+        "if-none-match": "*",
+      },
+    });
+    expect(wildcard.status).toBe(304);
   });
 
   it("returns safe problems for unacceptable media, unknown routes, and methods", async () => {
@@ -141,6 +191,52 @@ describe("authenticated API discovery", () => {
       status: 406,
       retryable: false,
     });
+
+    const excludedJson = await gateway.dispatchFetch("https://overseer.test/api", {
+      headers: {
+        accept: "application/json;q=0, */*;q=1",
+        "cf-access-jwt-assertion": assertion,
+      },
+    });
+    expect(excludedJson.status).toBe(406);
+
+    const wrongVendor = await gateway.dispatchFetch("https://overseer.test/api", {
+      headers: {
+        accept: "application/problem+json",
+        "cf-access-jwt-assertion": assertion,
+      },
+    });
+    expect(wrongVendor.status).toBe(406);
+
+    const wrongOpenApiVersion = await gateway.dispatchFetch(
+      "https://overseer.test/api/openapi.json",
+      {
+        headers: {
+          accept: "application/vnd.oai.openapi+json;version=3.0",
+          "cf-access-jwt-assertion": assertion,
+        },
+      },
+    );
+    expect(wrongOpenApiVersion.status).toBe(406);
+
+    const laterAcceptableRange = await gateway.dispatchFetch("https://overseer.test/api", {
+      headers: {
+        accept: "application/json;q=0, application/json;q=1",
+        "cf-access-jwt-assertion": assertion,
+      },
+    });
+    expect(laterAcceptableRange.status).toBe(200);
+
+    const quotedOpenApiVersion = await gateway.dispatchFetch(
+      "https://overseer.test/api/openapi.json",
+      {
+        headers: {
+          accept: "application/vnd.oai.openapi+json;version=\"3.1\"",
+          "cf-access-jwt-assertion": assertion,
+        },
+      },
+    );
+    expect(quotedOpenApiVersion.status).toBe(200);
 
     const missing = await gateway.dispatchFetch("https://overseer.test/api/missing", {
       headers: { "cf-access-jwt-assertion": assertion },
@@ -194,7 +290,33 @@ describe("authenticated API discovery", () => {
       paths: {
         "/api": { get: {}, head: {} },
         "/api/schemas": { get: {}, head: {} },
-        "/api/openapi.json": { get: {}, head: {} },
+        "/api/openapi.json": {
+          get: {
+            security: [{ cloudflareAccess: [] }],
+            responses: {
+              "200": {
+                content: {
+                  "application/vnd.oai.openapi+json;version=3.1": {},
+                },
+              },
+              "401": {
+                content: {
+                  "application/problem+json": {},
+                },
+              },
+            },
+          },
+          head: {
+            security: [{ cloudflareAccess: [] }],
+            responses: {
+              "401": {
+                content: {
+                  "application/problem+json": {},
+                },
+              },
+            },
+          },
+        },
       },
     });
   });

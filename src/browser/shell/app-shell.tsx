@@ -1,17 +1,22 @@
-import * as Cause from "effect/Cause";
-import * as Effect from "effect/Effect";
-import * as Exit from "effect/Exit";
-import { useCallback, useEffect, useState } from "react";
-import {
-  loadDiscovery,
-} from "../../adapters/browser/effect-http-resources.ts";
-import type { DiscoveryDocument } from "../../contract/http-api.ts";
+import { useCallback, useSyncExternalStore } from "react";
+import type { BrowserResources } from "../../adapters/browser/effect-http-resources.ts";
 import { useTheme } from "../../ui/theme-provider.tsx";
 
-type ShellState =
-  | { readonly _tag: "Loading" }
-  | { readonly _tag: "Empty"; readonly discovery: DiscoveryDocument }
-  | { readonly _tag: "Unavailable"; readonly error: unknown };
+type AppShellProps = {
+  readonly resources: BrowserResources;
+};
+
+function useDiscovery(resources: BrowserResources) {
+  const subscribe = useCallback(
+    (notify: () => void) => resources.subscribeDiscovery(notify),
+    [resources],
+  );
+  const getSnapshot = useCallback(
+    () => resources.getDiscovery(),
+    [resources],
+  );
+  return useSyncExternalStore(subscribe, getSnapshot);
+}
 
 function ThemeControl(): React.JSX.Element {
   const { preference, setPreference } = useTheme();
@@ -37,18 +42,11 @@ function ThemeControl(): React.JSX.Element {
 }
 
 /** Render the authenticated, responsive application shell. */
-export function AppShell(): React.JSX.Element {
-  const [state, setState] = useState<ShellState>({ _tag: "Loading" });
+export function AppShell({ resources }: AppShellProps): React.JSX.Element {
+  const discovery = useDiscovery(resources);
   const refresh = useCallback(() => {
-    setState({ _tag: "Loading" });
-    void Effect.runPromiseExit(loadDiscovery()).then((exit) => {
-      setState(Exit.isSuccess(exit)
-        ? { _tag: "Empty", discovery: exit.value }
-        : { _tag: "Unavailable", error: Cause.squash(exit.cause) });
-    });
-  }, []);
-
-  useEffect(refresh, [refresh]);
+    resources.refreshDiscovery();
+  }, [resources]);
 
   return (
     <div className="app-frame">
@@ -70,13 +68,13 @@ export function AppShell(): React.JSX.Element {
       </nav>
       <main className="content" aria-live="polite">
         <div className="mobile-theme"><ThemeControl /></div>
-        {state._tag === "Loading" ? (
+        {discovery._tag === "Initial" ? (
           <section className="state-card" aria-label="Loading Overseer" role="status">
             <div className="loading-mark" aria-hidden="true" />
             <h1>Loading Overseer</h1>
             <p>Checking your authenticated workspace context…</p>
           </section>
-        ) : state._tag === "Unavailable" ? (
+        ) : discovery._tag === "Failure" ? (
           <section className="state-card" role="alert">
             <p className="eyebrow">Connection unavailable</p>
             <h1>Overseer is unavailable</h1>

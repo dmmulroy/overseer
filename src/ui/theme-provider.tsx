@@ -1,3 +1,4 @@
+import * as Result from "effect/Result";
 import {
   createContext,
   useCallback,
@@ -20,8 +21,14 @@ const storageKey = "overseer-theme";
 const ThemeContext = createContext<ThemeContextValue | null>(null);
 
 function readPreference(): ThemePreference {
-  const value = localStorage.getItem(storageKey);
-  return value === "light" || value === "dark" ? value : "system";
+  const stored = Result.try(() => localStorage.getItem(storageKey));
+  if (Result.isFailure(stored)) {
+    console.warn("Theme preference storage is unavailable");
+    return "system";
+  }
+  return stored.success === "light" || stored.success === "dark"
+    ? stored.success
+    : "system";
 }
 
 function applyTheme(preference: ThemePreference): void {
@@ -37,7 +44,10 @@ function applyTheme(preference: ThemePreference): void {
 export function ThemeProvider({ children }: PropsWithChildren): React.JSX.Element {
   const [preference, setPreferenceState] = useState<ThemePreference>(readPreference);
   const setPreference = useCallback((next: ThemePreference) => {
-    localStorage.setItem(storageKey, next);
+    const persisted = Result.try(() => localStorage.setItem(storageKey, next));
+    if (Result.isFailure(persisted)) {
+      console.warn("Theme preference could not be saved");
+    }
     setPreferenceState(next);
   }, []);
 

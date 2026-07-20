@@ -2,9 +2,26 @@ import * as Alchemy from "alchemy";
 import * as Cloudflare from "alchemy/Cloudflare";
 import * as Config from "effect/Config";
 import * as Effect from "effect/Effect";
+import * as Schema from "effect/Schema";
+import { EmailAddress } from "./src/domain/actor.ts";
 import type { ProjectObject } from "./src/runtime/project.ts";
 import type { WorkspaceCatalog } from "./src/runtime/workspace-catalog.ts";
 
+const StageHostname = Schema.String.check(
+  Schema.isMinLength(1),
+  Schema.isMaxLength(253),
+  Schema.isPattern(/^[A-Za-z0-9.-]+$/),
+).pipe(Schema.brand("StageHostname"));
+
+const HttpsOrigin = Schema.URLFromString.check(
+  Schema.makeFilter((url) =>
+    url.protocol === "https:" && url.href === `${url.origin}/`
+      ? undefined
+      : "must be an HTTPS origin"
+  ),
+);
+
+/** Provision one isolated Overseer stage and its Access-protected Gateway. */
 export default Alchemy.Stack(
   "Overseer",
   {
@@ -12,9 +29,12 @@ export default Alchemy.Stack(
     state: Cloudflare.state(),
   },
   Effect.gen(function* () {
-    const hostname = yield* Config.string("OVERSEER_HOSTNAME");
-    const teamDomain = yield* Config.string("CLOUDFLARE_ACCESS_TEAM_DOMAIN");
-    const ownerEmail = yield* Config.string("OVERSEER_OWNER_EMAIL");
+    const hostname = yield* Config.schema(StageHostname, "OVERSEER_HOSTNAME");
+    const accessIssuer = yield* Config.schema(
+      HttpsOrigin,
+      "CLOUDFLARE_ACCESS_TEAM_DOMAIN",
+    );
+    const ownerEmail = yield* Config.schema(EmailAddress, "OVERSEER_OWNER_EMAIL");
 
     const agentToken = yield* Cloudflare.Access.ServiceToken("AgentDeployment", {
       duration: "8760h",
@@ -50,7 +70,7 @@ export default Alchemy.Stack(
       domain: hostname,
       env: {
         ACCESS_AUDIENCE: access.aud,
-        ACCESS_ISSUER: teamDomain,
+        ACCESS_ISSUER: accessIssuer.origin,
         ALLOWED_ORIGIN: `https://${hostname}`,
         CATALOG: catalog,
         PROJECTS: projects,

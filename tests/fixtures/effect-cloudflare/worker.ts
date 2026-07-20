@@ -1,13 +1,22 @@
 import * as SqliteClient from "@effect/sql-sqlite-do/SqliteClient";
 import type { DurableObjectState } from "@cloudflare/workers-types";
-import * as Data from "effect/Data";
 import * as Effect from "effect/Effect";
+import * as Schema from "effect/Schema";
 import * as Layer from "effect/Layer";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
+import * as SqlSchema from "effect/unstable/sql/SqlSchema";
 
-class IntentionalRollback extends Data.TaggedError("IntentionalRollback")<{}> {}
+class IntentionalRollback extends Schema.TaggedErrorClass<IntentionalRollback>()(
+  "IntentionalRollback",
+  { message: Schema.String },
+) {
+  constructor() {
+    super({ message: "The compatibility transaction must roll back" });
+  }
+}
 
-type CountRow = { readonly count: number };
+const CountRow = Schema.Struct({ count: Schema.Number });
+interface CountRow extends Schema.Schema.Type<typeof CountRow> {}
 
 /** Representative SQLite Durable Object for the pinned compatibility gate. */
 export class CompatibilityObject {
@@ -50,14 +59,13 @@ export class CompatibilityObject {
         );
         return Response.json({ committed: true });
       }
-      const rows = yield* sql.unsafe<CountRow>(
-        "SELECT COUNT(*) AS count FROM compatibility_values",
-      );
-      const first = rows[0];
-      if (first === undefined) {
-        return yield* Effect.die("SQLite count query returned no row");
-      }
-      return Response.json({ count: first.count });
+      const readCount = SqlSchema.findOne({
+        Request: Schema.Void,
+        Result: CountRow,
+        execute: () => sql.unsafe("SELECT COUNT(*) AS count FROM compatibility_values"),
+      });
+      const count: CountRow = yield* readCount(undefined);
+      return Response.json({ count: count.count });
     });
 
     return Effect.runPromise(
@@ -82,6 +90,7 @@ type FixtureEnvironment = {
   };
 };
 
+/** Forward fixture requests to the representative Durable Object binding. */
 export default {
   async fetch(request: Request, env: FixtureEnvironment): Promise<Response> {
     return env.COMPATIBILITY.getByName("default").fetch(request);
