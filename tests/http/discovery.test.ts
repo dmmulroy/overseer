@@ -524,7 +524,7 @@ describe("authenticated API discovery", () => {
     ]);
   });
 
-  it("discovers the stable Workspace, schema, and OpenAPI resources", async () => {
+  it("discovers the stable Workspace, Project, schema, and OpenAPI resources", async () => {
     const response = await gateway.dispatchFetch("https://overseer.test/api", {
       headers: {
         accept: "application/json",
@@ -541,6 +541,7 @@ describe("authenticated API discovery", () => {
       links: {
         self: { href: "/api" },
         workspaces: { href: "/api/workspaces" },
+        projects: { href: "/api/projects" },
         schemas: { href: "/api/schemas" },
         openapi: { href: "/api/openapi.json" },
       },

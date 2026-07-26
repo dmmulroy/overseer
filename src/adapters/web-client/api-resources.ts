@@ -1,12 +1,12 @@
+import * as Cause from "effect/Cause";
 import * as Clock from "effect/Clock";
 import * as DateTime from "effect/DateTime";
-import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
 import * as Option from "effect/Option";
-import * as Schedule from "effect/Schedule";
 import * as Schema from "effect/Schema";
 import { FetchHttpClient, HttpClientError, type HttpClientResponse } from "effect/unstable/http";
-import { Atom, AtomHttpApi } from "effect/unstable/reactivity";
+import { AsyncResult, Atom, AtomHttpApi } from "effect/unstable/reactivity";
+import type * as AtomRegistry from "effect/unstable/reactivity/AtomRegistry";
 import {
   DiscoveryDocument,
   DiscoveryPaths,
@@ -123,6 +123,51 @@ export function browserResourceRetryDelay(
   const policyMilliseconds =
     failureCount === 0 ? 5_000 : failureCount === 1 ? 15_000 : failureCount === 2 ? 30_000 : 60_000;
   return Math.max(policyMilliseconds, advisedMilliseconds);
+}
+
+type BrowserResourceRetryState = {
+  failureCount: number;
+  timeout: ReturnType<typeof setTimeout> | undefined;
+};
+
+function withBrowserResourceRetry<A>(
+  source: Atom.Atom<AsyncResult.AsyncResult<A, BrowserResourceReadFailed>>,
+): Atom.Atom<AsyncResult.AsyncResult<A, BrowserResourceReadFailed>> {
+  const retryStates = new WeakMap<AtomRegistry.AtomRegistry, BrowserResourceRetryState>();
+
+  return Atom.readable(
+    (get) => {
+      const retryState = retryStates.get(get.registry) ?? {
+        failureCount: 0,
+        timeout: undefined,
+      };
+      retryStates.set(get.registry, retryState);
+      if (retryState.timeout !== undefined) clearTimeout(retryState.timeout);
+      retryState.timeout = undefined;
+      const result = get(source);
+      if (result._tag === "Success") {
+        retryState.failureCount = 0;
+      } else if (result._tag === "Failure" && !result.waiting) {
+        const failure = Cause.findErrorOption(result.cause);
+        if (Option.isSome(failure) && failure.value.retryable) {
+          const delay = browserResourceRetryDelay(
+            retryState.failureCount,
+            failure.value.retryAfterMilliseconds,
+          );
+          retryState.failureCount += 1;
+          // Atom's dynamic refresh boundary is callback-based. Mirror Atom.withRefresh so the
+          // failure stays observable while the registry lifetime owns cancellation.
+          retryState.timeout = setTimeout(() => get.refresh(source), delay);
+        }
+      }
+      get.addFinalizer(() => {
+        if (retryState.timeout !== undefined) clearTimeout(retryState.timeout);
+        retryStates.delete(get.registry);
+      });
+      return result;
+    },
+    (refresh) => refresh(source),
+  );
 }
 
 function readFailure(options: {
@@ -324,22 +369,6 @@ export const parseWorkspacePageNavigation = Effect.fn("Browser.parseWorkspacePag
   },
 );
 
-const browserReadRetrySchedule = Schedule.forever.pipe(
-  Schedule.while(
-    ({ input }: Schedule.Metadata<number, BrowserResourceReadFailed>) => input.retryable,
-  ),
-  Schedule.modifyDelay(({ attempt, input }) =>
-    Effect.succeed(
-      Duration.millis(browserResourceRetryDelay(attempt - 1, input.retryAfterMilliseconds)),
-    ),
-  ),
-);
-
-const retryBrowserRead = <A, R>(
-  effect: Effect.Effect<A, BrowserResourceReadFailed, R>,
-): Effect.Effect<A, BrowserResourceReadFailed, R> =>
-  effect.pipe(Effect.retry(browserReadRetrySchedule));
-
 let retainedDiscovery: Option.Option<DiscoveryResource> = Option.none();
 
 const readDiscovery = OverseerHttpClient.use((client) =>
@@ -395,13 +424,14 @@ const readDiscovery = OverseerHttpClient.use((client) =>
 );
 
 /** Conditional API discovery query with cancellation-safe retry and validation. */
-export const discoveryQuery = OverseerHttpClient.runtime.atom(retryBrowserRead(readDiscovery)).pipe(
+export const discoveryQuery = OverseerHttpClient.runtime.atom(readDiscovery).pipe(
   Atom.swr({
     staleTime: "5 seconds",
     revalidateOnFocus: true,
     focusSignal: Atom.windowFocusSignal,
   }),
   Atom.withRefresh("5 minutes"),
+  withBrowserResourceRetry,
   Atom.setIdleTTL("5 minutes"),
 );
 
@@ -508,14 +538,13 @@ const readWorkspaceCollection = Effect.gen(function* () {
 });
 
 /** Complete Workspace collection query with conditional per-page validation. */
-export const workspaceQuery = OverseerHttpClient.runtime
-  .atom(retryBrowserRead(readWorkspaceCollection))
-  .pipe(
-    Atom.swr({
-      staleTime: "5 seconds",
-      revalidateOnFocus: true,
-      focusSignal: Atom.windowFocusSignal,
-    }),
-    Atom.withRefresh("30 seconds"),
-    Atom.setIdleTTL("5 minutes"),
-  );
+export const workspaceQuery = OverseerHttpClient.runtime.atom(readWorkspaceCollection).pipe(
+  Atom.swr({
+    staleTime: "5 seconds",
+    revalidateOnFocus: true,
+    focusSignal: Atom.windowFocusSignal,
+  }),
+  Atom.withRefresh("30 seconds"),
+  withBrowserResourceRetry,
+  Atom.setIdleTTL("5 minutes"),
+);

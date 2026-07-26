@@ -125,7 +125,7 @@ describe("authenticated application shell", () => {
     expect(await page.getByRole("button", { name: "Retry" }).isVisible()).toBe(true);
   });
 
-  it("retries a retryable discovery failure before rendering authenticated data", async () => {
+  it("shows a retryable discovery failure while scheduling recovery", async () => {
     let discoveryRequests = 0;
     await page.route("**/api", (route) => {
       discoveryRequests += 1;
@@ -147,7 +147,10 @@ describe("authenticated application shell", () => {
     });
 
     await page.goto(gatewayUrl.href);
-    await page.getByRole("heading", { name: "No workspaces yet" }).waitFor();
+    await page
+      .getByRole("heading", { name: "Overseer is unavailable" })
+      .waitFor({ timeout: 1_000 });
+    await page.getByRole("heading", { name: "No workspaces yet" }).waitFor({ timeout: 7_000 });
 
     expect(discoveryRequests).toBe(2);
   });

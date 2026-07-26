@@ -11,6 +11,7 @@ export function discoveryDocument(): DiscoveryDocument {
     links: {
       self: { href: DiscoveryPaths.root },
       workspaces: { href: DiscoveryPaths.workspaces },
+      projects: { href: DiscoveryPaths.projects },
       schemas: { href: DiscoveryPaths.schemas },
       openapi: { href: DiscoveryPaths.openapi },
     },

@@ -19,6 +19,7 @@ export const DiscoveryPaths = {
   schemas: "/api/schemas",
   openapi: "/api/openapi.json",
   workspaces: "/api/workspaces",
+  projects: "/api/projects",
 } as const;
 
 /** Response media types owned by the discovery contract. */
