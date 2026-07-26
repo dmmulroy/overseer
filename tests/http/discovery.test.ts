@@ -346,6 +346,8 @@ describe("authenticated API discovery", () => {
       items: [
         { href: expect.stringMatching(/^\/api\/schemas\/sha256-[0-9a-f]{64}\/create_workspace$/) },
         { href: expect.stringMatching(/^\/api\/schemas\/sha256-[0-9a-f]{64}\/rename_workspace$/) },
+        { href: expect.stringMatching(/^\/api\/schemas\/sha256-[0-9a-f]{64}\/create_project$/) },
+        { href: expect.stringMatching(/^\/api\/schemas\/sha256-[0-9a-f]{64}\/rename_project$/) },
       ],
       links: {
         self: { href: "/api/schemas" },
@@ -424,6 +426,9 @@ describe("authenticated API discovery", () => {
       paths: {
         "/api": { get: {}, head: {} },
         "/api/schemas": { get: {}, head: {} },
+        "/api/projects": { get: {}, head: {} },
+        "/api/projects/{project_id}": { get: {}, head: {}, patch: {} },
+        "/api/workspaces/{workspace_id}/projects": { get: {}, head: {}, post: {} },
         "/api/openapi.json": {
           get: {
             security: [{ cloudflareAccess: [] }],

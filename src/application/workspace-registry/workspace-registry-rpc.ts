@@ -1,8 +1,14 @@
 import * as Effect from "effect/Effect";
 import * as Schema from "effect/Schema";
-import { WorkspaceId } from "../../domain/entity-id.ts";
+import { ProjectId, WorkspaceId } from "../../domain/entity-id.ts";
 import { IdempotencyKey, IdempotencyScope } from "../../domain/idempotency.ts";
-import { WorkspaceCursor, WorkspacePageLimit } from "../../domain/pagination.ts";
+import {
+  ProjectCursor,
+  ProjectPageLimit,
+  WorkspaceCursor,
+  WorkspacePageLimit,
+} from "../../domain/pagination.ts";
+import { Project, ProjectName } from "../../domain/project.ts";
 import { Workspace, WorkspaceName } from "../../domain/workspace.ts";
 
 /** Stable name of the singleton Workspace Registry Durable Object. */
@@ -13,7 +19,6 @@ export const ListWorkspacesRpcInput = Schema.Struct({
   cursor: Schema.optionalKey(WorkspaceCursor),
   limit: WorkspacePageLimit,
 });
-
 /** Plain input for listing one bounded Workspace page over private RPC. */
 export interface ListWorkspacesRpcInput extends Schema.Schema.Type<typeof ListWorkspacesRpcInput> {}
 
@@ -24,7 +29,6 @@ export const ListWorkspacesRpcResult = Schema.Struct({
   nextCursor: Schema.NullOr(WorkspaceCursor),
   limit: WorkspacePageLimit,
 });
-
 /** Plain Workspace page returned over private RPC. */
 export interface ListWorkspacesRpcResult extends Schema.Schema.Type<
   typeof ListWorkspacesRpcResult
@@ -36,7 +40,6 @@ export const CreateWorkspaceRpcInput = Schema.Struct({
   idempotencyScope: IdempotencyScope,
   idempotencyKey: IdempotencyKey,
 });
-
 /** Plain input for idempotent Workspace creation over private RPC. */
 export interface CreateWorkspaceRpcInput extends Schema.Schema.Type<
   typeof CreateWorkspaceRpcInput
@@ -47,7 +50,6 @@ export const CreateWorkspaceRpcResult = Schema.Struct({
   workspace: Workspace,
   replayed: Schema.Boolean,
 });
-
 /** Plain successful Workspace creation returned over private RPC. */
 export interface CreateWorkspaceRpcResult extends Schema.Schema.Type<
   typeof CreateWorkspaceRpcResult
@@ -58,21 +60,58 @@ export const RenameWorkspaceRpcInput = Schema.Struct({
   workspaceId: WorkspaceId,
   name: WorkspaceName,
 });
-
 /** Plain input for a Workspace rename over private RPC. */
 export interface RenameWorkspaceRpcInput extends Schema.Schema.Type<
   typeof RenameWorkspaceRpcInput
 > {}
 
-/** A Workspace page cursor could not be decoded. */
+/** Plain input for listing one bounded Project page over private RPC. */
+export const ListProjectsRpcInput = Schema.Struct({
+  workspaceId: Schema.optionalKey(WorkspaceId),
+  cursor: Schema.optionalKey(ProjectCursor),
+  limit: ProjectPageLimit,
+});
+/** Plain input for listing one bounded Project page over private RPC. */
+export interface ListProjectsRpcInput extends Schema.Schema.Type<typeof ListProjectsRpcInput> {}
+
+/** Plain Project page returned over private RPC. */
+export const ListProjectsRpcResult = Schema.Struct({
+  projects: Schema.Array(Project),
+  cursor: Schema.NullOr(ProjectCursor),
+  nextCursor: Schema.NullOr(ProjectCursor),
+  limit: ProjectPageLimit,
+});
+/** Plain Project page returned over private RPC. */
+export interface ListProjectsRpcResult extends Schema.Schema.Type<typeof ListProjectsRpcResult> {}
+
+/** Plain input for idempotent Project creation over private RPC. */
+export const CreateProjectRpcInput = Schema.Struct({
+  workspaceId: WorkspaceId,
+  name: ProjectName,
+  idempotencyScope: IdempotencyScope,
+  idempotencyKey: IdempotencyKey,
+});
+/** Plain input for idempotent Project creation over private RPC. */
+export interface CreateProjectRpcInput extends Schema.Schema.Type<typeof CreateProjectRpcInput> {}
+
+/** Plain successful Project creation returned over private RPC. */
+export const CreateProjectRpcResult = Schema.Struct({ project: Project, replayed: Schema.Boolean });
+/** Plain successful Project creation returned over private RPC. */
+export interface CreateProjectRpcResult extends Schema.Schema.Type<typeof CreateProjectRpcResult> {}
+
+/** Plain input for a Project rename over private RPC. */
+export const RenameProjectRpcInput = Schema.Struct({ projectId: ProjectId, name: ProjectName });
+/** Plain input for a Project rename over private RPC. */
+export interface RenameProjectRpcInput extends Schema.Schema.Type<typeof RenameProjectRpcInput> {}
+
+/** A collection page cursor could not be decoded. */
 export class WorkspaceRegistryCursorInvalid extends Schema.TaggedErrorClass<WorkspaceRegistryCursorInvalid>()(
   "WorkspaceRegistryCursorInvalid",
   {},
 ) {
   /** Stable safe diagnostic message. */
-  override readonly message = "The Workspace page cursor is invalid";
+  override readonly message = "The Workspace Registry page cursor is invalid";
 }
-
 /** The requested Workspace does not exist. */
 export class WorkspaceNotFound extends Schema.TaggedErrorClass<WorkspaceNotFound>()(
   "WorkspaceNotFound",
@@ -81,8 +120,14 @@ export class WorkspaceNotFound extends Schema.TaggedErrorClass<WorkspaceNotFound
   /** Stable safe diagnostic message. */
   override readonly message = "The requested Workspace does not exist";
 }
-
-/** An idempotency key was reused for a different Workspace creation. */
+/** The requested Project does not exist. */
+export class ProjectNotFound extends Schema.TaggedErrorClass<ProjectNotFound>()("ProjectNotFound", {
+  projectId: ProjectId,
+}) {
+  /** Stable safe diagnostic message. */
+  override readonly message = "The requested Project does not exist";
+}
+/** An idempotency key was reused for a different registry creation. */
 export class IdempotencyKeyReused extends Schema.TaggedErrorClass<IdempotencyKeyReused>()(
   "IdempotencyKeyReused",
   {},
@@ -90,7 +135,6 @@ export class IdempotencyKeyReused extends Schema.TaggedErrorClass<IdempotencyKey
   /** Stable safe diagnostic message. */
   override readonly message = "The idempotency key was reused for a different request";
 }
-
 /** A persisted Workspace Registry record is corrupt. */
 export class WorkspaceRegistryRecordCorrupt extends Schema.TaggedErrorClass<WorkspaceRegistryRecordCorrupt>()(
   "WorkspaceRegistryRecordCorrupt",
@@ -99,7 +143,6 @@ export class WorkspaceRegistryRecordCorrupt extends Schema.TaggedErrorClass<Work
   /** Stable safe diagnostic message. */
   override readonly message = "A persisted Workspace Registry record is corrupt";
 }
-
 /** Workspace Registry persistence is unavailable. */
 export class WorkspaceRegistryStateUnavailable extends Schema.TaggedErrorClass<WorkspaceRegistryStateUnavailable>()(
   "WorkspaceRegistryStateUnavailable",
@@ -108,7 +151,6 @@ export class WorkspaceRegistryStateUnavailable extends Schema.TaggedErrorClass<W
   /** Stable safe diagnostic message. */
   override readonly message = "Workspace Registry persistence is unavailable";
 }
-
 /** One same-deployment schemaless RPC call could not complete. */
 export class WorkspaceRegistryRpcCallFailed extends Schema.TaggedErrorClass<WorkspaceRegistryRpcCallFailed>()(
   "WorkspaceRegistryRpcCallFailed",
@@ -118,6 +160,10 @@ export class WorkspaceRegistryRpcCallFailed extends Schema.TaggedErrorClass<Work
       "readWorkspace",
       "createWorkspace",
       "renameWorkspace",
+      "listProjects",
+      "readProject",
+      "createProject",
+      "renameProject",
     ]),
     cause: Schema.Defect(),
   },
@@ -151,4 +197,22 @@ export type WorkspaceRegistryRpc = {
   readonly renameWorkspace: (
     input: RenameWorkspaceRpcInput,
   ) => Effect.Effect<Workspace, WorkspaceNotFound | WorkspaceRegistryRemotePersistenceError>;
+  readonly listProjects: (
+    input: ListProjectsRpcInput,
+  ) => Effect.Effect<
+    ListProjectsRpcResult,
+    WorkspaceRegistryCursorInvalid | WorkspaceNotFound | WorkspaceRegistryRemotePersistenceError
+  >;
+  readonly readProject: (
+    projectId: ProjectId,
+  ) => Effect.Effect<Project, ProjectNotFound | WorkspaceRegistryRemotePersistenceError>;
+  readonly createProject: (
+    input: CreateProjectRpcInput,
+  ) => Effect.Effect<
+    CreateProjectRpcResult,
+    WorkspaceNotFound | IdempotencyKeyReused | WorkspaceRegistryRemotePersistenceError
+  >;
+  readonly renameProject: (
+    input: RenameProjectRpcInput,
+  ) => Effect.Effect<Project, ProjectNotFound | WorkspaceRegistryRemotePersistenceError>;
 };

@@ -6,7 +6,7 @@ This directory implements the persistence service owned by the Workspace Registr
 
 ### `workspace-registry-migrations.ts`
 
-Defines ordered forward-only schema migrations for Workspace and idempotency records. Its effect-discard Layer keeps migration failures typed until the Durable Object constructor logs and rejects initialization.
+Defines ordered forward-only schema migrations for Workspace, Project, and shared registry idempotency records. Its effect-discard Layer keeps migration failures typed until the Durable Object constructor logs and rejects initialization.
 
 ### `workspace-registry-sqlite-state.ts`
 
@@ -14,7 +14,7 @@ The canonical `layer` yields `SqlClient.SqlClient` and provides `WorkspaceRegist
 
 - SQL statements and Cloudflare SQLite transactions;
 - row-to-domain parsing;
-- keyset pagination and opaque cursors;
+- scope-bound Workspace and Project keyset pagination with opaque cursors;
 - idempotency lookup and retention;
 - classification of SQL and corrupt-record failures with object-local causes.
 

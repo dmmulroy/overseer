@@ -4,7 +4,7 @@ import { chromium, type Browser, type BrowserContext, type Page } from "playwrig
 import axe from "axe-core";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from "vite-plus/test";
 import type { Miniflare } from "miniflare";
-import { WorkspaceRepresentation } from "../../src/contract/http-api.ts";
+import { ProjectRepresentation, WorkspaceRepresentation } from "../../src/contract/http-api.ts";
 import { startGateway } from "../fixtures/gateway.ts";
 
 declare global {
@@ -44,6 +44,24 @@ async function seedWorkspace(name: string, key: string): Promise<string> {
   expect(response.status).toBe(201);
   const workspace = Schema.decodeUnknownSync(WorkspaceRepresentation)(await response.json());
   return workspace.id;
+}
+
+async function seedProject(workspaceId: string, name: string, key: string): Promise<string> {
+  const response = await gateway.dispatchFetch(
+    `http://localhost/api/workspaces/${workspaceId}/projects`,
+    {
+      method: "POST",
+      headers: {
+        "cf-access-jwt-assertion": assertion,
+        "content-type": "application/json",
+        "idempotency-key": key,
+        origin: "http://localhost",
+      },
+      body: JSON.stringify({ name }),
+    },
+  );
+  expect(response.status).toBe(201);
+  return Schema.decodeUnknownSync(ProjectRepresentation)(await response.json()).id;
 }
 
 beforeAll(async () => {
@@ -291,6 +309,58 @@ describe("authenticated application shell", () => {
     expect(await firstButton.getAttribute("aria-pressed")).toBe("false");
     expect(await secondButton.getAttribute("aria-pressed")).toBe("true");
     expect(firstId).not.toBe(secondId);
+  });
+
+  it("keeps the same URL-backed Project context on desktop and mobile", async () => {
+    const workspaceId = await seedWorkspace("Project navigation", "browser-project-workspace");
+    const firstProjectId = await seedProject(workspaceId, "First Project", "browser-project-first");
+    const secondProjectId = await seedProject(
+      workspaceId,
+      "Second Project",
+      "browser-project-second",
+    );
+    const otherWorkspaceId = await seedWorkspace(
+      "Other Workspace",
+      "browser-project-other-workspace",
+    );
+    const otherProjectId = await seedProject(
+      otherWorkspaceId,
+      "Other Project",
+      "browser-project-other",
+    );
+
+    await page.goto(
+      new URL(`/?workspace_id=${workspaceId}&project_id=${firstProjectId}`, gatewayUrl).href,
+    );
+    await page.getByRole("heading", { name: "First Project" }).waitFor();
+    const secondButton = page.getByRole("button", { name: "Select Second Project Project" });
+    await secondButton.focus();
+    await secondButton.press("Enter");
+    await expect
+      .poll(() => new URL(page.url()).searchParams.get("project_id"))
+      .toBe(secondProjectId);
+    expect(new URL(page.url()).searchParams.get("workspace_id")).toBe(workspaceId);
+
+    await page.setViewportSize({ width: 390, height: 844 });
+    const projectSelector = page.getByRole("combobox", { name: "Project" });
+    expect(await projectSelector.inputValue()).toBe(secondProjectId);
+    await projectSelector.selectOption(otherProjectId);
+    await expect
+      .poll(() => new URL(page.url()).searchParams.get("project_id"))
+      .toBe(otherProjectId);
+    expect(new URL(page.url()).searchParams.get("workspace_id")).toBe(otherWorkspaceId);
+    await page.getByRole("heading", { name: "Other Project" }).waitFor();
+    expect(await projectSelector.locator(`option[value="${otherProjectId}"]`).textContent()).toBe(
+      "Other Workspace / Other Project",
+    );
+    await page.reload();
+    await page.getByRole("heading", { name: "Other Project" }).waitFor();
+    expect(new URL(page.url()).searchParams.get("workspace_id")).toBe(otherWorkspaceId);
+    expect(new URL(page.url()).searchParams.get("project_id")).toBe(otherProjectId);
+    expect(
+      await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth),
+    ).toBe(true);
+    await expectNoAccessibilityViolations(page);
   });
 
   it("disables loading animation when reduced motion is requested", async () => {

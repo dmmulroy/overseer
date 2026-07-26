@@ -3,6 +3,7 @@ import { bytesToHex, utf8ToBytes } from "@noble/hashes/utils.js";
 import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
 import { IdempotencyKey } from "../domain/idempotency.ts";
+import { ProjectName } from "../domain/project.ts";
 import { WorkspaceName } from "../domain/workspace.ts";
 
 /** Body accepted when creating or renaming a Workspace. */
@@ -19,6 +20,20 @@ export const WorkspaceNameRequest = Schema.Struct({ name: WorkspaceName }).pipe(
 /** Body accepted when creating or renaming a Workspace. */
 export interface WorkspaceNameRequest extends Schema.Schema.Type<typeof WorkspaceNameRequest> {}
 
+/** Body accepted when creating or renaming a Project. */
+export const ProjectNameRequest = Schema.Struct({ name: ProjectName }).pipe(
+  Schema.flip,
+  Schema.check(
+    Schema.makeFilter((body) => Object.keys(body).length === 1, {
+      expected: "an object containing only the name field",
+    }),
+  ),
+  Schema.flip,
+);
+
+/** Body accepted when creating or renaming a Project. */
+export interface ProjectNameRequest extends Schema.Schema.Type<typeof ProjectNameRequest> {}
+
 const createWorkspaceRequestSchema = Schema.toJsonSchemaDocument(
   Schema.Struct({
     headers: Schema.Struct({ "idempotency-key": IdempotencyKey }),
@@ -27,6 +42,15 @@ const createWorkspaceRequestSchema = Schema.toJsonSchemaDocument(
 ).schema;
 const renameWorkspaceRequestSchema = Schema.toJsonSchemaDocument(
   Schema.Struct({ body: WorkspaceNameRequest }),
+).schema;
+const createProjectRequestSchema = Schema.toJsonSchemaDocument(
+  Schema.Struct({
+    headers: Schema.Struct({ "idempotency-key": IdempotencyKey }),
+    body: ProjectNameRequest,
+  }),
+).schema;
+const renameProjectRequestSchema = Schema.toJsonSchemaDocument(
+  Schema.Struct({ body: ProjectNameRequest }),
 ).schema;
 const JsonString = Schema.fromJsonString(Schema.Json);
 
@@ -62,12 +86,20 @@ function requestSchema(name: string, document: Readonly<Record<string, unknown>>
 
 const createWorkspace = requestSchema("create_workspace", createWorkspaceRequestSchema);
 const renameWorkspace = requestSchema("rename_workspace", renameWorkspaceRequestSchema);
-const requestSchemas = [createWorkspace, renameWorkspace] as const;
+const createProject = requestSchema("create_project", createProjectRequestSchema);
+const renameProject = requestSchema("rename_project", renameProjectRequestSchema);
+const requestSchemas = [createWorkspace, renameWorkspace, createProject, renameProject] as const;
 
 /** Content-addressed request-schema paths derived from their schema documents. */
 export const WorkspaceSchemaPaths = {
   create: createWorkspace.path,
   rename: renameWorkspace.path,
+} as const;
+
+/** Content-addressed Project request-schema paths. */
+export const ProjectSchemaPaths = {
+  create: createProject.path,
+  rename: renameProject.path,
 } as const;
 
 /** Build a published request schema when the content hash and name match. */

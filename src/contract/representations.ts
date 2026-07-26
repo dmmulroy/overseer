@@ -1,6 +1,7 @@
 import {
   DiscoveryDocument,
   DiscoveryPaths,
+  ProjectSchemaPaths,
   SchemaIndex,
   WorkspaceSchemaPaths,
 } from "./http-api.ts";
@@ -21,7 +22,12 @@ export function discoveryDocument(): DiscoveryDocument {
 /** Build the content-addressed request-schema index. */
 export function schemaIndex(): SchemaIndex {
   return SchemaIndex.make({
-    items: [{ href: WorkspaceSchemaPaths.create }, { href: WorkspaceSchemaPaths.rename }],
+    items: [
+      { href: WorkspaceSchemaPaths.create },
+      { href: WorkspaceSchemaPaths.rename },
+      { href: ProjectSchemaPaths.create },
+      { href: ProjectSchemaPaths.rename },
+    ],
     links: {
       self: { href: DiscoveryPaths.schemas },
       openapi: { href: DiscoveryPaths.openapi },

@@ -7,11 +7,17 @@ import * as HttpApiSchema from "effect/unstable/httpapi/HttpApiSchema";
 import * as HttpApiSecurity from "effect/unstable/httpapi/HttpApiSecurity";
 import * as OpenApi from "effect/unstable/httpapi/OpenApi";
 import { RequestId } from "../domain/actor.ts";
-import { WorkspaceId } from "../domain/entity-id.ts";
+import { ProjectId, WorkspaceId } from "../domain/entity-id.ts";
 import { IdempotencyKey } from "../domain/idempotency.ts";
-import { WorkspaceCursor, WorkspacePageLimitFromString } from "../domain/pagination.ts";
+import {
+  ProjectCursor,
+  ProjectPageLimitFromString,
+  WorkspaceCursor,
+  WorkspacePageLimitFromString,
+} from "../domain/pagination.ts";
+import { ProjectName, ProjectTimestamp } from "../domain/project.ts";
 import { WorkspaceName, WorkspaceTimestamp } from "../domain/workspace.ts";
-import { WorkspaceNameRequest } from "./request-schemas.ts";
+import { ProjectNameRequest, WorkspaceNameRequest } from "./request-schemas.ts";
 
 /** Stable paths owned by the discovery contract. */
 export const DiscoveryPaths = {
@@ -30,7 +36,7 @@ export const DiscoveryMediaTypes = {
   schema: "application/schema+json",
 } as const;
 
-export { WorkspaceSchemaPaths } from "./request-schemas.ts";
+export { ProjectSchemaPaths, WorkspaceSchemaPaths } from "./request-schemas.ts";
 
 const LinkMethod = Schema.Literals(["GET", "POST", "PATCH"]);
 const RequestSchemaReference = Schema.String.check(
@@ -169,6 +175,10 @@ const workspaceListProblems = errorsAtStatuses([400, 406, 500, 503]);
 const workspaceCreateProblems = errorsAtStatuses([400, 403, 409, 413, 415, 422, 500, 503]);
 const workspaceReadProblems = errorsAtStatuses([400, 404, 406, 500, 503]);
 const workspaceRenameProblems = errorsAtStatuses([400, 403, 404, 413, 415, 422, 500, 503]);
+const projectListProblems = errorsAtStatuses([400, 404, 406, 500, 503]);
+const projectCreateProblems = errorsAtStatuses([400, 403, 404, 409, 413, 415, 422, 500, 503]);
+const projectReadProblems = errorsAtStatuses([400, 404, 406, 500, 503]);
+const projectRenameProblems = errorsAtStatuses([400, 403, 404, 413, 415, 422, 500, 503]);
 const conditionalReadHeaders = {
   accept: Schema.optionalKey(Schema.String),
   "if-none-match": Schema.optionalKey(Schema.String),
@@ -181,7 +191,7 @@ const JsonSchemaDocument = Schema.Unknown.pipe(
   HttpApiSchema.asJson({ contentType: DiscoveryMediaTypes.schema }),
 );
 
-export { WorkspaceNameRequest } from "./request-schemas.ts";
+export { ProjectNameRequest, WorkspaceNameRequest } from "./request-schemas.ts";
 
 /** Full Workspace REST representation. */
 export const WorkspaceRepresentation = Schema.Struct({
@@ -207,6 +217,30 @@ export const WorkspaceCollection = Schema.Struct({
 
 /** Exact active Workspace collection page. */
 export interface WorkspaceCollection extends Schema.Schema.Type<typeof WorkspaceCollection> {}
+
+/** Full Project REST representation. */
+export const ProjectRepresentation = Schema.Struct({
+  id: ProjectId,
+  workspace_id: WorkspaceId,
+  name: ProjectName,
+  lifecycle: Schema.Literal("active"),
+  created_at: ProjectTimestamp,
+  updated_at: ProjectTimestamp,
+  archived_at: Schema.Null,
+  links: Schema.Record(Schema.String, Link),
+}).annotate({ identifier: "Project" });
+
+/** Full Project REST representation. */
+export interface ProjectRepresentation extends Schema.Schema.Type<typeof ProjectRepresentation> {}
+
+/** Exact active Project collection page. */
+export const ProjectCollection = Schema.Struct({
+  items: Schema.Array(ProjectRepresentation),
+  links: Schema.Record(Schema.String, Link),
+}).annotate({ identifier: "ProjectCollection" });
+
+/** Exact active Project collection page. */
+export interface ProjectCollection extends Schema.Schema.Type<typeof ProjectCollection> {}
 
 const workspacePath = { workspace_id: WorkspaceId };
 const workspaceMutationHeaders = {
@@ -321,6 +355,87 @@ const renameWorkspace = HttpApiEndpoint.patch("renameWorkspace", "/api/workspace
   error: workspaceRenameProblems,
 });
 
+const projectListQuery = Schema.Struct({
+  cursor: Schema.optionalKey(ProjectCursor),
+  limit: Schema.optionalKey(ProjectPageLimitFromString),
+}).pipe(
+  Schema.flip,
+  Schema.check(
+    Schema.makeFilter(
+      (query) => Object.keys(query).every((key) => key === "cursor" || key === "limit"),
+      { expected: "an object containing only cursor and limit fields" },
+    ),
+  ),
+  Schema.flip,
+);
+const projectPath = { project_id: ProjectId };
+const workspaceProjectsPath = { workspace_id: WorkspaceId };
+const projectCreated = ProjectRepresentation.pipe(HttpApiSchema.status(201));
+const listProjects = HttpApiEndpoint.get("listProjects", DiscoveryPaths.projects, {
+  headers: conditionalReadHeaders,
+  query: projectListQuery,
+  success: [ProjectCollection, NotModified],
+  error: projectListProblems,
+});
+const headProjects = HttpApiEndpoint.head("headProjects", DiscoveryPaths.projects, {
+  headers: conditionalReadHeaders,
+  query: projectListQuery,
+  success: [ProjectCollection, NotModified],
+  error: projectListProblems,
+});
+const listWorkspaceProjects = HttpApiEndpoint.get(
+  "listWorkspaceProjects",
+  "/api/workspaces/:workspace_id/projects",
+  {
+    params: workspaceProjectsPath,
+    headers: conditionalReadHeaders,
+    query: projectListQuery,
+    success: [ProjectCollection, NotModified],
+    error: projectListProblems,
+  },
+);
+const headWorkspaceProjects = HttpApiEndpoint.head(
+  "headWorkspaceProjects",
+  "/api/workspaces/:workspace_id/projects",
+  {
+    params: workspaceProjectsPath,
+    headers: conditionalReadHeaders,
+    query: projectListQuery,
+    success: [ProjectCollection, NotModified],
+    error: projectListProblems,
+  },
+);
+const createProject = HttpApiEndpoint.post(
+  "createProject",
+  "/api/workspaces/:workspace_id/projects",
+  {
+    params: workspaceProjectsPath,
+    headers: workspaceCreateHeaders,
+    payload: ProjectNameRequest,
+    success: projectCreated,
+    error: projectCreateProblems,
+  },
+);
+const readProject = HttpApiEndpoint.get("readProject", "/api/projects/:project_id", {
+  params: projectPath,
+  headers: conditionalReadHeaders,
+  success: [ProjectRepresentation, NotModified],
+  error: projectReadProblems,
+});
+const headProject = HttpApiEndpoint.head("headProject", "/api/projects/:project_id", {
+  params: projectPath,
+  headers: conditionalReadHeaders,
+  success: [ProjectRepresentation, NotModified],
+  error: projectReadProblems,
+});
+const renameProject = HttpApiEndpoint.patch("renameProject", "/api/projects/:project_id", {
+  params: projectPath,
+  headers: workspaceMutationHeaders,
+  payload: ProjectNameRequest,
+  success: ProjectRepresentation,
+  error: projectRenameProblems,
+});
+
 /** Discovery endpoints in the public Overseer API. */
 export class DiscoveryGroup extends HttpApiGroup.make("discovery")
   .add(discover)
@@ -340,6 +455,17 @@ export class WorkspaceGroup extends HttpApiGroup.make("workspaces")
   .add(readWorkspace)
   .add(headWorkspace)
   .add(renameWorkspace) {}
+
+/** Project endpoints in the public Overseer API. */
+export class ProjectGroup extends HttpApiGroup.make("projects")
+  .add(listProjects)
+  .add(headProjects)
+  .add(listWorkspaceProjects)
+  .add(headWorkspaceProjects)
+  .add(createProject)
+  .add(readProject)
+  .add(headProject)
+  .add(renameProject) {}
 
 /** Cloudflare Access assertion scheme published in generated OpenAPI. */
 export class CloudflareAccess extends HttpApiMiddleware.Service<CloudflareAccess>()(
@@ -364,4 +490,5 @@ export class CloudflareAccess extends HttpApiMiddleware.Service<CloudflareAccess
 export class OverseerApi extends HttpApi.make("overseer")
   .add(DiscoveryGroup)
   .add(WorkspaceGroup)
+  .add(ProjectGroup)
   .middleware(CloudflareAccess) {}

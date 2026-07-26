@@ -9,7 +9,11 @@ import {
   type ListWorkspacesRpcInput,
   WORKSPACE_REGISTRY_SINGLETON_NAME,
 } from "../../src/application/workspace-registry/workspace-registry-rpc.ts";
-import { WorkspaceCollection } from "../../src/contract/http-api.ts";
+import {
+  ProjectCollection,
+  WorkspaceCollection,
+  WorkspaceRepresentation,
+} from "../../src/contract/http-api.ts";
 import { WorkspaceId } from "../../src/domain/entity-id.ts";
 import { WorkspacePageLimit } from "../../src/domain/pagination.ts";
 import { startAlchemyGateway } from "../fixtures/alchemy-gateway.ts";
@@ -90,6 +94,14 @@ async function createWorkspace(runtime: Miniflare, name: string, key: string) {
       "content-type": "application/json",
       "idempotency-key": key,
     },
+    body: JSON.stringify({ name }),
+  });
+}
+
+async function createProject(runtime: Miniflare, workspaceId: string, name: string, key: string) {
+  return api(runtime, `/api/workspaces/${workspaceId}/projects`, {
+    method: "POST",
+    headers: { "content-type": "application/json", "idempotency-key": key },
     body: JSON.stringify({ name }),
   });
 }
@@ -281,15 +293,36 @@ describe("production Alchemy runtime", () => {
     }
   });
 
-  it("reconstructs the object and reads previously committed SQLite state", async () => {
+  it("reconstructs the object and reads previously committed Workspace Registry state", async () => {
+    const workspaceResponse = await createWorkspace(
+      gateway,
+      "Reconstructed Project Workspace",
+      "reconstructed-project-workspace",
+    );
+    const workspace = Schema.decodeUnknownSync(WorkspaceRepresentation)(
+      await workspaceResponse.json(),
+    );
+    expect(
+      (await createProject(gateway, workspace.id, "Reconstructed Project", "reconstructed-project"))
+        .status,
+    ).toBe(201);
+
     await gateway.dispose();
     gateway = await startGatewayAt(persistenceRoot);
 
     const listed = await api(gateway, "/api/workspaces");
     expect(listed.status).toBe(200);
     const collection = Schema.decodeUnknownSync(WorkspaceCollection)(await listed.json());
-    expect(collection.items.map((workspace) => workspace.name)).toEqual(
+    expect(collection.items.map((item) => item.name)).toEqual(
       expect.arrayContaining(["Alchemy first", "Alchemy second"]),
+    );
+    const projects = Schema.decodeUnknownSync(ProjectCollection)(
+      await (await api(gateway, "/api/projects")).json(),
+    );
+    expect(projects.items).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ name: "Reconstructed Project", workspace_id: workspace.id }),
+      ]),
     );
   });
 

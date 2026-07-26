@@ -1,7 +1,7 @@
 import { createRootRoute, createRouter, lazyRouteComponent } from "@tanstack/react-router";
 import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
-import { WorkspaceId } from "../domain/entity-id.ts";
+import { ProjectId, WorkspaceId } from "../domain/entity-id.ts";
 
 const rootRoute = createRootRoute({
   component: lazyRouteComponent(() => import("./shell/app-shell.tsx"), "AppShell"),
@@ -9,6 +9,7 @@ const rootRoute = createRootRoute({
     workspace_id: Option.getOrUndefined(
       Schema.decodeUnknownOption(WorkspaceId)(search.workspace_id),
     ),
+    project_id: Option.getOrUndefined(Schema.decodeUnknownOption(ProjectId)(search.project_id)),
   }),
 });
 

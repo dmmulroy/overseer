@@ -3,9 +3,13 @@ import { Link, useNavigate, useSearch } from "@tanstack/react-router";
 import * as Option from "effect/Option";
 import { AsyncResult } from "effect/unstable/reactivity";
 import { useCallback, useEffect, useState } from "react";
-import { discoveryQuery, workspaceQuery } from "../../adapters/web-client/api-resources.ts";
-import type { WorkspaceRepresentation } from "../../contract/http-api.ts";
-import type { WorkspaceId } from "../../domain/entity-id.ts";
+import {
+  discoveryQuery,
+  projectQuery,
+  workspaceQuery,
+} from "../../adapters/web-client/api-resources.ts";
+import type { ProjectRepresentation, WorkspaceRepresentation } from "../../contract/http-api.ts";
+import type { ProjectId, WorkspaceId } from "../../domain/entity-id.ts";
 import { cn } from "../../lib/ui-classnames.ts";
 import { Button } from "../../ui/primitives/button.tsx";
 import { useTheme } from "../../ui/theme-provider.tsx";
@@ -110,6 +114,72 @@ function WorkspaceSwitcher(props: WorkspaceSwitcherProps): React.JSX.Element {
 }
 
 const noWorkspaces: ReadonlyArray<WorkspaceRepresentation> = [];
+const noProjects: ReadonlyArray<ProjectRepresentation> = [];
+
+function ProjectSwitcher(props: {
+  readonly mode: "desktop" | "mobile";
+  readonly projects: ReadonlyArray<ProjectRepresentation>;
+  readonly selectedId: Option.Option<ProjectId>;
+  readonly select: (project: ProjectRepresentation) => void;
+  readonly workspaces: ReadonlyArray<WorkspaceRepresentation>;
+}): React.JSX.Element {
+  if (props.mode === "desktop") {
+    return (
+      <div className="project-buttons grid gap-1.5">
+        {props.projects.map((project) => {
+          const selected = Option.contains(props.selectedId, project.id);
+          return (
+            <Button
+              aria-label={`Select ${project.name} Project`}
+              aria-pressed={selected}
+              className="w-full justify-start overflow-hidden text-ellipsis"
+              key={project.id}
+              onClick={() => props.select(project)}
+              size="sm"
+              type="button"
+              variant={selected ? "default" : "ghost"}
+            >
+              <span className="truncate">{project.name}</span>
+            </Button>
+          );
+        })}
+      </div>
+    );
+  }
+  return (
+    <label className="mobile-project-selector grid min-w-0 gap-0.5 text-[10px] text-muted-foreground">
+      <span>Project</span>
+      <select
+        aria-label="Project"
+        className="h-8 max-w-44 rounded-md border bg-surface-raised px-2 text-foreground"
+        value={Option.match(props.selectedId, {
+          onNone: () => "",
+          onSome: (id) => (props.projects.some((project) => project.id === id) ? id : ""),
+        })}
+        onChange={(event) => {
+          const project = props.projects.find(
+            (candidate) => candidate.id === event.currentTarget.value,
+          );
+          if (project !== undefined) props.select(project);
+        }}
+      >
+        <option disabled value="">
+          Choose Project
+        </option>
+        {props.projects.map((project) => {
+          const workspace = props.workspaces.find(
+            (candidate) => candidate.id === project.workspace_id,
+          );
+          return (
+            <option key={project.id} value={project.id}>
+              {workspace === undefined ? project.name : `${workspace.name} / ${project.name}`}
+            </option>
+          );
+        })}
+      </select>
+    </label>
+  );
+}
 
 function UpdatingStatus(): React.JSX.Element | null {
   const [visible, setVisible] = useState(false);
@@ -170,7 +240,11 @@ function LoadingCard(props: {
 
 function ShellNavigation(props: {
   readonly mobileContext: string;
-  readonly selectedId: Option.Option<WorkspaceId>;
+  readonly mobileProjects: ReadonlyArray<ProjectRepresentation>;
+  readonly projects: ReadonlyArray<ProjectRepresentation>;
+  readonly selectedProjectId: Option.Option<ProjectId>;
+  readonly selectedWorkspaceId: Option.Option<WorkspaceId>;
+  readonly selectProject: (project: ProjectRepresentation) => void;
   readonly selectWorkspace: (workspaceId: WorkspaceId) => void;
   readonly workspaces: ReadonlyArray<WorkspaceRepresentation>;
 }): React.JSX.Element {
@@ -180,14 +254,25 @@ function ShellNavigation(props: {
         <Link
           className="brand text-lg font-bold tracking-tight"
           to="/"
-          search={(previous) => ({ workspace_id: previous.workspace_id })}
+          search={(previous) => ({
+            workspace_id: previous.workspace_id,
+            project_id: previous.project_id,
+          })}
         >
           Overseer
         </Link>
-        {props.workspaces.length > 0 ? (
+        {props.mobileProjects.length > 0 ? (
+          <ProjectSwitcher
+            mode="mobile"
+            projects={props.mobileProjects}
+            selectedId={props.selectedProjectId}
+            select={props.selectProject}
+            workspaces={props.workspaces}
+          />
+        ) : props.workspaces.length > 0 ? (
           <WorkspaceSwitcher
             mode="mobile"
-            selectedId={props.selectedId}
+            selectedId={props.selectedWorkspaceId}
             select={props.selectWorkspace}
             workspaces={props.workspaces}
           />
@@ -202,7 +287,10 @@ function ShellNavigation(props: {
         <Link
           className="brand text-lg font-bold tracking-tight"
           to="/"
-          search={(previous) => ({ workspace_id: previous.workspace_id })}
+          search={(previous) => ({
+            workspace_id: previous.workspace_id,
+            project_id: previous.project_id,
+          })}
         >
           Overseer
         </Link>
@@ -213,15 +301,25 @@ function ShellNavigation(props: {
           ) : (
             <WorkspaceSwitcher
               mode="desktop"
-              selectedId={props.selectedId}
+              selectedId={props.selectedWorkspaceId}
               select={props.selectWorkspace}
               workspaces={props.workspaces}
             />
           )}
         </div>
-        <div className="mt-8">
+        <div className="mt-8 min-h-0 overflow-hidden">
           <Eyebrow>Project</Eyebrow>
-          <p className="text-sm text-muted-foreground">None yet</p>
+          {props.projects.length === 0 ? (
+            <p className="text-sm text-muted-foreground">None yet</p>
+          ) : (
+            <ProjectSwitcher
+              mode="desktop"
+              projects={props.projects}
+              selectedId={props.selectedProjectId}
+              select={props.selectProject}
+              workspaces={props.workspaces}
+            />
+          )}
         </div>
         <div className="mt-auto">
           <ThemeControl />
@@ -235,10 +333,16 @@ type WorkspaceContentProps = {
   readonly discoveryInitial: boolean;
   readonly discoveryUnavailable: boolean;
   readonly lastValidated: Option.Option<string>;
+  readonly projectRequested: boolean;
+  readonly projectStale: boolean;
+  readonly projectUnavailable: boolean;
   readonly refreshDiscovery: () => void;
+  readonly refreshProjects: () => void;
   readonly refreshWorkspaces: () => void;
+  readonly selectedProject: Option.Option<ProjectRepresentation>;
   readonly selectedWorkspace: Option.Option<WorkspaceRepresentation>;
   readonly waiting: boolean;
+  readonly projectInitial: boolean;
   readonly workspaceInitial: boolean;
   readonly workspaceStale: boolean;
   readonly workspaceUnavailable: boolean;
@@ -273,7 +377,7 @@ function WorkspaceContent(props: WorkspaceContentProps): React.JSX.Element {
       </StateCard>
     );
   }
-  if (props.workspaceInitial) {
+  if (props.workspaceInitial || props.projectInitial) {
     return (
       <LoadingCard
         label="Loading Workspace context"
@@ -295,6 +399,24 @@ function WorkspaceContent(props: WorkspaceContentProps): React.JSX.Element {
           </p>
           <Button className="mt-6" onClick={props.refreshWorkspaces}>
             Retry Workspaces
+          </Button>
+        </div>
+      </StateCard>
+    );
+  }
+  if (props.projectUnavailable) {
+    return (
+      <StateCard>
+        <div role="alert">
+          <Eyebrow>Connection unavailable</Eyebrow>
+          <h1 className="text-3xl font-semibold tracking-tight sm:text-4xl">
+            Project context unavailable
+          </h1>
+          <p className="mt-4 leading-6 text-muted-foreground">
+            The selected Project URL is unchanged. Retry when the Workspace Registry is available.
+          </p>
+          <Button className="mt-6" onClick={props.refreshProjects}>
+            Retry Projects
           </Button>
         </div>
       </StateCard>
@@ -333,6 +455,21 @@ function WorkspaceContent(props: WorkspaceContentProps): React.JSX.Element {
       </StateCard>
     );
   }
+  if (props.projectRequested && Option.isNone(props.selectedProject)) {
+    return (
+      <StateCard>
+        <div role="alert">
+          <Eyebrow>Project unavailable</Eyebrow>
+          <h1 className="text-3xl font-semibold tracking-tight sm:text-4xl">
+            Selected Project unavailable
+          </h1>
+          <p className="mt-4 leading-6 text-muted-foreground">
+            Choose an available Project without rewriting the requested URL automatically.
+          </p>
+        </div>
+      </StateCard>
+    );
+  }
   if (Option.isNone(props.selectedWorkspace)) {
     return (
       <StateCard>
@@ -351,20 +488,28 @@ function WorkspaceContent(props: WorkspaceContentProps): React.JSX.Element {
 
   return (
     <StateCard className="workspace-context">
-      <Eyebrow>Workspace context</Eyebrow>
+      <Eyebrow>
+        {Option.isSome(props.selectedProject) ? "Project context" : "Workspace context"}
+      </Eyebrow>
       <h1 className="text-3xl font-semibold tracking-tight sm:text-4xl">
-        {props.selectedWorkspace.value.name}
+        {Option.isSome(props.selectedProject)
+          ? props.selectedProject.value.name
+          : props.selectedWorkspace.value.name}
       </h1>
       <p className="mt-4 leading-6 text-muted-foreground">
-        No Projects yet. This Workspace remains selected in the URL.
+        {Option.isSome(props.selectedProject)
+          ? `${props.selectedWorkspace.value.name} Workspace · Project identity is retained in the URL.`
+          : "No Project selected. This Workspace remains selected in the URL."}
       </p>
       {props.waiting ? <UpdatingStatus /> : null}
-      {props.workspaceStale ? (
+      {props.workspaceStale || props.projectStale ? (
         <div
           className="stale-notice mt-5 grid gap-1 border-l-3 border-ring pl-3 text-sm text-muted-foreground"
           role="status"
         >
-          <strong className="text-foreground">Workspace data may be stale</strong>
+          <strong className="text-foreground">
+            {props.projectStale ? "Project data may be stale" : "Workspace data may be stale"}
+          </strong>
           <span>
             {Option.match(props.lastValidated, {
               onNone: () => "The last loaded context remains readable.",
@@ -374,9 +519,12 @@ function WorkspaceContent(props: WorkspaceContentProps): React.JSX.Element {
           </span>
         </div>
       ) : null}
-      <Button className="mt-6" onClick={props.refreshWorkspaces}>
-        Refresh Workspaces
-      </Button>
+      <div className="mt-6 flex flex-wrap gap-2">
+        <Button onClick={props.refreshWorkspaces}>Refresh Workspaces</Button>
+        <Button onClick={props.refreshProjects} variant="outline">
+          Refresh Projects
+        </Button>
+      </div>
     </StateCard>
   );
 }
@@ -385,45 +533,91 @@ function WorkspaceContent(props: WorkspaceContentProps): React.JSX.Element {
 export function AppShell(): React.JSX.Element {
   const discovery = useAtomValue(discoveryQuery);
   const workspacesState = useAtomValue(workspaceQuery);
+  const projectsState = useAtomValue(projectQuery);
   const refreshDiscovery = useAtomRefresh(discoveryQuery);
   const refreshWorkspaces = useAtomRefresh(workspaceQuery);
+  const refreshProjects = useAtomRefresh(projectQuery);
   const navigate = useNavigate({ from: "/" });
   const search = useSearch({ from: "__root__" });
-  const resource = AsyncResult.value(workspacesState);
-  const workspaces = Option.match(resource, {
+  const workspaceResource = AsyncResult.value(workspacesState);
+  const projectResource = AsyncResult.value(projectsState);
+  const workspaces = Option.match(workspaceResource, {
     onNone: () => noWorkspaces,
     onSome: (value) => value.collection.items,
   });
-  const workspaceId = Option.fromNullishOr(search.workspace_id);
-  const selectedWorkspace = Option.fromNullishOr(
-    workspaces.find((workspace) => Option.contains(workspaceId, workspace.id)),
+  const projects = Option.match(projectResource, {
+    onNone: () => noProjects,
+    onSome: (value) => value.collection.items,
+  });
+  const requestedWorkspaceId = Option.fromNullishOr(search.workspace_id);
+  const projectId = Option.fromNullishOr(search.project_id);
+  const selectedProject = Option.fromNullishOr(
+    projects.find(
+      (project) =>
+        Option.contains(projectId, project.id) &&
+        (Option.isNone(requestedWorkspaceId) ||
+          project.workspace_id === requestedWorkspaceId.value),
+    ),
   );
+  const effectiveWorkspaceId = Option.match(selectedProject, {
+    onNone: () => requestedWorkspaceId,
+    onSome: (project) => Option.some(project.workspace_id),
+  });
+  const selectedWorkspace = Option.fromNullishOr(
+    workspaces.find((workspace) => Option.contains(effectiveWorkspaceId, workspace.id)),
+  );
+  const visibleProjects = Option.match(effectiveWorkspaceId, {
+    onNone: () => projects,
+    onSome: (workspaceId) => projects.filter((project) => project.workspace_id === workspaceId),
+  });
   const selectWorkspace = useCallback(
     (workspaceId: WorkspaceId) => {
       void navigate({
-        search: (previous) => ({ ...previous, workspace_id: workspaceId }),
+        search: (previous) => ({ ...previous, workspace_id: workspaceId, project_id: undefined }),
       });
     },
     [navigate],
   );
-
-  const mobileContext = Option.match(selectedWorkspace, {
-    onNone: () => "No Project selected",
-    onSome: (workspace) => workspace.name,
+  const selectProject = useCallback(
+    (project: ProjectRepresentation) => {
+      void navigate({
+        search: (previous) => ({
+          ...previous,
+          workspace_id: project.workspace_id,
+          project_id: project.id,
+        }),
+      });
+    },
+    [navigate],
+  );
+  const mobileContext = Option.match(selectedProject, {
+    onNone: () =>
+      Option.match(selectedWorkspace, {
+        onNone: () => "No Project selected",
+        onSome: (workspace) => workspace.name,
+      }),
+    onSome: (project) => project.name,
   });
   const discoveryUnavailable =
     AsyncResult.isFailure(discovery) && Option.isNone(AsyncResult.value(discovery));
-  const workspaceUnavailable = AsyncResult.isFailure(workspacesState) && Option.isNone(resource);
-  const workspaceStale = AsyncResult.isFailure(workspacesState) && Option.isSome(resource);
-  const lastValidated = Option.map(resource, (value) =>
-    new Date(value.validatedAt).toLocaleString(),
-  );
+  const workspaceUnavailable =
+    AsyncResult.isFailure(workspacesState) && Option.isNone(workspaceResource);
+  const projectUnavailable = AsyncResult.isFailure(projectsState) && Option.isNone(projectResource);
+  const workspaceStale = AsyncResult.isFailure(workspacesState) && Option.isSome(workspaceResource);
+  const projectStale = AsyncResult.isFailure(projectsState) && Option.isSome(projectResource);
+  const lastValidated = projectStale
+    ? Option.map(projectResource, (value) => new Date(value.validatedAt).toLocaleString())
+    : Option.map(workspaceResource, (value) => new Date(value.validatedAt).toLocaleString());
 
   return (
-    <div className="app-frame min-h-screen">
+    <div className="app-frame min-h-screen overflow-x-hidden">
       <ShellNavigation
         mobileContext={mobileContext}
-        selectedId={workspaceId}
+        mobileProjects={projects}
+        projects={visibleProjects}
+        selectedProjectId={projectId}
+        selectedWorkspaceId={effectiveWorkspaceId}
+        selectProject={selectProject}
         selectWorkspace={selectWorkspace}
         workspaces={workspaces}
       />
@@ -438,10 +632,16 @@ export function AppShell(): React.JSX.Element {
           discoveryInitial={discovery._tag === "Initial"}
           discoveryUnavailable={discoveryUnavailable}
           lastValidated={lastValidated}
+          projectInitial={projectsState._tag === "Initial"}
+          projectRequested={Option.isSome(projectId)}
+          projectStale={projectStale}
+          projectUnavailable={projectUnavailable}
           refreshDiscovery={refreshDiscovery}
+          refreshProjects={refreshProjects}
           refreshWorkspaces={refreshWorkspaces}
+          selectedProject={selectedProject}
           selectedWorkspace={selectedWorkspace}
-          waiting={workspacesState.waiting}
+          waiting={workspacesState.waiting || projectsState.waiting}
           workspaceInitial={workspacesState._tag === "Initial"}
           workspaceStale={workspaceStale}
           workspaceUnavailable={workspaceUnavailable}

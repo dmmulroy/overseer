@@ -29,8 +29,11 @@ import {
 } from "../../src/application/ulid-generator.ts";
 import { WorkspaceRegistryService } from "../../src/application/workspace-registry/workspace-registry.ts";
 import {
+  CreateProjectRpcInput,
   CreateWorkspaceRpcInput,
   IdempotencyKeyReused,
+  ProjectNotFound,
+  RenameProjectRpcInput,
   RenameWorkspaceRpcInput,
   WORKSPACE_REGISTRY_SINGLETON_NAME,
   WorkspaceNotFound,
@@ -67,6 +70,23 @@ const CreateWorkspaceFailure = Schema.Union([
   WorkspaceRegistryStateUnavailable,
 ]);
 const RenameWorkspaceFailure = ReadWorkspaceFailure;
+const ListProjectsFailure = Schema.Union([
+  WorkspaceRegistryCursorInvalid,
+  WorkspaceNotFound,
+  WorkspaceRegistryRecordCorrupt,
+  WorkspaceRegistryStateUnavailable,
+]);
+const ReadProjectFailure = Schema.Union([
+  ProjectNotFound,
+  WorkspaceRegistryRecordCorrupt,
+  WorkspaceRegistryStateUnavailable,
+]);
+const CreateProjectFailure = Schema.Union([
+  WorkspaceNotFound,
+  IdempotencyKeyReused,
+  WorkspaceRegistryRecordCorrupt,
+  WorkspaceRegistryStateUnavailable,
+]);
 
 type EffectSuccess<T> = T extends Effect.Effect<infer A, infer _E, infer _R> ? A : never;
 
@@ -161,6 +181,62 @@ function makeHandler(
                   : callFailed("renameWorkspace", cause);
               },
             }),
+        ),
+        listProjects: Effect.fn("TestWorkspaceRegistryRpc.listProjects")((input) =>
+          Effect.tryPromise({
+            try: () =>
+              stub().listProjects({
+                ...(Option.isSome(input.workspaceId)
+                  ? { workspaceId: input.workspaceId.value }
+                  : {}),
+                ...(Option.isSome(input.cursor) ? { cursor: input.cursor.value } : {}),
+                limit: input.limit,
+              }),
+            catch: (cause) => {
+              const decoded = Schema.decodeUnknownResult(ListProjectsFailure)(cause);
+              return Result.isSuccess(decoded)
+                ? decoded.success
+                : callFailed("listProjects", cause);
+            },
+          }).pipe(
+            Effect.map((page) => ({
+              projects: page.projects,
+              cursor: Option.fromNullishOr(page.cursor),
+              nextCursor: Option.fromNullishOr(page.nextCursor),
+              limit: page.limit,
+            })),
+          ),
+        ),
+        readProject: Effect.fn("TestWorkspaceRegistryRpc.readProject")((projectId) =>
+          Effect.tryPromise({
+            try: () => stub().readProject(projectId),
+            catch: (cause) => {
+              const decoded = Schema.decodeUnknownResult(ReadProjectFailure)(cause);
+              return Result.isSuccess(decoded) ? decoded.success : callFailed("readProject", cause);
+            },
+          }),
+        ),
+        createProject: Effect.fn("TestWorkspaceRegistryRpc.createProject")((input) =>
+          Effect.tryPromise({
+            try: () => stub().createProject(CreateProjectRpcInput.make(input)),
+            catch: (cause) => {
+              const decoded = Schema.decodeUnknownResult(CreateProjectFailure)(cause);
+              return Result.isSuccess(decoded)
+                ? decoded.success
+                : callFailed("createProject", cause);
+            },
+          }),
+        ),
+        renameProject: Effect.fn("TestWorkspaceRegistryRpc.renameProject")((projectId, name) =>
+          Effect.tryPromise({
+            try: () => stub().renameProject(RenameProjectRpcInput.make({ projectId, name })),
+            catch: (cause) => {
+              const decoded = Schema.decodeUnknownResult(ReadProjectFailure)(cause);
+              return Result.isSuccess(decoded)
+                ? decoded.success
+                : callFailed("renameProject", cause);
+            },
+          }),
         ),
       });
     }),

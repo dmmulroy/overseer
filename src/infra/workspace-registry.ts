@@ -17,16 +17,20 @@ import {
   WorkspaceRegistryStoredRecordCorrupt,
 } from "../application/workspace-registry/workspace-registry.ts";
 import {
+  type CreateProjectRpcInput,
   type CreateWorkspaceRpcInput,
   IdempotencyKeyReused,
+  type ListProjectsRpcInput,
   type ListWorkspacesRpcInput,
+  ProjectNotFound,
+  type RenameProjectRpcInput,
   type RenameWorkspaceRpcInput,
   WorkspaceNotFound,
   WorkspaceRegistryCursorInvalid,
   WorkspaceRegistryRecordCorrupt,
   WorkspaceRegistryStateUnavailable,
 } from "../application/workspace-registry/workspace-registry-rpc.ts";
-import type { WorkspaceId } from "../domain/entity-id.ts";
+import type { ProjectId, WorkspaceId } from "../domain/entity-id.ts";
 import { WorkspaceRegistryObject } from "./workspace-registry-resource.ts";
 
 function persistenceCauseType(cause: unknown): string {
@@ -38,7 +42,11 @@ function persistenceCauseType(cause: unknown): string {
 }
 
 type RemotePersistenceError = WorkspaceRegistryRecordCorrupt | WorkspaceRegistryStateUnavailable;
-type LocalExpectedError = WorkspaceRegistryCursorInvalid | WorkspaceNotFound | IdempotencyKeyReused;
+type LocalExpectedError =
+  | WorkspaceRegistryCursorInvalid
+  | WorkspaceNotFound
+  | ProjectNotFound
+  | IdempotencyKeyReused;
 
 function exposeRemotePersistenceFailure<A>(
   operation: "listWorkspaces",
@@ -53,7 +61,33 @@ function exposeRemotePersistenceFailure<A>(
   effect: Effect.Effect<A, IdempotencyKeyReused | WorkspaceRegistryPersistenceError>,
 ): Effect.Effect<A, IdempotencyKeyReused | RemotePersistenceError>;
 function exposeRemotePersistenceFailure<A>(
-  operation: "listWorkspaces" | "readWorkspace" | "createWorkspace" | "renameWorkspace",
+  operation: "listProjects",
+  effect: Effect.Effect<
+    A,
+    WorkspaceRegistryCursorInvalid | WorkspaceNotFound | WorkspaceRegistryPersistenceError
+  >,
+): Effect.Effect<A, WorkspaceRegistryCursorInvalid | WorkspaceNotFound | RemotePersistenceError>;
+function exposeRemotePersistenceFailure<A>(
+  operation: "readProject" | "renameProject",
+  effect: Effect.Effect<A, ProjectNotFound | WorkspaceRegistryPersistenceError>,
+): Effect.Effect<A, ProjectNotFound | RemotePersistenceError>;
+function exposeRemotePersistenceFailure<A>(
+  operation: "createProject",
+  effect: Effect.Effect<
+    A,
+    WorkspaceNotFound | IdempotencyKeyReused | WorkspaceRegistryPersistenceError
+  >,
+): Effect.Effect<A, WorkspaceNotFound | IdempotencyKeyReused | RemotePersistenceError>;
+function exposeRemotePersistenceFailure<A>(
+  operation:
+    | "listWorkspaces"
+    | "readWorkspace"
+    | "createWorkspace"
+    | "renameWorkspace"
+    | "listProjects"
+    | "readProject"
+    | "createProject"
+    | "renameProject",
   effect: Effect.Effect<A, LocalExpectedError | WorkspaceRegistryPersistenceError>,
 ): Effect.Effect<A, LocalExpectedError | RemotePersistenceError> {
   const recordCorrupt = (error: WorkspaceRegistryStoredRecordCorrupt) =>
@@ -139,6 +173,27 @@ const WorkspaceRegistryObjectLive = WorkspaceRegistryObject.make<never>(
           exposeRemotePersistenceFailure(
             "renameWorkspace",
             workspaceRegistry.renameWorkspace(input.workspaceId, input.name),
+          ),
+        listProjects: (input: ListProjectsRpcInput) =>
+          exposeRemotePersistenceFailure(
+            "listProjects",
+            workspaceRegistry.listProjects(input),
+          ).pipe(
+            Effect.map((page) => ({
+              projects: page.projects,
+              cursor: Option.getOrNull(page.cursor),
+              nextCursor: Option.getOrNull(page.nextCursor),
+              limit: page.limit,
+            })),
+          ),
+        readProject: (projectId: ProjectId) =>
+          exposeRemotePersistenceFailure("readProject", workspaceRegistry.readProject(projectId)),
+        createProject: (input: CreateProjectRpcInput) =>
+          exposeRemotePersistenceFailure("createProject", workspaceRegistry.createProject(input)),
+        renameProject: (input: RenameProjectRpcInput) =>
+          exposeRemotePersistenceFailure(
+            "renameProject",
+            workspaceRegistry.renameProject(input.projectId, input.name),
           ),
       };
     });

@@ -3,6 +3,7 @@ import * as Result from "effect/Result";
 import { describe, expect, it } from "vite-plus/test";
 import {
   browserResourceRetryDelay,
+  parseProjectPageNavigation,
   parseWorkspacePageNavigation,
 } from "../../src/adapters/web-client/api-resources.ts";
 
@@ -28,6 +29,20 @@ describe("browser API resources", () => {
     expect(navigation).toEqual({
       exactUrl: "https://overseer.example/api/workspaces?cursor=next-page&limit=25",
       cursor: "next-page",
+      limit: 25,
+    });
+  });
+
+  it("canonicalizes an exact same-origin Project page", async () => {
+    const navigation = await Effect.runPromise(
+      parseProjectPageNavigation(
+        "/api/projects?limit=25&cursor=next-project-page",
+        "https://overseer.example",
+      ),
+    );
+    expect(navigation).toEqual({
+      exactUrl: "https://overseer.example/api/projects?cursor=next-project-page&limit=25",
+      cursor: "next-project-page",
       limit: 25,
     });
   });

@@ -23,6 +23,7 @@ import type { RequestId } from "../../domain/actor.ts";
 import { GatewayRequestContext } from "./gateway-request-context.ts";
 import { ProblemResponse } from "./problem-response.ts";
 import { finalizeRepresentationResponse } from "./representation-response.ts";
+import { layer as projectHttpLayer } from "./project-http.ts";
 import { layer as workspaceHttpLayer } from "./workspace-http.ts";
 
 const requestSchemaResponse = Effect.fn("Gateway.requestSchemaResponse")(function* (
@@ -116,6 +117,7 @@ export const make = Effect.gen(function* () {
   const apiLive = HttpApiBuilder.layer(OverseerApi).pipe(
     Layer.provide(discoveryHttpLayer),
     Layer.provide(workspaceHttpLayer),
+    Layer.provide(projectHttpLayer),
     Layer.provide(authenticatedAccess),
     Layer.provide([Etag.layer, HttpPlatformLive, Path.layer, FileSystem.layerNoop({})]),
   );

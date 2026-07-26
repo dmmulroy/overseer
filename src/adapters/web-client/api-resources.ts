@@ -13,10 +13,16 @@ import {
   Link,
   OverseerApi,
   ProblemDocument,
+  ProjectCollection,
+  ProjectRepresentation,
   WorkspaceCollection,
   WorkspaceRepresentation,
 } from "../../contract/http-api.ts";
 import {
+  ProjectCursor,
+  type ProjectCursor as ProjectCursorType,
+  type ProjectPageLimit,
+  ProjectPageLimitFromString,
   WorkspaceCursor,
   type WorkspaceCursor as WorkspaceCursorType,
   type WorkspacePageLimit,
@@ -48,7 +54,7 @@ export type BrowserReadFailureReason = typeof BrowserReadFailureReason.Type;
 export class BrowserResourceReadFailed extends Schema.TaggedErrorClass<BrowserResourceReadFailed>()(
   "BrowserResourceReadFailed",
   {
-    operation: Schema.Literals(["discovery", "workspaces"]),
+    operation: Schema.Literals(["discovery", "workspaces", "projects"]),
     reason: BrowserReadFailureReason,
     message: Schema.String,
     retryable: Schema.Boolean,
@@ -77,6 +83,18 @@ export type WorkspaceResource = {
   readonly validatedAt: number;
 };
 
+/** Complete Project data assembled for browser navigation, not an HTTP page. */
+export type BrowserProjectCollection = {
+  readonly items: ReadonlyArray<ProjectRepresentation>;
+  readonly links: Readonly<Record<string, Link>>;
+};
+
+/** Browser-owned complete Project data and the latest page validation time. */
+export type ProjectResource = {
+  readonly collection: BrowserProjectCollection;
+  readonly validatedAt: number;
+};
+
 /** Parsed navigation for one exact Workspace collection page. */
 export type WorkspacePageNavigation = {
   readonly exactUrl: string;
@@ -96,6 +114,7 @@ type WorkspacePageQuery = {
 };
 
 type WorkspacePageValue = ConditionalValue<WorkspaceCollection>;
+type ProjectPageValue = ConditionalValue<ProjectCollection>;
 
 const retryableStatuses = new Set([408, 429, 500, 502, 503, 504]);
 
@@ -171,7 +190,7 @@ function withBrowserResourceRetry<A>(
 }
 
 function readFailure(options: {
-  readonly operation: "discovery" | "workspaces";
+  readonly operation: "discovery" | "workspaces" | "projects";
   readonly reason: BrowserReadFailureReason;
   readonly message: string;
   readonly retryable: boolean;
@@ -191,7 +210,7 @@ function readFailure(options: {
 }
 
 function transportFailure(
-  operation: "discovery" | "workspaces",
+  operation: "discovery" | "workspaces" | "projects",
   cause: HttpClientError.HttpClientError,
 ): BrowserResourceReadFailed {
   return readFailure({
@@ -206,7 +225,7 @@ function transportFailure(
 const StrongEtag = Schema.String.check(Schema.isPattern(/^"[\x21\x23-\x7e\x80-\xff]+"$/));
 
 function decodeModified<A>(options: {
-  readonly operation: "discovery" | "workspaces";
+  readonly operation: "discovery" | "workspaces" | "projects";
   readonly response: HttpClientResponse.HttpClientResponse;
   readonly schema: Schema.ConstraintDecoder<A, never>;
   readonly now: number;
@@ -251,7 +270,7 @@ function decodeModified<A>(options: {
 }
 
 function classifyStatus(
-  operation: "discovery" | "workspaces",
+  operation: "discovery" | "workspaces" | "projects",
   response: HttpClientResponse.HttpClientResponse,
   now: number,
 ): Effect.Effect<never, BrowserResourceReadFailed> {
@@ -539,6 +558,195 @@ const readWorkspaceCollection = Effect.gen(function* () {
 
 /** Complete Workspace collection query with conditional per-page validation. */
 export const workspaceQuery = OverseerHttpClient.runtime.atom(readWorkspaceCollection).pipe(
+  Atom.swr({
+    staleTime: "5 seconds",
+    revalidateOnFocus: true,
+    focusSignal: Atom.windowFocusSignal,
+  }),
+  Atom.withRefresh("30 seconds"),
+  withBrowserResourceRetry,
+  Atom.setIdleTTL("5 minutes"),
+);
+
+/** Parse and constrain a Project next link to the current origin and top-level collection. */
+export const parseProjectPageNavigation = Effect.fn("Browser.parseProjectPageNavigation")(
+  function* (
+    href: string,
+    origin: string,
+  ): Effect.fn.Return<
+    {
+      readonly exactUrl: string;
+      readonly cursor: ProjectCursorType;
+      readonly limit: ProjectPageLimit;
+    },
+    BrowserResourceReadFailed
+  > {
+    const url = yield* Effect.try({
+      try: () => new URL(href, origin),
+      catch: (cause) =>
+        readFailure({
+          operation: "projects",
+          reason: "pagination",
+          message: "Browser Project pagination link was invalid",
+          retryable: false,
+          cause,
+        }),
+    });
+    if (
+      url.origin !== origin ||
+      url.pathname !== DiscoveryPaths.projects ||
+      url.username !== "" ||
+      url.password !== "" ||
+      url.hash !== ""
+    ) {
+      return yield* Effect.fail(
+        readFailure({
+          operation: "projects",
+          reason: "pagination",
+          message: "Browser Project pagination link changed origin or path",
+          retryable: false,
+          cause: href,
+        }),
+      );
+    }
+    const keys = Array.from(url.searchParams.keys());
+    if (
+      keys.some((key) => key !== "cursor" && key !== "limit") ||
+      url.searchParams.getAll("cursor").length !== 1 ||
+      url.searchParams.getAll("limit").length !== 1
+    ) {
+      return yield* Effect.fail(
+        readFailure({
+          operation: "projects",
+          reason: "pagination",
+          message: "Browser Project pagination link had unexpected query parameters",
+          retryable: false,
+          cause: href,
+        }),
+      );
+    }
+    const parsed = yield* Schema.decodeUnknownEffect(
+      Schema.Struct({ cursor: ProjectCursor, limit: ProjectPageLimitFromString }),
+    )({ cursor: url.searchParams.get("cursor"), limit: url.searchParams.get("limit") }).pipe(
+      Effect.mapError((cause) =>
+        readFailure({
+          operation: "projects",
+          reason: "pagination",
+          message: "Browser Project pagination query was invalid",
+          retryable: false,
+          cause,
+        }),
+      ),
+    );
+    url.search = new URLSearchParams({
+      cursor: parsed.cursor,
+      limit: String(parsed.limit),
+    }).toString();
+    return { exactUrl: url.href, cursor: parsed.cursor, limit: parsed.limit };
+  },
+);
+
+let retainedProjectPages = new Map<string, ProjectPageValue>();
+
+const readProjectPage = Effect.fn("Browser.readProjectPage")(function* (
+  exactUrl: string,
+  query: { readonly cursor?: ProjectCursorType; readonly limit?: ProjectPageLimit },
+  previousPages: ReadonlyMap<string, ProjectPageValue>,
+  validatedPages: Map<string, ProjectPageValue>,
+): Effect.fn.Return<ProjectPageValue, BrowserResourceReadFailed, OverseerHttpClient> {
+  const client = yield* OverseerHttpClient;
+  const previous = previousPages.get(exactUrl);
+  const now = yield* Clock.currentTimeMillis;
+  const response = yield* client.projects
+    .listProjects({
+      headers: previous === undefined ? {} : { "if-none-match": previous.etag },
+      query,
+      responseMode: "response-only",
+    })
+    .pipe(
+      Effect.mapError((cause) =>
+        HttpClientError.isHttpClientError(cause)
+          ? transportFailure("projects", cause)
+          : readFailure({
+              operation: "projects",
+              reason: "status",
+              message: "Browser Project client returned a typed API failure",
+              retryable: cause.retryable,
+              cause,
+            }),
+      ),
+    );
+  if (response.status === 304) {
+    if (previous === undefined)
+      return yield* Effect.fail(
+        readFailure({
+          operation: "projects",
+          reason: "not-modified-without-cache",
+          message: "Browser Project page received 304 without a retained representation",
+          retryable: false,
+          cause: response,
+        }),
+      );
+    const validated = { ...previous, validatedAt: now };
+    validatedPages.set(exactUrl, validated);
+    return validated;
+  }
+  if (response.status !== 200) return yield* classifyStatus("projects", response, now);
+  const page = yield* decodeModified({
+    operation: "projects",
+    response,
+    schema: ProjectCollection,
+    now,
+  });
+  validatedPages.set(exactUrl, page);
+  return page;
+});
+
+const readProjectCollection = Effect.gen(function* () {
+  const origin = browserOrigin();
+  const previousPages = retainedProjectPages;
+  const validatedPages = new Map<string, ProjectPageValue>();
+  const items: Array<ProjectRepresentation> = [];
+  let links: Readonly<Record<string, Link>> = {};
+  let query: { readonly cursor?: ProjectCursorType; readonly limit?: ProjectPageLimit } = {};
+  let exactUrl = new URL(DiscoveryPaths.projects, origin).href;
+  let latestValidation = 0;
+  const seenCursors = new Set<ProjectCursorType>();
+  while (true) {
+    const page = yield* readProjectPage(exactUrl, query, previousPages, validatedPages);
+    items.push(...page.representation.items);
+    latestValidation = Math.max(latestValidation, page.validatedAt);
+    if (items.length === page.representation.items.length) {
+      const { next: _next, ...stableLinks } = page.representation.links;
+      links = stableLinks;
+    }
+    const next = page.representation.links.next;
+    if (next === undefined) {
+      retainedProjectPages = validatedPages;
+      return {
+        collection: { items, links },
+        validatedAt: latestValidation,
+      } satisfies ProjectResource;
+    }
+    const navigation = yield* parseProjectPageNavigation(next.href, origin);
+    if (seenCursors.has(navigation.cursor))
+      return yield* Effect.fail(
+        readFailure({
+          operation: "projects",
+          reason: "pagination",
+          message: "Browser Project pagination repeated a cursor",
+          retryable: false,
+          cause: navigation.cursor,
+        }),
+      );
+    seenCursors.add(navigation.cursor);
+    exactUrl = navigation.exactUrl;
+    query = { cursor: navigation.cursor, limit: navigation.limit };
+  }
+});
+
+/** Complete Project collection query with conditional per-page validation. */
+export const projectQuery = OverseerHttpClient.runtime.atom(readProjectCollection).pipe(
   Atom.swr({
     staleTime: "5 seconds",
     revalidateOnFocus: true,

@@ -295,6 +295,10 @@ listWorkspaces(input) -> WorkspacePage | typed list failures
 readWorkspace(workspaceId) -> Workspace | typed read failures
 createWorkspace(input) -> WorkspaceCreation | typed create failures
 renameWorkspace(input) -> Workspace | typed rename failures
+listProjects(input) -> ProjectPage | typed list failures
+readProject(projectId) -> Project | typed read failures
+createProject(input) -> ProjectCreation | typed create failures
+renameProject(input) -> Project | typed rename failures
 ```
 
 There is no generic read/command dispatcher, generic operation string, or cross-operation outcome union. Requests and results contain parsed Entity IDs and domain values—not `Request`, `Response`, `Env`, SQL rows, namespaces, stubs, or R2 types. Expected failures cross Alchemy's bridge as safe plain tagged records in Effect's error channel. Schemaless RPC strips prototypes, so callers match `_tag` with Effect combinators and never use `instanceof`.

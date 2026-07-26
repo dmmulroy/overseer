@@ -13,3 +13,14 @@ export type WorkspaceId = typeof WorkspaceId.Type;
 export function makeWorkspaceId(ulid: Ulid): WorkspaceId {
   return WorkspaceId.make(`workspace_${ulid}`);
 }
+
+/** Immutable, canonical identity for a Project. */
+export const ProjectId = Schema.TemplateLiteral(["project_", Ulid]).pipe(Schema.brand("ProjectId"));
+
+/** Immutable, canonical identity for a Project. */
+export type ProjectId = typeof ProjectId.Type;
+
+/** Prefix a ULID for use as a Project identity. */
+export function makeProjectId(ulid: Ulid): ProjectId {
+  return ProjectId.make(`project_${ulid}`);
+}

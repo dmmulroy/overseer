@@ -57,18 +57,25 @@ function applicationHarness(
     WorkspaceRegistryStateService.of({
       transaction: (effect) => effect,
       listWorkspaces: () => Effect.die("not used"),
-      findIdempotency: () => Effect.succeed(retained),
-      insertCreation: (created, _scope, _key, fingerprint) =>
+      listProjects: () => Effect.die("not used"),
+      findIdempotencyFingerprint: () =>
+        Effect.succeed(Option.map(retained, (value) => value.fingerprint)),
+      findWorkspaceCreation: () => Effect.succeed(retained),
+      findProjectCreation: () => Effect.succeed(Option.none()),
+      insertWorkspaceCreation: (created, _scope, _key, fingerprint) =>
         Effect.sync(() => {
           storedWorkspace = Option.some(created);
           retained = Option.some({ workspace: created, fingerprint });
         }),
       findWorkspace: () => Effect.succeed(storedWorkspace),
+      findProject: () => Effect.succeed(Option.none()),
+      insertProjectCreation: () => Effect.die("not used"),
       updateWorkspaceName: (updated) =>
         Effect.sync(() => {
           updateCount += 1;
           storedWorkspace = Option.some(updated);
         }),
+      updateProjectName: () => Effect.die("not used"),
     }),
   );
   return {

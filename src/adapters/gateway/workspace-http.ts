@@ -38,6 +38,7 @@ function workspaceRepresentation(workspace: Workspace): WorkspaceRepresentation 
     archived_at: null,
     links: {
       self: { href: self },
+      projects: { href: `${self}/projects` },
       rename: { href: self, method: "PATCH", schema: WorkspaceSchemaPaths.rename },
     },
   });

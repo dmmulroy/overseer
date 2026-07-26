@@ -20,11 +20,17 @@ import {
   WorkspaceRegistryStoredRecordCorrupt,
 } from "../../src/application/workspace-registry/workspace-registry.ts";
 import {
+  type CreateProjectRpcInput,
+  type CreateProjectRpcResult,
   type CreateWorkspaceRpcInput,
   type CreateWorkspaceRpcResult,
   type IdempotencyKeyReused,
+  type ListProjectsRpcInput,
+  type ListProjectsRpcResult,
   type ListWorkspacesRpcInput,
   type ListWorkspacesRpcResult,
+  type ProjectNotFound,
+  type RenameProjectRpcInput,
   type RenameWorkspaceRpcInput,
   type WorkspaceNotFound,
   type WorkspaceRegistryCursorInvalid,
@@ -32,10 +38,15 @@ import {
   type WorkspaceRegistryRemotePersistenceError,
   WorkspaceRegistryStateUnavailable,
 } from "../../src/application/workspace-registry/workspace-registry-rpc.ts";
-import type { WorkspaceId } from "../../src/domain/entity-id.ts";
+import type { ProjectId, WorkspaceId } from "../../src/domain/entity-id.ts";
+import type { Project } from "../../src/domain/project.ts";
 import type { Workspace } from "../../src/domain/workspace.ts";
 
-type LocalExpectedError = WorkspaceRegistryCursorInvalid | WorkspaceNotFound | IdempotencyKeyReused;
+type LocalExpectedError =
+  | WorkspaceRegistryCursorInvalid
+  | WorkspaceNotFound
+  | ProjectNotFound
+  | IdempotencyKeyReused;
 
 function exposeRemotePersistenceFailure<A>(
   operation: "listWorkspaces",
@@ -50,7 +61,39 @@ function exposeRemotePersistenceFailure<A>(
   effect: Effect.Effect<A, IdempotencyKeyReused | WorkspaceRegistryPersistenceError>,
 ): Effect.Effect<A, IdempotencyKeyReused | WorkspaceRegistryRemotePersistenceError>;
 function exposeRemotePersistenceFailure<A>(
-  _operation: "listWorkspaces" | "readWorkspace" | "createWorkspace" | "renameWorkspace",
+  operation: "listProjects",
+  effect: Effect.Effect<
+    A,
+    WorkspaceRegistryCursorInvalid | WorkspaceNotFound | WorkspaceRegistryPersistenceError
+  >,
+): Effect.Effect<
+  A,
+  WorkspaceRegistryCursorInvalid | WorkspaceNotFound | WorkspaceRegistryRemotePersistenceError
+>;
+function exposeRemotePersistenceFailure<A>(
+  operation: "readProject" | "renameProject",
+  effect: Effect.Effect<A, ProjectNotFound | WorkspaceRegistryPersistenceError>,
+): Effect.Effect<A, ProjectNotFound | WorkspaceRegistryRemotePersistenceError>;
+function exposeRemotePersistenceFailure<A>(
+  operation: "createProject",
+  effect: Effect.Effect<
+    A,
+    WorkspaceNotFound | IdempotencyKeyReused | WorkspaceRegistryPersistenceError
+  >,
+): Effect.Effect<
+  A,
+  WorkspaceNotFound | IdempotencyKeyReused | WorkspaceRegistryRemotePersistenceError
+>;
+function exposeRemotePersistenceFailure<A>(
+  _operation:
+    | "listWorkspaces"
+    | "readWorkspace"
+    | "createWorkspace"
+    | "renameWorkspace"
+    | "listProjects"
+    | "readProject"
+    | "createProject"
+    | "renameProject",
   effect: Effect.Effect<A, LocalExpectedError | WorkspaceRegistryPersistenceError>,
 ): Effect.Effect<A, LocalExpectedError | WorkspaceRegistryRemotePersistenceError> {
   const corrupt = (_error: WorkspaceRegistryStoredRecordCorrupt) =>
@@ -126,6 +169,47 @@ export class TestWorkspaceRegistry extends DurableObject<Readonly<Record<never, 
       exposeRemotePersistenceFailure(
         "renameWorkspace",
         registry.renameWorkspace(input.workspaceId, input.name),
+      ),
+    );
+  }
+
+  /** List one bounded Project page through the operation-specific seam. */
+  async listProjects(input: ListProjectsRpcInput): Promise<ListProjectsRpcResult> {
+    const registry = await this.#ready;
+    const page = await this.#run(
+      exposeRemotePersistenceFailure("listProjects", registry.listProjects(input)),
+    );
+    return {
+      projects: page.projects,
+      cursor: Option.getOrNull(page.cursor),
+      nextCursor: Option.getOrNull(page.nextCursor),
+      limit: page.limit,
+    };
+  }
+
+  /** Read one Project through the operation-specific seam. */
+  async readProject(projectId: ProjectId): Promise<Project> {
+    const registry = await this.#ready;
+    return this.#run(
+      exposeRemotePersistenceFailure("readProject", registry.readProject(projectId)),
+    );
+  }
+
+  /** Create one Project through the operation-specific seam. */
+  async createProject(input: CreateProjectRpcInput): Promise<CreateProjectRpcResult> {
+    const registry = await this.#ready;
+    return this.#run(
+      exposeRemotePersistenceFailure("createProject", registry.createProject(input)),
+    );
+  }
+
+  /** Rename one Project through the operation-specific seam. */
+  async renameProject(input: RenameProjectRpcInput): Promise<Project> {
+    const registry = await this.#ready;
+    return this.#run(
+      exposeRemotePersistenceFailure(
+        "renameProject",
+        registry.renameProject(input.projectId, input.name),
       ),
     );
   }

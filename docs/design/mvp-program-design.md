@@ -226,9 +226,13 @@ listWorkspaces(input) -> WorkspacePage
 readWorkspace(workspaceId) -> Workspace
 createWorkspace(input) -> WorkspaceCreation
 renameWorkspace(input) -> Workspace
+listProjects(input) -> ProjectPage
+readProject(projectId) -> Project
+createProject(input) -> ProjectCreation
+renameProject(input) -> Project
 ```
 
-Future Workspace/Project registry capabilities add similarly named methods such as `readProject`, `moveProject`, or `admitProject`; they do not reopen a generic read/command protocol. Each operation names only its own precise failures:
+Future Workspace/Project registry capabilities add similarly named methods such as `moveProject` or `admitProject`; they do not reopen a generic read/command protocol. Each operation names only its own precise failures:
 
 ```text
 listWorkspaces: WorkspaceRegistryCursorInvalid | safe persistence failures

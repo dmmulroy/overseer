@@ -10,14 +10,14 @@ Infrastructure modules declare deployed Alchemy v2 resources and wire Effect ser
 
 ### `workspace-registry-resource.ts` and `workspace-registry.ts`
 
-`workspace-registry-resource.ts` declares the singleton `WorkspaceRegistryObject` against the four-method application-owned schemaless RPC contract. `workspace-registry.ts`:
+`workspace-registry-resource.ts` declares the singleton `WorkspaceRegistryObject` against the eight-method application-owned Workspace and Project registry RPC contract. `workspace-registry.ts`:
 
 1. obtains `Cloudflare.DurableObjectState`;
 2. creates one `@effect/sql-sqlite-do` client from `state.raw.storage` for that activation;
 3. runs ordered migrations under Alchemy's bridge-owned constructor concurrency guard;
 4. builds the SQLite state, Web Crypto, and ULID Layers;
 5. yields those dependencies to the object-local application service;
-6. exposes `listWorkspaces`, `readWorkspace`, `createWorkspace`, and `renameWorkspace`.
+6. exposes operation-specific Workspace and Project list, read, create, and rename methods.
 
 The infrastructure root does not call `blockConcurrencyWhile` itself and does not manage Alchemy bridge scopes. Reconstruction creates a new client and reruns idempotent migrations. Correctness does not depend on an eviction finalizer.
 

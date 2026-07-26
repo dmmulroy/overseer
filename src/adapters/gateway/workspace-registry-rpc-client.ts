@@ -4,7 +4,9 @@ import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import { WorkspaceRegistryService } from "../../application/workspace-registry/workspace-registry.ts";
 import {
+  CreateProjectRpcInput,
   CreateWorkspaceRpcInput,
+  RenameProjectRpcInput,
   RenameWorkspaceRpcInput,
   WORKSPACE_REGISTRY_SINGLETON_NAME,
   WorkspaceRegistryRpcCallFailed,
@@ -85,6 +87,35 @@ export const make = Effect.gen(function* () {
       rpcCall(
         stub().renameWorkspace(RenameWorkspaceRpcInput.make({ workspaceId, name })),
         "renameWorkspace",
+      ),
+    ),
+    listProjects: Effect.fn("WorkspaceRegistryRpc.listProjects")((input) =>
+      rpcCall(
+        stub().listProjects({
+          ...(Option.isSome(input.workspaceId) ? { workspaceId: input.workspaceId.value } : {}),
+          ...(Option.isSome(input.cursor) ? { cursor: input.cursor.value } : {}),
+          limit: input.limit,
+        }),
+        "listProjects",
+      ).pipe(
+        Effect.map((page) => ({
+          projects: page.projects,
+          cursor: Option.fromNullishOr(page.cursor),
+          nextCursor: Option.fromNullishOr(page.nextCursor),
+          limit: page.limit,
+        })),
+      ),
+    ),
+    readProject: Effect.fn("WorkspaceRegistryRpc.readProject")((projectId) =>
+      rpcCall(stub().readProject(projectId), "readProject"),
+    ),
+    createProject: Effect.fn("WorkspaceRegistryRpc.createProject")((input) =>
+      rpcCall(stub().createProject(CreateProjectRpcInput.make(input)), "createProject"),
+    ),
+    renameProject: Effect.fn("WorkspaceRegistryRpc.renameProject")((projectId, name) =>
+      rpcCall(
+        stub().renameProject(RenameProjectRpcInput.make({ projectId, name })),
+        "renameProject",
       ),
     ),
   });

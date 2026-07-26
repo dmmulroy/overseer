@@ -19,12 +19,12 @@ This directory is Overseer's public HTTP boundary. It authenticates requests, pa
 - `gateway-configuration.ts` parses deploy-time and runtime configuration.
 - `request-context.ts` parses mutation metadata after authentication.
 - `gateway-http.ts` builds the Effect HTTP API router and common routing behavior.
-- `workspace-http.ts` maps typed `WorkspaceRegistryService` successes and failures to REST and RFC 9457.
+- `workspace-http.ts` and `project-http.ts` map typed `WorkspaceRegistryService` successes and failures to REST and RFC 9457.
 - `representation-response.ts` owns media negotiation, strong ETags, HEAD, and 304 responses.
 - `problem-response.ts` maps stable problem codes to statuses and safe documents.
 - `workspace-registry-rpc-client.ts` confines the Alchemy namespace and stub, obtains the singleton by `WORKSPACE_REGISTRY_SINGLETON_NAME`, and directly provides `WorkspaceRegistryService`.
 
-The RPC adapter calls `listWorkspaces`, `readWorkspace`, `createWorkspace`, and `renameWorkspace` directly. Expected remote failures stay in Effect's typed error channel and retain their operation-specific tags. The adapter separately widens Alchemy's static stub type to include the runtime `RpcCallError`, logs it safely, and maps it to `WorkspaceRegistryRpcCallFailed`. Schemaless remote errors are matched by tag, never by prototype.
+The RPC adapter calls the operation-specific Workspace and Project registry list, read, create, and rename methods directly. Expected remote failures stay in Effect's typed error channel and retain their operation-specific tags. The adapter separately widens Alchemy's static stub type to include the runtime `RpcCallError`, logs it safely, and maps it to `WorkspaceRegistryRpcCallFailed`. Schemaless remote errors are matched by tag, never by prototype.
 
 ## Boundary rules
 
