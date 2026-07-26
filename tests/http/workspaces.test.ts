@@ -176,8 +176,8 @@ describe("Workspace REST interface", () => {
     });
   });
 
-  it("isolates equal idempotency keys in scopes derived from different authenticated callers", async () => {
-    const human = await createWorkspace("Human scoped", "shared-idempotency-key");
+  it("replays an object-local idempotency key across authenticated principals", async () => {
+    const human = await createWorkspace("Human created", "shared-idempotency-key");
     expect(human.status).toBe(201);
     const humanWorkspace = await workspaceJson(human);
 
@@ -187,58 +187,47 @@ describe("Workspace REST interface", () => {
         "content-type": "application/json",
         "idempotency-key": "shared-idempotency-key",
       },
-      body: JSON.stringify({ name: "Agent scoped" }),
+      body: JSON.stringify({ name: "Agent requested" }),
     });
     expect(agent.status).toBe(201);
+    expect(agent.headers.get("idempotency-replayed")).toBe("true");
     const agentWorkspace = await workspaceJson(agent);
-    expect(agentWorkspace.id).not.toBe(humanWorkspace.id);
-
-    const renamed = await agentApi(`/api/workspaces/${agentWorkspace.id}`, {
-      method: "PATCH",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ name: "Agent renamed" }),
-    });
-    expect(renamed.status).toBe(200);
-    await expect(renamed.json()).resolves.toMatchObject({ name: "Agent renamed" });
-
-    const listed = await agentApi("/api/workspaces");
-    expect(listed.status).toBe(200);
-    const collection = Schema.decodeUnknownSync(WorkspaceCollection)(await listed.json());
-    expect(collection.items.map((item) => item.name)).toEqual(
-      expect.arrayContaining(["Human scoped", "Agent renamed"]),
-    );
+    expect(agentWorkspace).toMatchObject({ id: humanWorkspace.id, name: "Human created" });
   });
 
-  it("replays a creation result and rejects conflicting key reuse without duplication", async () => {
+  it("ignores a changed body and replays the current Workspace without duplication", async () => {
     const first = await createWorkspace("Retry proof", "workspace-retry-proof");
-    const firstBody = await first.text();
+    const firstWorkspace = await workspaceJson(first);
     const firstLocation = first.headers.get("location");
 
-    const replay = await api("/api/workspaces", {
-      method: "POST",
-      headers: {
-        "content-type": "application/json",
-        "idempotency-key": "workspace-retry-proof",
-        "if-none-match": first.headers.get("etag") ?? "",
-      },
-      body: JSON.stringify({ name: "Retry proof" }),
+    const changedBodyReplay = await createWorkspace("Different", "workspace-retry-proof");
+    expect(changedBodyReplay.status).toBe(201);
+    expect(changedBodyReplay.headers.get("location")).toBe(firstLocation);
+    expect(changedBodyReplay.headers.get("idempotency-replayed")).toBe("true");
+    await expect(workspaceJson(changedBodyReplay)).resolves.toMatchObject({
+      id: firstWorkspace.id,
+      name: "Retry proof",
     });
-    expect(replay.status).toBe(201);
-    expect(replay.headers.get("location")).toBe(firstLocation);
-    expect(replay.headers.get("idempotency-replayed")).toBe("true");
-    expect(await replay.text()).toBe(firstBody);
 
-    const conflict = await createWorkspace("Different", "workspace-retry-proof");
-    expect(conflict.status).toBe(409);
-    expect(conflict.headers.get("content-type")).toBe("application/problem+json");
-    await expect(conflict.json()).resolves.toMatchObject({
-      code: "idempotency_key_reused",
-      retryable: false,
+    const renamed = await api(`/api/workspaces/${firstWorkspace.id}`, {
+      method: "PATCH",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ name: "Current name" }),
+    });
+    expect(renamed.status).toBe(200);
+
+    const currentReplay = await createWorkspace("Ignored again", "workspace-retry-proof");
+    expect(currentReplay.status).toBe(201);
+    expect(currentReplay.headers.get("location")).toBe(`/api/workspaces/${firstWorkspace.id}`);
+    expect(currentReplay.headers.get("idempotency-replayed")).toBe("true");
+    await expect(workspaceJson(currentReplay)).resolves.toMatchObject({
+      id: firstWorkspace.id,
+      name: "Current name",
     });
 
     const listed = await api("/api/workspaces");
     const collection = await workspaceCollectionJson(listed);
-    expect(collection.items.filter((item) => item.name === "Retry proof")).toHaveLength(1);
+    expect(collection.items.filter((item) => item.id === firstWorkspace.id)).toHaveLength(1);
     expect(collection.items.some((item) => item.name === "Different")).toBe(false);
   });
 

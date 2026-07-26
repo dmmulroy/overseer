@@ -11,8 +11,7 @@ import { HttpApiSchemaError } from "effect/unstable/httpapi/HttpApiError";
 import * as HttpServerRequest from "effect/unstable/http/HttpServerRequest";
 import * as HttpServerResponse from "effect/unstable/http/HttpServerResponse";
 import { UlidGeneratorService } from "../../application/ulid-generator.ts";
-import { AuthenticatedPrincipal, makeRequestId, type RequestId } from "../../domain/actor.ts";
-import { IdempotencyScope } from "../../domain/idempotency.ts";
+import { makeRequestId, type RequestId } from "../../domain/actor.ts";
 import { AccessAssertionVerifier } from "./access-principal.ts";
 import { GatewayConfiguration } from "./gateway-configuration.ts";
 import { GatewayApi } from "./gateway-http.ts";
@@ -186,19 +185,10 @@ export const make = Effect.gen(function* () {
         }
       }
 
-      const idempotencyScope = IdempotencyScope.make(
-        AuthenticatedPrincipal.match(authentication.success, {
-          HumanPrincipal: ({ subject }) => `human:${subject}`,
-          AgentDeploymentPrincipal: ({ deploymentId }) => `agent_deployment:${deploymentId}`,
-        }),
-      );
       return yield* api
         .handle(requestId)
         .pipe(
-          Effect.provideService(
-            GatewayRequestContext,
-            GatewayRequestContext.of({ idempotencyScope, requestId }),
-          ),
+          Effect.provideService(GatewayRequestContext, GatewayRequestContext.of({ requestId })),
         );
     }).pipe(
       Effect.catchCause((cause) => {

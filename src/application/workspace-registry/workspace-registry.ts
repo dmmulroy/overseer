@@ -10,7 +10,7 @@ import {
   type ProjectId,
   WorkspaceId,
 } from "../../domain/entity-id.ts";
-import type { IdempotencyKey, IdempotencyScope } from "../../domain/idempotency.ts";
+import type { IdempotencyKey } from "../../domain/idempotency.ts";
 import type {
   ProjectCursor,
   ProjectPageLimit,
@@ -46,14 +46,6 @@ import {
   type WorkspaceRegistryRemotePersistenceError,
   WorkspaceRegistryRpcCallFailed,
 } from "./workspace-registry-rpc.ts";
-
-/** Canonical fingerprint of one idempotent request. */
-export const IdempotencyFingerprint = Schema.String.check(
-  Schema.isMinLength(1),
-  Schema.isMaxLength(1_000),
-).pipe(Schema.brand("IdempotencyFingerprint"));
-/** Canonical fingerprint of one idempotent request. */
-export type IdempotencyFingerprint = typeof IdempotencyFingerprint.Type;
 
 /** Inputs selecting one bounded Workspace collection page. */
 export type ListWorkspacesInput = {
@@ -101,16 +93,16 @@ export class WorkspaceRegistryPersistenceUnavailable extends Schema.TaggedErrorC
 export type WorkspaceRegistryPersistenceError =
   | WorkspaceRegistryStoredRecordCorrupt
   | WorkspaceRegistryPersistenceUnavailable;
-/** Retained successful Workspace creation used for idempotent replay. */
-export type RetainedWorkspaceCreation = {
-  readonly fingerprint: IdempotencyFingerprint;
-  readonly workspace: WorkspaceType;
-};
-/** Retained successful Project creation used for idempotent replay. */
-export type RetainedProjectCreation = {
-  readonly fingerprint: IdempotencyFingerprint;
-  readonly project: ProjectType;
-};
+/** Current entity resolved from the first successful use of an object-local idempotency key. */
+export type RecordedCreation =
+  | {
+      readonly _tag: "WorkspaceCreation";
+      readonly workspace: WorkspaceType;
+    }
+  | {
+      readonly _tag: "ProjectCreation";
+      readonly project: ProjectType;
+    };
 
 /** Transactional persistence capability required by Workspace Registry policy. */
 export type WorkspaceRegistryState = {
@@ -129,29 +121,16 @@ export type WorkspaceRegistryState = {
     ProjectPage,
     WorkspaceRegistryCursorInvalid | WorkspaceRegistryPersistenceError
   >;
-  readonly findIdempotencyFingerprint: (
-    scope: IdempotencyScope,
+  readonly findRecordedCreation: (
     key: IdempotencyKey,
-  ) => Effect.Effect<Option.Option<IdempotencyFingerprint>, WorkspaceRegistryPersistenceError>;
-  readonly findWorkspaceCreation: (
-    scope: IdempotencyScope,
-    key: IdempotencyKey,
-  ) => Effect.Effect<Option.Option<RetainedWorkspaceCreation>, WorkspaceRegistryPersistenceError>;
-  readonly findProjectCreation: (
-    scope: IdempotencyScope,
-    key: IdempotencyKey,
-  ) => Effect.Effect<Option.Option<RetainedProjectCreation>, WorkspaceRegistryPersistenceError>;
+  ) => Effect.Effect<Option.Option<RecordedCreation>, WorkspaceRegistryPersistenceError>;
   readonly insertWorkspaceCreation: (
     workspace: WorkspaceType,
-    scope: IdempotencyScope,
     key: IdempotencyKey,
-    fingerprint: IdempotencyFingerprint,
   ) => Effect.Effect<void, WorkspaceRegistryPersistenceError>;
   readonly insertProjectCreation: (
     project: ProjectType,
-    scope: IdempotencyScope,
     key: IdempotencyKey,
-    fingerprint: IdempotencyFingerprint,
   ) => Effect.Effect<void, WorkspaceRegistryPersistenceError>;
   readonly findWorkspace: (
     workspaceId: WorkspaceId,
@@ -219,13 +198,6 @@ export class WorkspaceRegistryLocalService extends Context.Service<
   WorkspaceRegistryLocal
 >()("@overseer/application/WorkspaceRegistryLocal") {}
 
-const CreateWorkspaceFingerprint = Schema.fromJsonString(
-  Schema.Tuple([Schema.Literal("CreateWorkspace"), Workspace.fields.name]),
-);
-const CreateProjectFingerprint = Schema.fromJsonString(
-  Schema.Tuple([Schema.Literal("CreateProject"), WorkspaceId, Project.fields.name]),
-);
-
 /** Construct object-local Workspace Registry policy from its state and ID services. */
 export const make = Effect.gen(function* () {
   const state = yield* WorkspaceRegistryStateService;
@@ -242,25 +214,10 @@ export const make = Effect.gen(function* () {
     createWorkspace: Effect.fn("WorkspaceRegistry.createWorkspace")(function* (input) {
       return yield* state.transaction(
         Effect.gen(function* () {
-          const fingerprint = IdempotencyFingerprint.make(
-            Schema.encodeSync(CreateWorkspaceFingerprint)(["CreateWorkspace", input.name]),
-          );
-          const retainedFingerprint = yield* state.findIdempotencyFingerprint(
-            input.idempotencyScope,
-            input.idempotencyKey,
-          );
-          if (Option.isSome(retainedFingerprint)) {
-            if (retainedFingerprint.value !== fingerprint) return yield* new IdempotencyKeyReused();
-            const retained = yield* state.findWorkspaceCreation(
-              input.idempotencyScope,
-              input.idempotencyKey,
-            );
-            if (Option.isNone(retained))
-              return yield* new WorkspaceRegistryStoredRecordCorrupt({
-                recordType: "idempotency",
-                cause: "Workspace replay payload missing",
-              });
-            return { workspace: retained.value.workspace, replayed: true };
+          const recorded = yield* state.findRecordedCreation(input.idempotencyKey);
+          if (Option.isSome(recorded)) {
+            if (recorded.value._tag === "ProjectCreation") return yield* new IdempotencyKeyReused();
+            return { workspace: recorded.value.workspace, replayed: true };
           }
           const timestamp = WorkspaceTimestamp.make(DateTime.formatIso(yield* DateTime.now));
           const workspace = Workspace.make({
@@ -270,12 +227,7 @@ export const make = Effect.gen(function* () {
             createdAt: timestamp,
             updatedAt: timestamp,
           });
-          yield* state.insertWorkspaceCreation(
-            workspace,
-            input.idempotencyScope,
-            input.idempotencyKey,
-            fingerprint,
-          );
+          yield* state.insertWorkspaceCreation(workspace, input.idempotencyKey);
           return { workspace, replayed: false };
         }),
       );
@@ -313,33 +265,15 @@ export const make = Effect.gen(function* () {
     createProject: Effect.fn("WorkspaceRegistry.createProject")(function* (input) {
       return yield* state.transaction(
         Effect.gen(function* () {
+          const recorded = yield* state.findRecordedCreation(input.idempotencyKey);
+          if (Option.isSome(recorded)) {
+            if (recorded.value._tag === "WorkspaceCreation")
+              return yield* new IdempotencyKeyReused();
+            return { project: recorded.value.project, replayed: true };
+          }
           const workspace = yield* state.findWorkspace(input.workspaceId);
           if (Option.isNone(workspace))
             return yield* new WorkspaceNotFound({ workspaceId: input.workspaceId });
-          const fingerprint = IdempotencyFingerprint.make(
-            Schema.encodeSync(CreateProjectFingerprint)([
-              "CreateProject",
-              input.workspaceId,
-              input.name,
-            ]),
-          );
-          const retainedFingerprint = yield* state.findIdempotencyFingerprint(
-            input.idempotencyScope,
-            input.idempotencyKey,
-          );
-          if (Option.isSome(retainedFingerprint)) {
-            if (retainedFingerprint.value !== fingerprint) return yield* new IdempotencyKeyReused();
-            const retained = yield* state.findProjectCreation(
-              input.idempotencyScope,
-              input.idempotencyKey,
-            );
-            if (Option.isNone(retained))
-              return yield* new WorkspaceRegistryStoredRecordCorrupt({
-                recordType: "idempotency",
-                cause: "Project replay payload missing",
-              });
-            return { project: retained.value.project, replayed: true };
-          }
           const timestamp = ProjectTimestamp.make(DateTime.formatIso(yield* DateTime.now));
           const project = Project.make({
             id: makeProjectId(yield* ulids.next()),
@@ -349,12 +283,7 @@ export const make = Effect.gen(function* () {
             createdAt: timestamp,
             updatedAt: timestamp,
           });
-          yield* state.insertProjectCreation(
-            project,
-            input.idempotencyScope,
-            input.idempotencyKey,
-            fingerprint,
-          );
+          yield* state.insertProjectCreation(project, input.idempotencyKey);
           return { project, replayed: false };
         }),
       );

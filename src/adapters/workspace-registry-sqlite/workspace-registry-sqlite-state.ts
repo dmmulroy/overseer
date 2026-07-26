@@ -7,7 +7,6 @@ import * as Schema from "effect/Schema";
 import * as SchemaTransformation from "effect/SchemaTransformation";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
 import {
-  IdempotencyFingerprint,
   WorkspaceRegistryPersistenceUnavailable,
   WorkspaceRegistryStateService,
   WorkspaceRegistryStoredRecordCorrupt,
@@ -44,10 +43,9 @@ type ProjectRow = {
   readonly updated_at: unknown;
   readonly archived_at: unknown;
 };
-type IdempotencyRow = {
-  readonly fingerprint: unknown;
-  readonly workspace_json: unknown;
-  readonly project_json: unknown;
+type RecordedCreationRow = {
+  readonly created_workspace_id: unknown;
+  readonly created_project_id: unknown;
 };
 
 const WorkspaceCursorState = Schema.Struct({ name: WorkspaceName, workspaceId: WorkspaceId });
@@ -117,8 +115,6 @@ const ProjectRowSchema = Schema.Struct({
     }),
   ),
 );
-const WorkspaceJson = Schema.fromJsonString(Workspace);
-const ProjectJson = Schema.fromJsonString(Project);
 const WorkspaceCursorJson = Schema.fromJsonString(WorkspaceCursorState);
 const ProjectCursorJson = Schema.fromJsonString(ProjectCursorState);
 type WorkspaceCursorState = typeof WorkspaceCursorState.Type;
@@ -192,14 +188,6 @@ export const make = Effect.gen(function* () {
     },
     Effect.catchTag("SqlError", unavailable("findProject")),
   );
-  const idempotencyRow = Effect.fn("WorkspaceRegistrySqliteState.findIdempotencyRow")(
-    (scope, key) =>
-      sql<IdempotencyRow>`SELECT fingerprint, workspace_json, project_json FROM workspace_registry_idempotency WHERE scope = ${scope} AND idempotency_key = ${key}`.pipe(
-        Effect.map((rows) => Option.fromNullishOr(rows[0])),
-        Effect.catchTag("SqlError", unavailable("findIdempotency")),
-      ),
-  );
-
   return WorkspaceRegistryStateService.of({
     transaction: Effect.fn("WorkspaceRegistrySqliteState.transaction")(
       <A, E, R>(effect: Effect.Effect<A, E, R>) =>
@@ -269,60 +257,54 @@ export const make = Effect.gen(function* () {
       },
       Effect.catchTag("SqlError", unavailable("listProjects")),
     ),
-    findIdempotencyFingerprint: (scope, key) =>
-      idempotencyRow(scope, key).pipe(
-        Effect.flatMap(
-          Option.match({
-            onNone: () => Effect.succeed(Option.none()),
-            onSome: (row) =>
-              parseStored(IdempotencyFingerprint, row.fingerprint, "idempotency").pipe(
-                Effect.map(Option.some),
-              ),
-          }),
-        ),
-      ),
-    findWorkspaceCreation: (scope, key) =>
-      idempotencyRow(scope, key).pipe(
-        Effect.flatMap(
-          Option.match({
-            onNone: () => Effect.succeed(Option.none()),
-            onSome: (row) =>
-              parseStored(
-                Schema.Struct({ fingerprint: IdempotencyFingerprint, workspace: WorkspaceJson }),
-                { fingerprint: row.fingerprint, workspace: row.workspace_json },
-                "idempotency",
-              ).pipe(Effect.map(Option.some)),
-          }),
-        ),
-      ),
-    findProjectCreation: (scope, key) =>
-      idempotencyRow(scope, key).pipe(
-        Effect.flatMap(
-          Option.match({
-            onNone: () => Effect.succeed(Option.none()),
-            onSome: (row) =>
-              parseStored(
-                Schema.Struct({ fingerprint: IdempotencyFingerprint, project: ProjectJson }),
-                { fingerprint: row.fingerprint, project: row.project_json },
-                "idempotency",
-              ).pipe(Effect.map(Option.some)),
-          }),
-        ),
-      ),
+    findRecordedCreation: Effect.fn("WorkspaceRegistrySqliteState.findRecordedCreation")(
+      function* (key) {
+        const row =
+          (yield* sql<RecordedCreationRow>`SELECT created_workspace_id, created_project_id FROM idempotency_keys WHERE idempotency_key = ${key}`)[0];
+        if (row === undefined) return Option.none();
+        const hasWorkspace = row.created_workspace_id !== null;
+        const hasProject = row.created_project_id !== null;
+        if (hasWorkspace === hasProject)
+          return yield* new WorkspaceRegistryStoredRecordCorrupt({
+            recordType: "idempotency",
+            cause: "A creation key must identify exactly one entity",
+          });
+        if (hasWorkspace) {
+          const workspaceId = yield* parseStored(
+            WorkspaceId,
+            row.created_workspace_id,
+            "idempotency",
+          );
+          const workspace = yield* findWorkspace(workspaceId);
+          if (Option.isNone(workspace))
+            return yield* new WorkspaceRegistryStoredRecordCorrupt({
+              recordType: "idempotency",
+              cause: "The Workspace creation key references a missing Workspace",
+            });
+          return Option.some({ _tag: "WorkspaceCreation" as const, workspace: workspace.value });
+        }
+        const projectId = yield* parseStored(ProjectId, row.created_project_id, "idempotency");
+        const project = yield* findProject(projectId);
+        if (Option.isNone(project))
+          return yield* new WorkspaceRegistryStoredRecordCorrupt({
+            recordType: "idempotency",
+            cause: "The Project creation key references a missing Project",
+          });
+        return Option.some({ _tag: "ProjectCreation" as const, project: project.value });
+      },
+      Effect.catchTag("SqlError", unavailable("findRecordedCreation")),
+    ),
     insertWorkspaceCreation: Effect.fn("WorkspaceRegistrySqliteState.insertWorkspaceCreation")(
-      function* (workspace, scope, key, fingerprint) {
+      function* (workspace, key) {
         yield* sql`INSERT INTO workspaces (id, name, lifecycle, created_at, updated_at, archived_at) VALUES (${workspace.id}, ${workspace.name}, 'active', ${workspace.createdAt}, ${workspace.updatedAt}, NULL)`;
-        yield* sql`INSERT INTO workspace_registry_idempotency (scope, idempotency_key, fingerprint, workspace_json, project_json, created_at) VALUES (${scope}, ${key}, ${fingerprint}, ${Schema.encodeSync(WorkspaceJson)(workspace)}, NULL, ${workspace.createdAt})`;
+        yield* sql`INSERT INTO idempotency_keys (idempotency_key, created_workspace_id, created_project_id) VALUES (${key}, ${workspace.id}, NULL)`;
       },
       Effect.catchTag("SqlError", unavailable("insertWorkspaceCreation")),
     ),
     insertProjectCreation: Effect.fn("WorkspaceRegistrySqliteState.insertProjectCreation")(
-      function* (project, scope, key, fingerprint) {
-        const encodedProject = Schema.encodeSync(ProjectJson)(project);
+      function* (project, key) {
         yield* sql`INSERT INTO projects (id, workspace_id, name, lifecycle, created_at, updated_at, archived_at) VALUES (${project.id}, ${project.workspaceId}, ${project.name}, 'active', ${project.createdAt}, ${project.updatedAt}, NULL)`;
-        // workspace_json remains populated for compatibility with the original non-null column;
-        // the fingerprint selects project_json before any replay payload is decoded.
-        yield* sql`INSERT INTO workspace_registry_idempotency (scope, idempotency_key, fingerprint, workspace_json, project_json, created_at) VALUES (${scope}, ${key}, ${fingerprint}, ${encodedProject}, ${encodedProject}, ${project.createdAt})`;
+        yield* sql`INSERT INTO idempotency_keys (idempotency_key, created_workspace_id, created_project_id) VALUES (${key}, NULL, ${project.id})`;
       },
       Effect.catchTag("SqlError", unavailable("insertProjectCreation")),
     ),

@@ -8,7 +8,7 @@ The canonical vocabulary lives in [`../../CONTEXT.md`](../../CONTEXT.md). Names 
 
 - `actor.ts` defines authenticated principals, actor-related IDs, request IDs, and Agent-session value types.
 - `entity-id.ts` defines branded immutable Workspace IDs and their ULID construction rule.
-- `idempotency.ts` defines `IdempotencyScope`, which partitions caller keys, and `IdempotencyKey`, the caller-supplied replay key.
+- `idempotency.ts` defines `IdempotencyKey`, the caller-supplied key that identifies the first successful create result in one authoritative object.
 - `pagination.ts` defines the opaque branded Workspace cursor.
 - `ulid.ts` defines canonical ULID parsing and pure construction from a timestamp and entropy.
 - `workspace.ts` defines exact Workspace names, canonical timestamps, and the parsed Workspace record.

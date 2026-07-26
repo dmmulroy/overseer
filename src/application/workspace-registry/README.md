@@ -14,7 +14,7 @@ Defines:
 - the shared `UlidGeneratorService` used to allocate Workspace and Project IDs;
 - operation inputs, successful results, and detailed object-local persistence failures.
 
-The constructor yields persistence and ULID services from Effect context. Time comes from Effect's Clock through `DateTime.now`; there is no custom clock port. Creation fingerprints application input, and one SQLite transaction stores the Workspace or Project with its replay record.
+The constructor yields persistence and ULID services from Effect context. Time comes from Effect's Clock through `DateTime.now`; there is no custom clock port. Each create performs one key lookup. First successful use stores the Workspace or Project and its key in one SQLite transaction; replay resolves and returns that entity's current state. A key recorded for the other result type conflicts.
 
 ### `workspace-registry-rpc.ts`
 
@@ -35,4 +35,4 @@ The file also owns `WORKSPACE_REGISTRY_SINGLETON_NAME`, the sole name used to re
 
 ## Ownership
 
-The object-local application constructor owns operation order, timestamps, ID allocation, and replay/conflict policy. The SQLite Layer owns SQL and persisted-row parsing. The Durable Object boundary logs classified persistence details and replaces local errors that carry causes with safe remote tags. The Gateway RPC adapter directly provides `WorkspaceRegistryService`; there is no forwarding application Layer between RPC and HTTP.
+The object-local application constructor owns operation order, timestamps, ID allocation, and first-successful-key-use replay/conflict policy. The SQLite Layer owns SQL, key-to-entity references, and persisted-row parsing. The Durable Object boundary logs classified persistence details and replaces local errors that carry causes with safe remote tags. The Gateway RPC adapter directly provides `WorkspaceRegistryService`; there is no forwarding application Layer between RPC and HTTP.

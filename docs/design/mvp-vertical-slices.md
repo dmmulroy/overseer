@@ -54,7 +54,7 @@ Archive/restore is deferred to the lifecycle slice so this checkpoint stays focu
 
 **Contracts carried forward**
 
-- `EntityId`, Workspace/Project name, `AuthenticatedPrincipal`, `Actor`, `AgentSession`, `IdempotencyScope`, `IdempotencyKey`, Link, Problem, ETag, page/cursor foundations;
+- `EntityId`, Workspace/Project name, `AuthenticatedPrincipal`, `Actor`, `AgentSession`, object-local `IdempotencyKey`, Link, Problem, ETag, page/cursor foundations;
 - operation-specific Workspace Registry list/read/create/rename and Project registry/admission RPC methods required above;
 - discovery, Workspace, Project, schema, and OpenAPI REST routes.
 
@@ -66,7 +66,7 @@ Archive/restore is deferred to the lifecycle slice so this checkpoint stays focu
 **Acceptance demonstration**
 
 1. An Agent client with a test Agent-deployment Access identity requests `/api`, follows `workspaces`, follows its create schema, and creates “Personal” with an idempotency key.
-2. Replaying that request returns the original `201` result with `Idempotency-Replayed: true`; conflicting reuse returns the typed conflict.
+2. Replaying that key with a changed body or principal returns the same Workspace's current representation with `201` and `Idempotency-Replayed: true`; reusing it for Project creation returns the typed cross-result conflict.
 3. The Agent client creates “Overseer,” follows canonical links, moves it to a second Workspace, and proves its Project URL/ID did not change.
 4. `If-None-Match` on an unchanged Project returns `304`; OpenAPI and schema links resolve with their specified media/cache behavior.
 5. The human opens the SPA, sees the same Workspaces/Project, changes context on desktop and mobile, reloads, and remains on a valid URL-backed context with no accessibility or console errors.
@@ -85,7 +85,6 @@ Archive/restore is deferred to the lifecycle slice so this checkpoint stays focu
 - Slice 1 accepted;
 - one active Project can be admitted by Workspace Registry;
 - [#51](https://github.com/dmmulroy/overseer/issues/51) has selected qualified cross-Project Issue-mention write semantics before Issue bodies begin accepting that syntax;
-- [#52](https://github.com/dmmulroy/overseer/issues/52) has selected an implementable ownership/recovery protocol for caller-global idempotency scopes before the first Project-owned ordinary POST ships;
 - [#53](https://github.com/dmmulroy/overseer/issues/53) has selected routing/repair semantics for canonical project-local Entity URLs before `/api/issues/{issue_id}` ships.
 
 **Vertical scope**
@@ -164,7 +163,7 @@ Filters whose underlying data has not been introduced yet still parse according 
 
 1. An Agent client reads an open unassigned Issue, follows `claim`, and gets the current full representation with `release`/`reassign` replacing `claim`.
 2. A second stale claim gets `409 action_not_applicable`, the current Issue, and a safe `reassign` recovery link. A deliberate reassign succeeds.
-3. Repeating achieved close/release target states is a no-op: no timestamp advance and no extra Timeline event. Replaying a POST key returns its original result.
+3. Repeating achieved close/release target states is a no-op: no timestamp advance and no extra Timeline event. Replaying a create key returns the current representation of the originally created entity.
 4. Timeline reads show immutable Actor and Agent-session snapshots in true Issue-local order, including reference events produced by Issue bodies created in Slice 2; the owning Issue and visible list converge after each command.
 5. In the browser, keyboard and pointer users steer the Issue, see optimistic rollback on a retryable failure without misleading action links, and observe an external Agent-deployment change through ordinary polling.
 

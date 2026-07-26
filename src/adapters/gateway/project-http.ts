@@ -110,7 +110,7 @@ const projectFailure = Effect.fn("Gateway.projectFailure")(function* (failure: P
     case "IdempotencyKeyReused":
       return yield* requestProblem({
         code: "idempotency_key_reused",
-        detail: "This Idempotency-Key was already used for a different request.",
+        detail: "This Idempotency-Key already identifies a Workspace creation.",
       });
     case "WorkspaceRegistryRecordCorrupt":
     case "WorkspaceRegistryStateUnavailable":
@@ -161,13 +161,11 @@ const createProjectResponse = Effect.fn("Gateway.createProject")(function* (
   name: ProjectName,
   idempotencyKey: IdempotencyKey,
 ) {
-  const context = yield* GatewayRequestContext;
   const registry = yield* WorkspaceRegistryService;
   const result = yield* Effect.result(
     registry.createProject({
       workspaceId,
       name,
-      idempotencyScope: context.idempotencyScope,
       idempotencyKey,
     }),
   );

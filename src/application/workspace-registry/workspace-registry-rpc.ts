@@ -1,7 +1,7 @@
 import * as Effect from "effect/Effect";
 import * as Schema from "effect/Schema";
 import { ProjectId, WorkspaceId } from "../../domain/entity-id.ts";
-import { IdempotencyKey, IdempotencyScope } from "../../domain/idempotency.ts";
+import { IdempotencyKey } from "../../domain/idempotency.ts";
 import {
   ProjectCursor,
   ProjectPageLimit,
@@ -37,7 +37,6 @@ export interface ListWorkspacesRpcResult extends Schema.Schema.Type<
 /** Plain input for idempotent Workspace creation over private RPC. */
 export const CreateWorkspaceRpcInput = Schema.Struct({
   name: WorkspaceName,
-  idempotencyScope: IdempotencyScope,
   idempotencyKey: IdempotencyKey,
 });
 /** Plain input for idempotent Workspace creation over private RPC. */
@@ -88,7 +87,6 @@ export interface ListProjectsRpcResult extends Schema.Schema.Type<typeof ListPro
 export const CreateProjectRpcInput = Schema.Struct({
   workspaceId: WorkspaceId,
   name: ProjectName,
-  idempotencyScope: IdempotencyScope,
   idempotencyKey: IdempotencyKey,
 });
 /** Plain input for idempotent Project creation over private RPC. */
@@ -127,13 +125,13 @@ export class ProjectNotFound extends Schema.TaggedErrorClass<ProjectNotFound>()(
   /** Stable safe diagnostic message. */
   override readonly message = "The requested Project does not exist";
 }
-/** An idempotency key was reused for a different registry creation. */
+/** An idempotency key already identifies another creation result type. */
 export class IdempotencyKeyReused extends Schema.TaggedErrorClass<IdempotencyKeyReused>()(
   "IdempotencyKeyReused",
   {},
 ) {
   /** Stable safe diagnostic message. */
-  override readonly message = "The idempotency key was reused for a different request";
+  override readonly message = "The idempotency key identifies another creation result type";
 }
 /** A persisted Workspace Registry record is corrupt. */
 export class WorkspaceRegistryRecordCorrupt extends Schema.TaggedErrorClass<WorkspaceRegistryRecordCorrupt>()(

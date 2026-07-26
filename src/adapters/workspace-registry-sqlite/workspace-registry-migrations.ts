@@ -30,13 +30,28 @@ const workspaceRegistrySchemaStatements = [
   )`,
   `CREATE INDEX IF NOT EXISTS workspaces_name_id
    ON workspaces (name ASC, id ASC)`,
-  `CREATE TABLE IF NOT EXISTS workspace_registry_idempotency (
-    scope TEXT NOT NULL,
-    idempotency_key TEXT NOT NULL,
-    fingerprint TEXT NOT NULL,
-    workspace_json TEXT NOT NULL,
+  `CREATE TABLE IF NOT EXISTS projects (
+    id TEXT PRIMARY KEY NOT NULL,
+    workspace_id TEXT NOT NULL,
+    name TEXT NOT NULL,
+    lifecycle TEXT NOT NULL CHECK (lifecycle = 'active'),
     created_at TEXT NOT NULL,
-    PRIMARY KEY (scope, idempotency_key)
+    updated_at TEXT NOT NULL,
+    archived_at TEXT,
+    FOREIGN KEY (workspace_id) REFERENCES workspaces(id)
+  )`,
+  `CREATE INDEX IF NOT EXISTS projects_name_id
+   ON projects (name ASC, id ASC)`,
+  `CREATE INDEX IF NOT EXISTS projects_workspace_name_id
+   ON projects (workspace_id, name ASC, id ASC)`,
+  `CREATE TABLE IF NOT EXISTS idempotency_keys (
+    idempotency_key TEXT PRIMARY KEY NOT NULL,
+    created_workspace_id TEXT REFERENCES workspaces(id),
+    created_project_id TEXT REFERENCES projects(id),
+    CHECK (
+      (created_workspace_id IS NOT NULL AND created_project_id IS NULL) OR
+      (created_workspace_id IS NULL AND created_project_id IS NOT NULL)
+    )
   )`,
 ] as const;
 
@@ -46,24 +61,6 @@ const migrations = SqliteMigrator.fromRecord({
     for (const statement of workspaceRegistrySchemaStatements) {
       yield* sql.unsafe(statement);
     }
-  }),
-  "2_add_projects": Effect.gen(function* () {
-    const sql = yield* SqlClient.SqlClient;
-    yield* sql.unsafe(`CREATE TABLE IF NOT EXISTS projects (
-      id TEXT PRIMARY KEY NOT NULL,
-      workspace_id TEXT NOT NULL,
-      name TEXT NOT NULL,
-      lifecycle TEXT NOT NULL CHECK (lifecycle = 'active'),
-      created_at TEXT NOT NULL,
-      updated_at TEXT NOT NULL,
-      archived_at TEXT,
-      FOREIGN KEY (workspace_id) REFERENCES workspaces(id)
-    )`);
-    yield* sql.unsafe(`CREATE INDEX IF NOT EXISTS projects_name_id
-      ON projects (name ASC, id ASC)`);
-    yield* sql.unsafe(`CREATE INDEX IF NOT EXISTS projects_workspace_name_id
-      ON projects (workspace_id, name ASC, id ASC)`);
-    yield* sql.unsafe("ALTER TABLE workspace_registry_idempotency ADD COLUMN project_json TEXT");
   }),
 });
 

@@ -21,6 +21,8 @@ Infrastructure modules declare deployed Alchemy v2 resources and wire Effect ser
 
 The infrastructure root does not call `blockConcurrencyWhile` itself and does not manage Alchemy bridge scopes. Reconstruction creates a new client and reruns idempotent migrations. Correctness does not depend on an eviction finalizer.
 
+Each authoritative Durable Object owns creation keys in its local transaction. Workspace and Project creation currently share the singleton Registry's key namespace because that object owns both operations. Future Project-owned creates store keys in that Project object. Keys are not deployment-global, and no cross-object reservation or conflict coordination is performed.
+
 At the RPC boundary, detailed object-local persistence failures are logged with safe operation and cause classifications, then translated to cause-free cloneable tags. Expected failures remain Effect failures. Defects reject native RPC and become Alchemy `RpcCallError` in wrapped callers.
 
 ## Future Project object

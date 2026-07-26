@@ -41,7 +41,7 @@ The current repository has product/domain documentation but no application sourc
 +   timeline.ts                          # event vocabulary and projection values
 +   attachment.ts                        # metadata, part plan, lifecycle, retention decisions
 +   pagination.ts                        # parsed limits/sorts/filter values; no opaque encoding
-+   idempotency.ts                       # key/fingerprint/result semantics
++   idempotency.ts                       # bounded caller-supplied creation key
 +
 + src/application/workspace-registry/               # Workspace Registry Application Module
 +   workspace-registry.ts                            # operations, outcomes, exact dependencies
@@ -49,7 +49,7 @@ The current repository has product/domain documentation but no application sourc
 +   workspace-registry-rpc.ts                       # operation-specific schemaless RPC shape and safe remote errors
 +
 + src/application/gateway/
-+   project-operations.ts                # owner resolution, admission, idempotency, dispatch
++   project-operations.ts                # owner resolution, admission, dispatch
 +
 + src/application/project/
 +   project-rpc.ts                       # private schemaless Project RPC protocol only
@@ -213,7 +213,7 @@ High-value pure decisions include:
 - Revision/no-op decisions;
 - Markdown reference extraction/reconciliation plans;
 - Attachment simple/multipart limits, exact part plan, retention due dates, and legal lifecycle transitions;
-- idempotency fingerprint equality and cursor/filter binding inputs.
+- idempotency key parsing and cursor/filter binding inputs.
 
 ### Workspace Registry application seam
 
@@ -249,9 +249,10 @@ WorkspaceRegistryStateService.transaction(operation)
 
 WorkspaceRegistryStateService:
   read registry records as parsed values
-  insert records with application-constructed IDs
+  findRecordedCreation(key) -> current Workspace or Project creation
+  insertWorkspaceCreation(workspace, key)
+  insertProjectCreation(project, key)
   update membership/lifecycle
-  resolve/store idempotency result
   page by parsed registry filter/cursor
 ```
 
@@ -261,15 +262,15 @@ The application module owns admission and operation ordering. The SQLite adapter
 
 The future Project Durable Object is one consistency and routing boundary, not one mega application module. Its inbound RPC methods call cohesive application modules directly:
 
-| Application module   | Caller-visible responsibility                                             | Narrow state port                                                                                              |
-| -------------------- | ------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------- |
-| `IssueDiscovery`     | create/read/page Issues and allocate immutable Project-local numbers      | Issue records, number allocation, exact filtered keyset reads, plus the idempotency capability selected by #52 |
-| `IssueSteering`      | open/close and claim/release/reassign with attributed Timeline effects    | Issue state/Assignee plus event/projection writes                                                              |
-| `TextContributions`  | Issue text, Comments, Revisions, no-ops, and narrative Timeline           | text/Comment/Revisions plus event/projection writes                                                            |
-| `Classification`     | Label lifecycle and Issue assignments                                     | Label/assignment records plus affected Issue projections                                                       |
-| `WorkStructure`      | Parent/Sub-issue order and Blocking invariants/readiness                  | preserved relation graphs plus affected Issue projections                                                      |
-| `References`         | current Markdown-derived references and same-Project backlinks            | source text/reference sets plus affected Issue projections                                                     |
-| `AttachmentMetadata` | pending/ready/deleted metadata, part progress, association, and retention | Attachment/association records plus the idempotency capability selected by #52                                 |
+| Application module   | Caller-visible responsibility                                             | Narrow state port                                                                              |
+| -------------------- | ------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------- |
+| `IssueDiscovery`     | create/read/page Issues and allocate immutable Project-local numbers      | Issue records, number allocation, exact filtered keyset reads, and Project-local creation keys |
+| `IssueSteering`      | open/close and claim/release/reassign with attributed Timeline effects    | Issue state/Assignee plus event/projection writes                                              |
+| `TextContributions`  | Issue text, Comments, Revisions, no-ops, and narrative Timeline           | text/Comment/Revisions plus event/projection writes                                            |
+| `Classification`     | Label lifecycle and Issue assignments                                     | Label/assignment records plus affected Issue projections                                       |
+| `WorkStructure`      | Parent/Sub-issue order and Blocking invariants/readiness                  | preserved relation graphs plus affected Issue projections                                      |
+| `References`         | current Markdown-derived references and same-Project backlinks            | source text/reference sets plus affected Issue projections                                     |
+| `AttachmentMetadata` | pending/ready/deleted metadata, part progress, association, and retention | Attachment/association records and Project-local creation keys                                 |
 
 Each module defines operation-specific input/outcome types and an exact transaction port beside itself. One wider `ProjectSqlite` adapter may structurally satisfy all of those ports because one database owns the aggregate; callers never receive the wider adapter. This keeps SQL mechanics reusable without forcing unrelated application policies through one `ProjectState` interface.
 
@@ -288,7 +289,7 @@ Representative precise error families are:
 
 ```text
 IssueDiscoveryError = IssueNotFound | InvalidCursor |
-  IdempotencyKeyReused | IdempotencyInProgress | ProjectStateUnavailable
+  IdempotencyKeyReused | ProjectStateUnavailable
 SteeringError = IssueNotFound | ResourceDeleted | ActionNotApplicable |
   ProjectStateUnavailable
 RelationError = CrossProjectRelation | RelationCycle | RelationConflict |
@@ -311,7 +312,7 @@ IssueSteeringState:
   append one event and all affected projections
 ```
 
-The location and atomic protocol for ordinary POST idempotency are intentionally deferred to [#52](https://github.com/dmmulroy/overseer/issues/52). Capability ports must follow that decision; this plan does not assume Project-local rows can enforce a caller-global idempotency scope.
+Ordinary create idempotency belongs to the authoritative Project object's existing transaction capability. It stores a key-to-entity reference with the successful mutation. Do not add a generic idempotency service, Gateway-level idempotency port, caller-global scope, or cross-object reservation.
 
 `EntityIds` constructs Entity IDs before persistence. SQLite transaction state allocates only values requiring database serialization, such as Issue numbers and Timeline positions. Application modules call pure domain decisions and commit their complete record/Revision/reference/Timeline plans in one short transaction. The adapter owns row schemas, SQL statements, keyset encoding, and rollback; it returns parsed values or typed corruption/unavailability failures, never raw rows.
 
@@ -335,7 +336,7 @@ A future DO-to-DO caller yields the other object's namespace in its Alchemy oute
 
 ```text
 AttachmentMetadata (application-owned port):
-  begin(input, attribution, idempotency) -> PendingAttachment + TransferPlan
+  begin(input, attribution, idempotencyKey) -> PendingAttachment + TransferPlan
   recordPart(attachmentId, PartOutcome) -> PendingAttachment
   validateCompletion(attachmentId) -> CompletionPlan
   finalize(attachmentId, StoredObject) -> ReadyAttachment
@@ -358,7 +359,7 @@ Expected transfer failures are values such as `TransferUnavailable`, `LengthMism
 
 ### Gateway project-operation seam
 
-`ProjectOperations` is a Gateway-level Application Module for project-local reads and commands. It receives narrow application-owned ports for Entity-owner resolution (as selected by #53), Workspace Registry admission, Project RPC, and ordinary POST idempotency (as selected by #52). Given a parsed operation, it resolves the owning Project when necessary, obtains current Workspace Registry admission, applies idempotency policy, invokes the owning Project capability, and returns a typed application outcome. This is application policy and effect ordering, not HTTP behavior.
+`ProjectOperations` is a Gateway-level Application Module for project-local reads and commands. It receives narrow application-owned ports for Entity-owner resolution (as selected by #53), Workspace Registry admission, and Project RPC. Given a parsed operation, it resolves the owning Project when necessary, obtains current Workspace Registry admission, invokes the owning Project capability, and returns a typed application outcome. The authoritative Project operation applies creation-key policy in its local transaction. This is application policy and effect ordering, not HTTP behavior.
 
 Attachment transfer remains a separate cohesive Application Module because it additionally sequences byte streams and R2. It receives the same narrow Workspace Registry admission capability and performs admission before metadata/R2 effects. Neither application module sees headers, `Request`/`Response`, bindings, stubs, or problem representations.
 
@@ -429,17 +430,17 @@ infra/gateway.fetch
    └─ application/gateway/project-operations.command
       ├─ resolve owner through #53-selected port when needed
       ├─ admit through narrow Workspace Registry port
-      ├─ apply #52-selected idempotency protocol
-      └─ invoke narrow Project-command port
+      └─ invoke narrow Project-command port with the creation key
          └─ infra/project RPC root dispatches the shared plain tagged input
             └─ owning Project-local application command
                └─ its narrow capability transaction
-                  ├─ load parsed aggregate slice
+                  ├─ look up and replay the current recorded entity when present
+                  ├─ load parsed aggregate slice for a new key
                   ├─ domain module decides transition/invariants/no-op
                   ├─ persist record/Revision/reference changes
                   ├─ append event and every affected Timeline projection
+                  ├─ record the key-to-entity result
                   └─ commit
-      └─ complete #52-selected idempotency protocol
 └─ gateway-http projects representation/links or typed problem
 ```
 

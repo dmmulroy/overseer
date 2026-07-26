@@ -218,7 +218,6 @@ describe("production Alchemy runtime", () => {
     await expect(
       stub.createWorkspace({
         name: null,
-        idempotencyScope: null,
         idempotencyKey: null,
       }),
     ).rejects.toThrow();
@@ -260,7 +259,46 @@ describe("production Alchemy runtime", () => {
     }
   });
 
-  it("rolls back the Workspace insert when the idempotency insert fails", async () => {
+  it("exposes a corrupt creation key without its cause and maps it to public 503", async () => {
+    const persist = await mkdtemp(join(tmpdir(), "overseer-alchemy-corrupt-key-"));
+    let runtime: Miniflare | undefined;
+    try {
+      runtime = await startGatewayAt(persist);
+      expect((await createWorkspace(runtime, "Initialize", "corrupt-key-initialize")).status).toBe(
+        201,
+      );
+      await runtime.dispose();
+
+      runtime = await startWorkspaceRegistryMigrationControl(persist);
+      expect(
+        (
+          await runtime.dispatchFetch("https://migration.test/corrupt-creation-key", {
+            method: "POST",
+          })
+        ).status,
+      ).toBe(200);
+      await runtime.dispose();
+
+      runtime = await startGatewayAt(persist);
+      const wireFailure = await (
+        await workspaceRegistryStub(runtime)
+      ).createWorkspace({ name: "Ignored", idempotencyKey: "corrupt-creation-key" });
+      expect(wireFailure).toMatchObject({
+        _tag: "~alchemy/rpc/error",
+        error: { _tag: "WorkspaceRegistryRecordCorrupt" },
+      });
+      expect(wireFailure).not.toMatchObject({ error: { cause: expect.anything() } });
+
+      const response = await createWorkspace(runtime, "Ignored", "corrupt-creation-key");
+      expect(response.status).toBe(503);
+      await expect(response.json()).resolves.toMatchObject({ code: "service_unavailable" });
+    } finally {
+      await runtime?.dispose();
+      await rm(persist, { force: true, recursive: true });
+    }
+  });
+
+  it("rolls back creation when the key write fails and allows the same key to retry", async () => {
     const persist = await mkdtemp(join(tmpdir(), "overseer-alchemy-rollback-"));
     let runtime: Miniflare | undefined;
     try {
@@ -271,7 +309,7 @@ describe("production Alchemy runtime", () => {
       runtime = await startWorkspaceRegistryMigrationControl(persist);
       expect(
         (
-          await runtime.dispatchFetch("https://migration.test/fail-second-insert", {
+          await runtime.dispatchFetch("https://migration.test/fail-creation-key-write", {
             method: "POST",
           })
         ).status,
@@ -279,7 +317,7 @@ describe("production Alchemy runtime", () => {
       await runtime.dispose();
 
       runtime = await startGatewayAt(persist);
-      const failed = await createWorkspace(runtime, "Must roll back", "rollback-second-insert");
+      const failed = await createWorkspace(runtime, "Must roll back", "rollback-creation-key");
       expect(failed.status).toBe(503);
       const listed = await (
         await workspaceRegistryStub(runtime)
@@ -287,6 +325,22 @@ describe("production Alchemy runtime", () => {
       expect(listed).not.toMatchObject({
         workspaces: expect.arrayContaining([expect.objectContaining({ name: "Must roll back" })]),
       });
+      await runtime.dispose();
+
+      runtime = await startWorkspaceRegistryMigrationControl(persist);
+      expect(
+        (
+          await runtime.dispatchFetch("https://migration.test/allow-creation-key-write", {
+            method: "POST",
+          })
+        ).status,
+      ).toBe(200);
+      await runtime.dispose();
+
+      runtime = await startGatewayAt(persist);
+      const retried = await createWorkspace(runtime, "Must roll back", "rollback-creation-key");
+      expect(retried.status).toBe(201);
+      expect(retried.headers.get("idempotency-replayed")).toBeNull();
     } finally {
       await runtime?.dispose();
       await rm(persist, { force: true, recursive: true });
@@ -324,6 +378,15 @@ describe("production Alchemy runtime", () => {
         expect.objectContaining({ name: "Reconstructed Project", workspace_id: workspace.id }),
       ]),
     );
+    const replayed = await createProject(
+      gateway,
+      workspace.id,
+      "Ignored after reconstruction",
+      "reconstructed-project",
+    );
+    expect(replayed.status).toBe(201);
+    expect(replayed.headers.get("idempotency-replayed")).toBe("true");
+    await expect(replayed.json()).resolves.toMatchObject({ name: "Reconstructed Project" });
   });
 
   it("classifies a migration body failure and retries after the body is repaired", async () => {

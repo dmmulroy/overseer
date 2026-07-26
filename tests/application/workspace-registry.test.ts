@@ -6,14 +6,14 @@ import { TestClock } from "effect/testing";
 import { describe, expect, it } from "vite-plus/test";
 import { UlidGeneratorService } from "../../src/application/ulid-generator.ts";
 import {
-  IdempotencyFingerprint,
   layer as workspaceRegistryLayer,
-  type RetainedWorkspaceCreation,
+  type RecordedCreation,
   WorkspaceRegistryLocalService,
   WorkspaceRegistryStateService,
 } from "../../src/application/workspace-registry/workspace-registry.ts";
-import { WorkspaceId } from "../../src/domain/entity-id.ts";
-import { IdempotencyKey, IdempotencyScope } from "../../src/domain/idempotency.ts";
+import { ProjectId, WorkspaceId } from "../../src/domain/entity-id.ts";
+import { IdempotencyKey } from "../../src/domain/idempotency.ts";
+import { Project, ProjectName, ProjectTimestamp } from "../../src/domain/project.ts";
 import { Ulid } from "../../src/domain/ulid.ts";
 import {
   Workspace,
@@ -24,6 +24,7 @@ import {
 
 const fixedUlid = Ulid.make("01J00000000000000000000000");
 const fixedWorkspaceId = WorkspaceId.make(`workspace_${fixedUlid}`);
+const fixedProjectId = ProjectId.make(`project_${fixedUlid}`);
 const initialTimestamp = WorkspaceTimestamp.make("2024-01-01T00:00:00.000Z");
 
 const fixedUlidLayer = Layer.succeed(
@@ -45,11 +46,11 @@ function workspace(name: string): WorkspaceType {
 
 function applicationHarness(
   options: {
-    readonly retained?: Option.Option<RetainedWorkspaceCreation>;
+    readonly recordedCreation?: Option.Option<RecordedCreation>;
     readonly workspace?: Option.Option<WorkspaceType>;
   } = {},
 ) {
-  let retained = options.retained ?? Option.none();
+  let recordedCreation = options.recordedCreation ?? Option.none();
   let storedWorkspace = options.workspace ?? Option.none();
   let updateCount = 0;
   const StateLive = Layer.succeed(
@@ -58,14 +59,11 @@ function applicationHarness(
       transaction: (effect) => effect,
       listWorkspaces: () => Effect.die("not used"),
       listProjects: () => Effect.die("not used"),
-      findIdempotencyFingerprint: () =>
-        Effect.succeed(Option.map(retained, (value) => value.fingerprint)),
-      findWorkspaceCreation: () => Effect.succeed(retained),
-      findProjectCreation: () => Effect.succeed(Option.none()),
-      insertWorkspaceCreation: (created, _scope, _key, fingerprint) =>
+      findRecordedCreation: () => Effect.succeed(recordedCreation),
+      insertWorkspaceCreation: (created) =>
         Effect.sync(() => {
           storedWorkspace = Option.some(created);
-          retained = Option.some({ workspace: created, fingerprint });
+          recordedCreation = Option.some({ _tag: "WorkspaceCreation", workspace: created });
         }),
       findWorkspace: () => Effect.succeed(storedWorkspace),
       findProject: () => Effect.succeed(Option.none()),
@@ -86,12 +84,11 @@ function applicationHarness(
 
 const input = {
   name: WorkspaceName.make("Personal"),
-  idempotencyScope: IdempotencyScope.make("human:owner"),
   idempotencyKey: IdempotencyKey.make("create-personal"),
 };
 
 describe("Workspace Registry application", () => {
-  it("creates once and replays the retained result through its application seam", async () => {
+  it("creates once and replays the recorded result through its application seam", async () => {
     const harness = applicationHarness();
     const program = Effect.gen(function* () {
       yield* TestClock.setTime(Date.parse("2024-02-03T04:05:06.789Z"));
@@ -117,23 +114,24 @@ describe("Workspace Registry application", () => {
     });
   });
 
-  it("keeps conflicting idempotency reuse in the typed error channel", async () => {
-    const firstHarness = applicationHarness();
-    const first = await Effect.runPromise(
-      WorkspaceRegistryLocalService.pipe(
-        Effect.andThen((registry) => registry.createWorkspace(input)),
-        Effect.provide(firstHarness.layer),
-      ),
-    );
-    const retained = Option.some({
-      workspace: first.workspace,
-      fingerprint: IdempotencyFingerprint.make('["CreateWorkspace","Different"]'),
+  it("keeps cross-result-type idempotency reuse in the typed error channel", async () => {
+    const project = Project.make({
+      id: fixedProjectId,
+      workspaceId: fixedWorkspaceId,
+      name: ProjectName.make("Existing Project"),
+      lifecycle: "active",
+      createdAt: ProjectTimestamp.make(initialTimestamp),
+      updatedAt: ProjectTimestamp.make(initialTimestamp),
     });
     const result = await Effect.runPromise(
       WorkspaceRegistryLocalService.pipe(
         Effect.andThen((registry) => registry.createWorkspace(input)),
         Effect.result,
-        Effect.provide(applicationHarness({ retained }).layer),
+        Effect.provide(
+          applicationHarness({
+            recordedCreation: Option.some({ _tag: "ProjectCreation", project }),
+          }).layer,
+        ),
       ),
     );
 

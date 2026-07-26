@@ -7,11 +7,10 @@ This directory is Overseer's public HTTP boundary. It authenticates requests, pa
 `gateway-application.ts` builds the isolate-level application and performs request admission:
 
 1. verify the Cloudflare Access assertion;
-2. derive an `IdempotencyScope` from the verified caller;
-3. enforce human Origin or parse Agent-session metadata for unsafe requests;
-4. provide `GatewayRequestContext`;
-5. invoke the declared HTTP handler;
-6. translate schema failures and defects into safe responses.
+2. enforce human Origin or parse Agent-session metadata for unsafe requests;
+3. provide request ID through `GatewayRequestContext`;
+4. invoke the declared HTTP handler;
+5. translate schema failures and defects into safe responses.
 
 ## Important modules
 
@@ -24,7 +23,7 @@ This directory is Overseer's public HTTP boundary. It authenticates requests, pa
 - `problem-response.ts` maps stable problem codes to statuses and safe documents.
 - `workspace-registry-rpc-client.ts` confines the Alchemy namespace and stub, obtains the singleton by `WORKSPACE_REGISTRY_SINGLETON_NAME`, and directly provides `WorkspaceRegistryService`.
 
-The RPC adapter calls the operation-specific Workspace and Project registry list, read, create, and rename methods directly. Expected remote failures stay in Effect's typed error channel and retain their operation-specific tags. The adapter separately widens Alchemy's static stub type to include the runtime `RpcCallError`, logs it safely, and maps it to `WorkspaceRegistryRpcCallFailed`. Schemaless remote errors are matched by tag, never by prototype.
+The RPC adapter calls the operation-specific Workspace and Project registry list, read, create, and rename methods directly. Create keys are owned by the authoritative Durable Object: first successful use wins, replay resolves the entity's current representation, and a key recorded for the other result type conflicts. Replays ignore body, authenticated principal, and Project target changes. Expected remote failures stay in Effect's typed error channel and retain their operation-specific tags. The adapter separately widens Alchemy's static stub type to include the runtime `RpcCallError`, logs it safely, and maps it to `WorkspaceRegistryRpcCallFailed`. Schemaless remote errors are matched by tag, never by prototype.
 
 ## Boundary rules
 

@@ -187,28 +187,63 @@ describe("Project REST interface", () => {
     );
   });
 
-  it("replays creation and rejects cross-target idempotency-key reuse", async () => {
+  it("replays the current Project despite changed target or body and rejects cross-result-type reuse", async () => {
     const firstWorkspace = await createWorkspace("First", "project-replay-workspace-first");
     const secondWorkspace = await createWorkspace("Second", "project-replay-workspace-second");
     const first = await createProject(firstWorkspace.id, "Replay Project", "project-replay-key");
-    const firstBody = await first.text();
-    const replay = await createProject(firstWorkspace.id, "Replay Project", "project-replay-key");
-    expect(replay.status).toBe(201);
-    expect(replay.headers.get("idempotency-replayed")).toBe("true");
-    expect(await replay.text()).toBe(firstBody);
-    const conflict = await createProject(
+    expect(first.status).toBe(201);
+    const firstProject = Schema.decodeUnknownSync(ProjectRepresentation)(await first.json());
+
+    const changedTargetReplay = await createProject(
       secondWorkspace.id,
-      "Replay Project",
+      "Different requested name",
       "project-replay-key",
     );
-    expect(conflict.status).toBe(409);
-    await expect(conflict.json()).resolves.toMatchObject({ code: "idempotency_key_reused" });
-    const crossOperation = await createProject(
+    expect(changedTargetReplay.status).toBe(201);
+    expect(changedTargetReplay.headers.get("idempotency-replayed")).toBe("true");
+    expect(changedTargetReplay.headers.get("location")).toBe(`/api/projects/${firstProject.id}`);
+    await expect(changedTargetReplay.json()).resolves.toMatchObject({
+      id: firstProject.id,
+      workspace_id: firstWorkspace.id,
+      name: "Replay Project",
+    });
+
+    const renamed = await api(`/api/projects/${firstProject.id}`, {
+      method: "PATCH",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ name: "Current Project name" }),
+    });
+    expect(renamed.status).toBe(200);
+
+    const currentReplay = await createProject(
+      firstWorkspace.id,
+      "Another ignored name",
+      "project-replay-key",
+    );
+    expect(currentReplay.status).toBe(201);
+    expect(currentReplay.headers.get("idempotency-replayed")).toBe("true");
+    expect(currentReplay.headers.get("location")).toBe(`/api/projects/${firstProject.id}`);
+    await expect(currentReplay.json()).resolves.toMatchObject({
+      id: firstProject.id,
+      name: "Current Project name",
+    });
+
+    const listed = Schema.decodeUnknownSync(ProjectCollection)(
+      await (await api("/api/projects")).json(),
+    );
+    expect(listed.items.filter((project) => project.id === firstProject.id)).toHaveLength(1);
+    expect(listed.items.some((project) => project.name === "Different requested name")).toBe(false);
+
+    const crossResultType = await createProject(
       firstWorkspace.id,
       "Different",
       "project-replay-workspace-first",
     );
-    expect(crossOperation.status).toBe(409);
+    expect(crossResultType.status).toBe(409);
+    await expect(crossResultType.json()).resolves.toMatchObject({
+      code: "idempotency_key_reused",
+      retryable: false,
+    });
   });
 
   it("paginates scoped Project collections and rejects cursor rebinding", async () => {
