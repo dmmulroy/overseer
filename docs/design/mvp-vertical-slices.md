@@ -22,7 +22,7 @@ Accessibility, responsive behavior, errors, observability, and migrations are cu
 
 ## Contract carry-forward policy
 
-Each slice extends the one Effect HTTP declaration and only the closed domain/RPC cases it needs. A slice may add fields/relations that the public contract already specifies; it may not publish placeholder routes, generic mutation endpoints, empty repositories, speculative ports, or stubs for later slices. Content-addressed request schemas and OpenAPI regenerate from the declaration on every contract change.
+Each slice extends the one Effect HTTP declaration and adds only the operation-specific private RPC methods it needs. A slice may add fields/relations that the public contract already specifies; it may not publish placeholder routes, generic mutation endpoints, generic RPC dispatchers, empty repositories, speculative ports, or stubs for later slices. Content-addressed request schemas and OpenAPI regenerate from the declaration on every contract change.
 
 The internal data schema follows expand/contract when necessary. Forward migrations preserve all prior demonstrations. No slice gains permission to change a settled route or meaning merely because only part of the MVP has shipped.
 
@@ -37,30 +37,30 @@ The internal data schema follows expand/contract when necessary. Forward migrati
 - architecture and program design accepted;
 - pinned Effect/Cloudflare compatibility fixture available as a gate;
 - Alchemy stage names, hostname, Access audience/issuer, human test identity, and Agent-deployment test credential configured;
-- exact Effect `4.0.0-beta.98` and Alchemy `2.0.0-beta.62` pins.
+- exact Effect `4.0.0-beta.98` and Alchemy `2.0.0-beta.64` pins.
 
 **Vertical scope**
 
-- Alchemy stage graph for one Worker deployment, Access application/policies, Catalog and Project classes, static assets, and isolated stage configuration; Attachment and retained-recovery buckets are added only in the slices that first use them;
-- Gateway, Catalog constructor/migrations/RPC, and browser composition roots;
-- Access JWT parsing, human Origin checks, Agent-session metadata parser, request IDs, common media/problem projection;
+- Alchemy stage graph for one Worker deployment, Access application/policies, the Workspace Registry class, static assets, and isolated stage configuration; the Project class, Attachment bucket, and retained-recovery bucket are added only in the slices that first use them;
+- Gateway, Workspace Registry constructor/migrations/RPC, and browser composition roots;
+- Access JWT parsing, human Origin checks, Agent-session metadata parser, request IDs, common media and problem responses;
 - `GET /api`, `/api/schemas`, content-addressed schemas, and `/api/openapi.json`;
 - Workspace create/list/read/rename and Project create/list/read/rename/move needed to establish context;
-- Catalog idempotency and strong ETags/HEAD/304 for introduced reads;
+- Workspace Registry idempotency and strong ETags/HEAD/304 for introduced reads;
 - SPA shell, desktop Workspace/Project rail, mobile Project selector, empty/loading/stale/error states, and context URLs;
 - owned light/dark/system preference control, persisted preference, live system-preference changes, and a pre-render theme script that avoids a wrong-theme flash.
 
-Archive/restore is deferred to the lifecycle slice so this checkpoint stays focused on active context. The Project Durable Object is initialized and compatibility-tested, but no project-local table or empty forwarding layer is added before Slice 2 needs it.
+Archive/restore is deferred to the lifecycle slice so this checkpoint stays focused on active context. The Project Durable Object is not deployed before Slice 2 introduces its first project-local capability.
 
 **Contracts carried forward**
 
-- `EntityId`, Workspace/Project name, `AuthenticatedPrincipal`, `Actor`, `AgentSession`, `IdempotencyKey`, Link, Problem, ETag, page/cursor foundations;
-- Catalog `read`, `command`, and `admit` RPC cases required above;
+- `EntityId`, Workspace/Project name, `AuthenticatedPrincipal`, `Actor`, `AgentSession`, `IdempotencyScope`, `IdempotencyKey`, Link, Problem, ETag, page/cursor foundations;
+- operation-specific Workspace Registry list/read/create/rename and Project registry/admission RPC methods required above;
 - discovery, Workspace, Project, schema, and OpenAPI REST routes.
 
 **Primary test seams**
 
-- Agent client: authenticated Gateway HTTP with real Catalog SQLite in local workerd;
+- Agent client: authenticated Gateway HTTP with real Workspace Registry SQLite in local workerd;
 - human: authenticated SPA shell against that Gateway.
 
 **Acceptance demonstration**
@@ -83,14 +83,14 @@ Archive/restore is deferred to the lifecycle slice so this checkpoint stays focu
 **Prerequisites**
 
 - Slice 1 accepted;
-- one active Project can be admitted by Catalog;
+- one active Project can be admitted by Workspace Registry;
 - [#51](https://github.com/dmmulroy/overseer/issues/51) has selected qualified cross-Project Issue-mention write semantics before Issue bodies begin accepting that syntax;
-- [#52](https://github.com/dmmulroy/overseer/issues/52) has selected an implementable ownership/recovery protocol for principal-global idempotency before the first Project-owned ordinary POST ships;
+- [#52](https://github.com/dmmulroy/overseer/issues/52) has selected an implementable ownership/recovery protocol for caller-global idempotency scopes before the first Project-owned ordinary POST ships;
 - [#53](https://github.com/dmmulroy/overseer/issues/53) has selected routing/repair semantics for canonical project-local Entity URLs before `/api/issues/{issue_id}` ships.
 
 **Vertical scope**
 
-- Project constructor-time schema/migration and real `Project` application/RPC/state adapters;
+- the first deployed Project Durable Object, with constructor-time schema/migration and real application/RPC/state adapters;
 - atomic per-Project Issue number allocation starting at 1, immutable/gapped/non-reused semantics;
 - Issue creation from title and optional Markdown body, including initial title/body Revisions, `issue_created` event, immutable attribution, and first Timeline position in the same transaction;
 - write-side Markdown reference extraction and current-reference reconciliation required by Issue-body creation, including same-Project backlink/event plans and the #51-selected qualified behavior;
@@ -272,7 +272,7 @@ This is split from Attachments because reference reconciliation is independently
 
 - Slice 5 accepted;
 - Issue/Comment text revisions and atomic same-Project multi-Issue Timeline projection exist;
-- Catalog can resolve immutable Project registry context without cross-object transactions;
+- Workspace Registry can resolve immutable Project registry context without cross-object transactions;
 - [#51](https://github.com/dmmulroy/overseer/issues/51) has settled whether qualified cross-Project Issue mentions create backlinks/events and what failure semantics apply. Same-Project references, Project mentions, and external URLs can proceed independently if #51 is still open, but the slice cannot be accepted as complete.
 
 **Vertical scope**
@@ -292,7 +292,7 @@ Project mentions remain source-side links. Qualified Issue mentions must follow 
 **Contracts carried forward**
 
 - Mention/reference value family and reconciliation plan;
-- Catalog resolution read needed for qualified Project identity;
+- Workspace Registry resolution read needed for qualified Project identity;
 - Project reference command/read cases and REST collection;
 - typed reference projections and affected-query convergence.
 
@@ -322,7 +322,7 @@ Project mentions remain source-side links. Qualified Issue mentions must follow 
 
 - Slice 5 accepted; Slice 6's qualified cross-Project decision is not a prerequisite;
 - Slice 4's Issue/Comment text pipeline can reconcile canonical Attachment links atomically (reuse Slice 6's Markdown parser if available, but do not require its acceptance);
-- this slice adds the first private attachment R2 bucket/binding; the Project class already supports its native alarm entrypoint without a separate scheduler resource;
+- this slice adds the first private attachment R2 bucket/binding and the already-deployed Project class gains its native `alarm()` entrypoint without `ScheduledEvents` or a scheduler service;
 - transfer limits are supported by the selected deployed Worker plan.
 
 **Vertical scope**
@@ -380,7 +380,7 @@ Project mentions remain source-side links. Qualified Issue mentions must follow 
 - Issue delete/restore and complete tombstone behavior across Comments, relations, references, Attachments, list/detail/Timeline surfaces;
 - Label/Comment/Attachment lifecycle edge cases not already completed by their slices;
 - final production-equivalent retry/freshness/error matrix and no-op/idempotency audit across all introduced operations;
-- migration and class-lifecycle guardrails, per-object 30-day PITR runbook, versioned logical Catalog/Project exports to retained recovery R2, manifest verification, and restore drill;
+- migration and class-lifecycle guardrails, per-object 30-day PITR runbook, versioned logical Workspace Registry/Project exports to retained recovery R2, manifest verification, and restore drill;
 - deployed-stage verification of Access, stage isolation, private buckets, alarms, static SPA/API routing, OpenAPI/schema publication, and no forbidden resources;
 - accumulated accessibility/responsive/theme/keyboard/reduced-motion/zoom/coarse-pointer audit and final browser console/network cleanliness.
 
@@ -403,8 +403,8 @@ This slice does not postpone basic lifecycle design or accessibility from earlie
 1. The human archives a Workspace. It and descendants disappear from defaults but remain directly navigable read-only; a descendant command returns `ancestor_archived` with the blocking container/restore link. Restore re-enables commands without changing descendant state.
 2. The human deletes/restores an Issue and observes preserved number, Comment/Attachment ownership, relation inactivity/reactivation, root behavior while a Parent is deleted, and no cascade to Sub-issues.
 3. The full expected-error matrix proves authentication/origin/session ordering, media negotiation, actionable recovery links, retryability/Retry-After, stale readable browser behavior, and absence of secrets/provider identifiers.
-4. A forward migration runs under constructor priming in reconstructed Catalog and Project objects. A deliberately interrupted request cannot own initialization, and existing data remains observable through the Gateway.
-5. Operators quiesce and export one Catalog and representative Projects, verify manifests in retained recovery R2, perform separate PITR/logical restore drills, and confirm restored resources through authenticated REST and SPA reads. No claim of a cross-object atomic snapshot is made.
+4. A forward migration runs under constructor priming in reconstructed Workspace Registry and Project objects. A deliberately interrupted request cannot own initialization, and existing data remains observable through the Gateway.
+5. Operators quiesce and export one Workspace Registry and representative Projects, verify manifests in retained recovery R2, perform separate PITR/logical restore drills, and confirm restored resources through authenticated REST and SPA reads. No claim of a cross-object atomic snapshot is made.
 6. The deployed resource inventory contains only the agreed Worker, two Durable Object classes, private attachment/recovery R2, Access resources, domain, and native alarms—no D1, Queue, Pub/Sub, scheduler table/framework, extra Worker, or public Durable Object route.
 7. Final browser checks cover desktop/mobile, light/dark/system, keyboard/focus-heavy overlays, zoom/reflow, reduced motion, coarse pointer, and all modal states with clean accessibility automation and no horizontal overflow.
 
@@ -426,7 +426,7 @@ flowchart LR
 
 The order avoids speculative infrastructure:
 
-- Catalog and runtime exist before Project content.
+- Workspace Registry and runtime exist before Project content.
 - Issue identity/list pages exist before detail actions.
 - Timeline attribution exists before text contribution.
 - text/Revisions exist before derived references or Attachment associations, while reference and Attachment slices remain independently runnable;

@@ -1,5 +1,5 @@
 import type { Miniflare } from "miniflare";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it } from "vite-plus/test";
 import manifest from "../../package.json" with { type: "json" };
 import { startCompatibilityFixture } from "../fixtures/compatibility.ts";
 
@@ -55,15 +55,16 @@ describe("pinned Effect and Cloudflare runtime compatibility", () => {
   it("locks the complete Effect family and Alchemy to the reviewed versions", () => {
     expect(manifest).toMatchObject({
       dependencies: {
-        "@effect/sql-sqlite-do": "4.0.0-beta.98",
-        effect: "4.0.0-beta.98",
+        "@effect/platform-browser": "4.0.0-beta.101",
+        "@effect/sql-sqlite-do": "4.0.0-beta.101",
+        effect: "4.0.0-beta.101",
       },
       devDependencies: {
-        alchemy: "2.0.0-beta.62",
+        alchemy: "2.0.0-beta.64",
       },
       overrides: {
-        "@effect/sql-sqlite-do": "4.0.0-beta.98",
-        effect: "4.0.0-beta.98",
+        "@effect/sql-sqlite-do": "4.0.0-beta.101",
+        effect: "4.0.0-beta.101",
       },
     });
   });

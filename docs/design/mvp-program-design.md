@@ -6,7 +6,7 @@ This is a responsibility and interface plan, not a requirement to preserve incid
 
 ## Design rules
 
-1. Parse every less-trusted value when it enters typed code: HTTP, RPC, SQLite reads, R2 metadata, IndexedDB records, environment configuration, and workflow/alarm re-entry are separate boundaries.
+1. Parse every less-trusted value when it enters typed code: HTTP, SQLite reads, R2 metadata, IndexedDB records, environment configuration, and workflow/alarm re-entry are separate boundaries. Same-deployment Alchemy RPC carries already-parsed plain values under one shared TypeScript contract.
 2. Domain modules own pure meaning and correct construction. Application modules own policy and effect order. Adapters own protocol, persistence, framework, and provider translation. Composition roots alone wire raw capabilities.
 3. Expected failures remain precise typed values until an outer adapter projects them. Promise rejection/throw is reserved for defects after adapters classify known external failures.
 4. No application or domain interface mentions `Env`, `Request`, `Response`, `DurableObjectState`, Durable Object/R2 bindings or stubs, Alchemy resource types, SQL clients/rows, browser storage records, or Effect HTTP internals.
@@ -33,8 +33,8 @@ The current repository has product/domain documentation but no application sourc
 +   entity-id.ts                         # prefixed ULID family and parsers
 +   non-empty-line.ts                    # bounded nonblank single-line text
 +   markdown.ts                          # bounded Markdown and reference extraction values
-+   actor.ts                             # AuthenticatedPrincipal -> immutable Actor projection types
-+   issue.ts                             # Issue states, text, number, readiness projections
++   actor.ts                             # AuthenticatedPrincipal and immutable Actor attribution values
++   issue.ts                             # Issue states, text, number, and derived readiness
 +   issue-relationships.ts               # Parent and Blocking DAG decisions/order rules
 +   label.ts                             # Label name/description/color/lifecycle
 +   comment.ts                           # Comment lifecycle and revision decisions
@@ -43,16 +43,16 @@ The current repository has product/domain documentation but no application sourc
 +   pagination.ts                        # parsed limits/sorts/filter values; no opaque encoding
 +   idempotency.ts                       # key/fingerprint/result semantics
 +
-+ src/application/catalog/               # Catalog Application Module
-+   catalog.ts                            # operations, outcomes, exact dependencies
-+   catalog-state.ts                     # one cohesive transaction/state port
-+   catalog-rpc.ts                       # private decoded RPC request/outcome contract
++ src/application/workspace-registry/               # Workspace Registry Application Module
++   workspace-registry.ts                            # operations, outcomes, exact dependencies
++   workspace-registry-state.ts                     # one cohesive transaction/state port
++   workspace-registry-rpc.ts                       # operation-specific schemaless RPC shape and safe remote errors
 +
 + src/application/gateway/
 +   project-operations.ts                # owner resolution, admission, idempotency, dispatch
 +
 + src/application/project/
-+   project-rpc.ts                       # private decoded Project RPC protocol only
++   project-rpc.ts                       # private schemaless Project RPC protocol only
 +   project-transactions.ts              # shared transaction primitive; no policy
 +
 + src/application/issues/                 # cohesive Project-local capabilities
@@ -74,7 +74,7 @@ The current repository has product/domain documentation but no application sourc
 +
 + src/contract/                           # inbound HTTP wire-contract Adapter Module
 +   http-api.ts                           # single Effect HttpApi declaration
-+   representations.ts                   # REST projections and common Link/Problem schemas
++   representations.ts                   # REST representations and common Link/Problem schemas
 +   request-schemas.ts                    # content-addressed schema publication
 +   openapi.ts                            # OpenAPI generated from http-api.ts
 +
@@ -83,19 +83,19 @@ The current repository has product/domain documentation but no application sourc
 +   request-context.ts                    # Actor/session/origin/request-id parsing
 +   gateway-http.ts                       # Effect HTTP handlers and media negotiation
 +   problem-response.ts                   # typed failures -> RFC 9457
-+   conditional-response.ts               # strong ETag/HEAD/304/cache headers
-+   catalog-rpc-client.ts                 # Catalog Durable Object binding adapter
++   representation-response.ts            # strong ETag/HEAD/304/cache headers
++   workspace-registry-rpc-client.ts                 # Workspace Registry Durable Object binding adapter
 +   project-rpc-client.ts                 # Project Durable Object binding adapter
 +   attachment-http.ts                    # raw upload/range/content streaming
 +
-+ src/adapters/catalog-sqlite/
-+   catalog-sqlite-state.ts               # deep CatalogState implementation
-+   catalog-records.ts                    # raw row schemas and projections
-+   catalog-migrations.ts                 # ordered forward-only migrations
++ src/adapters/workspace-registry-sqlite/
++   workspace-registry-sqlite-state.ts               # deep WorkspaceRegistryState implementation
++   workspace-registry-records.ts                    # raw row schemas and domain decoders
++   workspace-registry-migrations.ts                 # ordered forward-only migrations
 +
 + src/adapters/project-sqlite/
 +   project-sqlite.ts                     # one wider adapter satisfying capability ports
-+   project-records.ts                    # raw row schemas and projections
++   project-records.ts                    # raw row schemas and domain decoders
 +   project-migrations.ts                 # ordered forward-only migrations
 +
 + src/adapters/r2/
@@ -103,13 +103,15 @@ The current repository has product/domain documentation but no application sourc
 +   r2-content-response.ts                # range/provider header mechanics
 +   r2-logical-exports.ts                 # retained recovery bucket adapter
 +
-+ src/adapters/browser/
-+   effect-http-resources.ts              # generated client/status/header translation
++ src/adapters/web-client/
++   api-resources.ts                      # generated client/status/header translation
 +   indexeddb-drafts.ts                   # parsed Issue/Comment draft persistence
 +
-+ src/runtime/                             # runtime composition roots
++ src/infra/                               # infrastructure composition roots
++   gateway-resource.ts                   # lightweight Gateway Alchemy identity
 +   gateway.ts                            # Worker fetch/static/API composition
-+   workspace-catalog.ts                  # Catalog DO constructor and RPC entrypoint
++   workspace-registry-resource.ts        # lightweight Workspace Registry Alchemy identity
++   workspace-registry.ts                 # Workspace Registry DO constructor and RPC entrypoint
 +   project.ts                            # Project DO constructor/RPC/alarm entrypoints
 +   recovery.ts                           # operational export/verification command
 +
@@ -199,7 +201,7 @@ Attachment: Pending(plan, expiresAt) | Ready(metadata) | Deleted(restorable, dea
 Relation: Active | Inactive(reason)
 ```
 
-Domain modules expose parsers/smart constructors, predicates, legal transition decisions, and projections. They do not perform I/O, read ambient time, allocate IDs, authorize a principal, or render HTTP.
+Domain modules expose parsers/smart constructors, predicates, legal transition decisions, and representations. They do not perform I/O, read ambient time, allocate IDs, authorize a principal, or render HTTP.
 
 High-value pure decisions include:
 
@@ -213,61 +215,57 @@ High-value pure decisions include:
 - Attachment simple/multipart limits, exact part plan, retention due dates, and legal lifecycle transitions;
 - idempotency fingerprint equality and cursor/filter binding inputs.
 
-### Catalog application seam
+### Workspace Registry application seam
 
-`Catalog` is the sole application interface used inside the Catalog Durable Object. Its caller-facing operations are the closed `CatalogRead` and `CatalogCommand` families rather than table-shaped CRUD.
+The Workspace Registry application owns one operation-specific interface. Inside the Durable Object, the Workspace Registry `make` effect yields `WorkspaceRegistryStateService` and the shared `UlidGeneratorService`; time comes from Effect Clock. At the Gateway, the RPC adapter directly provides the same application-owned `WorkspaceRegistryService` interface. There is no forwarding or outcome-narrowing application Layer.
+
+The current private surface is:
 
 ```text
-CatalogRead:
-  DiscoverWorkspaces | ReadWorkspace | ListWorkspaceProjects |
-  DiscoverProjects | ReadProject | AdmitProject
-
-CatalogCommand:
-  CreateWorkspace | RenameWorkspace | ArchiveWorkspace | RestoreWorkspace |
-  CreateProject | RenameProject | MoveProject | ArchiveProject | RestoreProject
-
-CatalogCommandEnvelope:
-  command + attribution + optional idempotency context + admittedAt
+listWorkspaces(input) -> WorkspacePage
+readWorkspace(workspaceId) -> Workspace
+createWorkspace(input) -> WorkspaceCreation
+renameWorkspace(input) -> Workspace
 ```
 
-Key outcomes are parsed `Workspace`, `Project`, exact collection pages, `ProjectAdmission`, or precise failures:
+Future Workspace/Project registry capabilities add similarly named methods such as `readProject`, `moveProject`, or `admitProject`; they do not reopen a generic read/command protocol. Each operation names only its own precise failures:
 
 ```text
-CatalogError =
-  WorkspaceNotFound | ProjectNotFound | AncestorArchived |
-  ActionNotApplicable | InvalidCursor |
-  IdempotencyKeyReused | IdempotencyInProgress |
-  CatalogStateUnavailable | CatalogRecordCorrupt
+listWorkspaces: WorkspaceRegistryCursorInvalid | safe persistence failures
+readWorkspace: WorkspaceNotFound | safe persistence failures
+createWorkspace: IdempotencyKeyReused | safe persistence failures
+renameWorkspace: WorkspaceNotFound | safe persistence failures
+all remote calls additionally: WorkspaceRegistryRpcCallFailed at the Gateway adapter
 ```
 
-`CatalogState` is one cohesive persistence port because Workspace membership, Project moves, lifecycle, and idempotency must share one transaction. It exposes semantic transaction-scoped operations, not a repository per entity and not SQL:
+`WorkspaceRegistryStateService` is one cohesive Context service because Workspace membership, Project moves, lifecycle, and idempotency must share one transaction. Its SQLite implementation is a Layer that yields the one object-local SQL client and closes over it. It exposes semantic transaction-scoped operations, not a repository per entity and not SQL:
 
 ```text
-CatalogTransactions.atomically(operation(CatalogState))
+WorkspaceRegistryStateService.transaction(operation)
 
-CatalogState:
-  read catalog records as parsed values
+WorkspaceRegistryStateService:
+  read registry records as parsed values
   insert records with application-constructed IDs
   update membership/lifecycle
   resolve/store idempotency result
-  page by parsed catalog filter/cursor
+  page by parsed registry filter/cursor
 ```
 
 The application module owns admission and operation ordering. The SQLite adapter owns SQL statements, row parsing, keyset mechanics, and rollback. If the first implementation shows that an operation can be expressed as one deep semantic state method without moving policy into SQL, prefer that smaller method over exposing implementation steps.
 
 ### Project-local application seams
 
-The Project Durable Object is one consistency and routing boundary, not one mega application module. Its inbound RPC adapter dispatches closed protocol cases to cohesive application modules:
+The future Project Durable Object is one consistency and routing boundary, not one mega application module. Its inbound RPC methods call cohesive application modules directly:
 
-| Application module | Caller-visible responsibility | Narrow state port |
-|---|---|---|
-| `IssueDiscovery` | create/read/page Issues and allocate immutable Project-local numbers | Issue records, number allocation, exact filtered keyset reads, plus the idempotency capability selected by #52 |
-| `IssueSteering` | open/close and claim/release/reassign with attributed Timeline effects | Issue state/Assignee plus event/projection writes |
-| `TextContributions` | Issue text, Comments, Revisions, no-ops, and narrative Timeline | text/Comment/Revisions plus event/projection writes |
-| `Classification` | Label lifecycle and Issue assignments | Label/assignment records plus affected Issue projections |
-| `WorkStructure` | Parent/Sub-issue order and Blocking invariants/readiness | preserved relation graphs plus affected Issue projections |
-| `References` | current Markdown-derived references and same-Project backlinks | source text/reference sets plus affected Issue projections |
-| `AttachmentMetadata` | pending/ready/deleted metadata, part progress, association, and retention | Attachment/association records plus the idempotency capability selected by #52 |
+| Application module   | Caller-visible responsibility                                             | Narrow state port                                                                                              |
+| -------------------- | ------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------- |
+| `IssueDiscovery`     | create/read/page Issues and allocate immutable Project-local numbers      | Issue records, number allocation, exact filtered keyset reads, plus the idempotency capability selected by #52 |
+| `IssueSteering`      | open/close and claim/release/reassign with attributed Timeline effects    | Issue state/Assignee plus event/projection writes                                                              |
+| `TextContributions`  | Issue text, Comments, Revisions, no-ops, and narrative Timeline           | text/Comment/Revisions plus event/projection writes                                                            |
+| `Classification`     | Label lifecycle and Issue assignments                                     | Label/assignment records plus affected Issue projections                                                       |
+| `WorkStructure`      | Parent/Sub-issue order and Blocking invariants/readiness                  | preserved relation graphs plus affected Issue projections                                                      |
+| `References`         | current Markdown-derived references and same-Project backlinks            | source text/reference sets plus affected Issue projections                                                     |
+| `AttachmentMetadata` | pending/ready/deleted metadata, part progress, association, and retention | Attachment/association records plus the idempotency capability selected by #52                                 |
 
 Each module defines operation-specific input/outcome types and an exact transaction port beside itself. One wider `ProjectSqlite` adapter may structurally satisfy all of those ports because one database owns the aggregate; callers never receive the wider adapter. This keeps SQL mechanics reusable without forcing unrelated application policies through one `ProjectState` interface.
 
@@ -296,7 +294,7 @@ AttachmentError = AttachmentNotReady | AttachmentInUse | UploadExpired |
   ProjectStateUnavailable
 ```
 
-Every exported operation names only the errors it can produce. A broad union exists only at the private RPC codec and Gateway problem-projection adapters.
+Every exported operation names only the errors it can produce. There is no private cross-operation outcome or error union; the Gateway problem response handles the operation-specific unions at the outer HTTP boundary.
 
 A capability transaction exposes only semantic operations required by that module. For example:
 
@@ -309,7 +307,7 @@ IssueSteeringState:
   append one event and all affected projections
 ```
 
-The location and atomic protocol for ordinary POST idempotency are intentionally deferred to [#52](https://github.com/dmmulroy/overseer/issues/52). Capability ports must follow that decision; this plan does not assume Project-local rows can enforce a principal-global key scope.
+The location and atomic protocol for ordinary POST idempotency are intentionally deferred to [#52](https://github.com/dmmulroy/overseer/issues/52). Capability ports must follow that decision; this plan does not assume Project-local rows can enforce a caller-global idempotency scope.
 
 `EntityIds` constructs Entity IDs before persistence. SQLite transaction state allocates only values requiring database serialization, such as Issue numbers and Timeline positions. Application modules call pure domain decisions and commit their complete record/Revision/reference/Timeline plans in one short transaction. The adapter owns row schemas, SQL statements, keyset encoding, and rollback; it returns parsed values or typed corruption/unavailability failures, never raw rows.
 
@@ -317,14 +315,15 @@ Qualified cross-Project Issue mention semantics are deliberately absent until [#
 
 ### Private RPC seam
 
-Two adapters make this a real seam:
+The Gateway-side Workspace Registry and future Project RPC clients are transport adapters. They capture the Alchemy namespace in their Layer, obtain the named stub at call time, invoke one operation-specific method, and directly provide an application-owned service. Namespaces, stubs, and Cloudflare types do not cross inward.
 
-1. the Gateway-side Catalog/Project RPC clients turn application calls into binding calls and decode outcomes;
-2. the Durable Object inbound RPC adapters decode requests, dispatch to the owning Catalog or cohesive Project-local application module, and encode plain tagged outcomes.
+The same-deployment protocol uses ordinary Alchemy schemaless structured clone. Each method has its own plain input, success type, and Effect failure type. Expected remote failures remain failures rather than successful outcome variants. The Durable Object logs detailed safe persistence classifications, removes local causes and rows, and sends cause-free tagged remote errors. Because the bridge strips prototypes, every remote caller uses tags and `Effect.catchTag`, never `instanceof`.
 
-The private protocol may use cohesive `read` and `command` methods with closed unions. It must not mirror every REST route or accept generic `{ operation: string; payload: unknown }`. RPC codecs are versioned with the single deployment and parse both ingress and egress because Alchemy transport strips class identity.
+Alchemy's stub typing omits the runtime `RpcCallError`. The owning adapter widens that error channel explicitly, keeps it distinct from expected remote failures, and maps it to the application-owned `WorkspaceRegistryRpcCallFailed`. Defects remain defects until the transport creates that call failure.
 
-RPC only carries parsed Overseer values and safe failure context. Provider exceptions and Durable Object stubs remain in the adapters.
+There is no generic `{ operation, payload }`, read/command union, parallel codec, `RpcDurableObject`, or `RpcGroup`. If a future cross-deployment trust boundary or class reconstruction requirement appears, replace this mode rather than layering codecs over it.
+
+A future DO-to-DO caller yields the other object's namespace in its Alchemy outer constructor and closes over that namespace. Handler methods resolve the named stub and call it through the same schemaless bridge used by Worker-to-DO calls. Namespace capture does not create a lock or cross-object transaction.
 
 ### Attachment transfer seam
 
@@ -355,25 +354,25 @@ Expected transfer failures are values such as `TransferUnavailable`, `LengthMism
 
 ### Gateway project-operation seam
 
-`ProjectOperations` is a Gateway-level Application Module for project-local reads and commands. It receives narrow application-owned ports for Entity-owner resolution (as selected by #53), Catalog admission, Project RPC, and ordinary POST idempotency (as selected by #52). Given a parsed operation, it resolves the owning Project when necessary, obtains current Catalog admission, applies idempotency policy, invokes the owning Project capability, and returns a typed application outcome. This is application policy and effect ordering, not HTTP behavior.
+`ProjectOperations` is a Gateway-level Application Module for project-local reads and commands. It receives narrow application-owned ports for Entity-owner resolution (as selected by #53), Workspace Registry admission, Project RPC, and ordinary POST idempotency (as selected by #52). Given a parsed operation, it resolves the owning Project when necessary, obtains current Workspace Registry admission, applies idempotency policy, invokes the owning Project capability, and returns a typed application outcome. This is application policy and effect ordering, not HTTP behavior.
 
-Attachment transfer remains a separate cohesive Application Module because it additionally sequences byte streams and R2. It receives the same narrow Catalog-admission capability and performs admission before metadata/R2 effects. Neither application module sees headers, `Request`/`Response`, bindings, stubs, or problem representations.
+Attachment transfer remains a separate cohesive Application Module because it additionally sequences byte streams and R2. It receives the same narrow Workspace Registry admission capability and performs admission before metadata/R2 effects. Neither application module sees headers, `Request`/`Response`, bindings, stubs, or problem representations.
 
 ### HTTP adapter seam
 
 The shared `HttpApi` declaration owns the wire contract. `gateway-http.ts` supplies handlers that:
 
 1. parse protocol input and request context;
-2. invoke `ProjectOperations`, `AttachmentTransfer`, or the Catalog application port with parsed inputs;
+2. invoke `ProjectOperations`, `AttachmentTransfer`, or the Workspace Registry application port with parsed inputs;
 3. project direct representations or `{ items, links }` pages;
 4. compute strong ETags over exact encoded representations;
 5. map expected errors through `problem-response.ts`.
 
-Outer Effect HTTP 404/405/media failures and schema failures are normalized into the same safe JSON problem contract. No route module classifies failures by message text. `conditional-response.ts` owns GET/HEAD, `If-None-Match`, `304`, range-independent cache policy, and ETag headers so route handlers cannot drift.
+Outer Effect HTTP 404/405/media failures and schema failures are normalized into the same safe JSON problem contract. No route module classifies failures by message text. `representation-response.ts` owns GET/HEAD, `If-None-Match`, `304`, range-independent cache policy, and ETag headers so route handlers cannot drift.
 
 ### Browser query and command seams
 
-`conditional-query.ts` is an application-owned Effect Atom module over a narrow `ConditionalResources` port. The port accepts a parsed canonical resource request and optional `StrongEtag`, then returns `Modified<Representation>` or `NotModified` with typed retry advice. `effect-http-resources.ts` implements it with the generated client and owns `If-None-Match`, `200`/`304`, ETag/header parsing, and `Retry-After` translation. For one exact canonical URL, the application module owns:
+`conditional-query.ts` is an application-owned Effect Atom module over a narrow `ConditionalResources` port. The port accepts a parsed canonical resource request and optional `StrongEtag`, then returns `Modified<Representation>` or `NotModified` with typed retry advice. `api-resources.ts` implements it with the generated client and owns `If-None-Match`, `200`/`304`, ETag/header parsing, and `Retry-After` translation. For one exact canonical URL, the application module owns:
 
 ```text
 ConditionalResource<A> =
@@ -403,32 +402,32 @@ The IndexedDB adapter parses records on every read. It stores explicit Issue/Com
 ### Authenticated HTTP read
 
 ```text
-runtime/gateway.fetch(raw Request, raw Env)
+infra/gateway.fetch(raw Request, raw bindings)
 └─ adapters/gateway/gateway-http.handle
    ├─ access-principal.parseAndVerify(assertion, parsed Access config)
    ├─ request-context.parse(request) -> principal/request ID
    ├─ contract/http-api route parser -> ReadInput
    └─ application/gateway/project-operations.read (for project-local data)
       ├─ for an Entity-only URL: owner-routing port selected by #53
-      ├─ Catalog-admission port
-      │  └─ catalog-rpc-client -> Catalog application/SQLite
+      ├─ Workspace Registry admission port
+      │  └─ workspace-registry-rpc-client -> Workspace Registry application/SQLite
       └─ Project-read port
          └─ project-rpc-client -> owning application read/Project SQLite
 └─ contract/representations project parsed result + applicable links
-└─ conditional-response -> 200/304/HEAD or problem-response
+└─ representation-response -> 200/304/HEAD or problem-response
 ```
 
 ### Project-local command
 
 ```text
-runtime/gateway.fetch
+infra/gateway.fetch
 └─ gateway-http command handler parses principal/Actor/session/body/key
    └─ application/gateway/project-operations.command
       ├─ resolve owner through #53-selected port when needed
-      ├─ admit through narrow Catalog port
+      ├─ admit through narrow Workspace Registry port
       ├─ apply #52-selected idempotency protocol
       └─ invoke narrow Project-command port
-         └─ runtime/project RPC root decodes plain tagged input
+         └─ infra/project RPC root dispatches the shared plain tagged input
             └─ owning Project-local application command
                └─ its narrow capability transaction
                   ├─ load parsed aggregate slice
@@ -440,22 +439,22 @@ runtime/gateway.fetch
 └─ gateway-http projects representation/links or typed problem
 ```
 
-### Workspace/Project catalog admission
+### Workspace Registry admission
 
 ```text
-Gateway catalog operation or project-scoped operation
-└─ catalog-rpc-client
-   └─ Catalog.read/command/admit
-      └─ CatalogTransactions.atomically (commands) or exact read
+Gateway Workspace Registry operation or project-scoped operation
+└─ workspace-registry-rpc-client
+   └─ operation-specific Workspace Registry method (for example admitProject)
+      └─ WorkspaceRegistryTransactions.atomically (commands) or exact read
          ├─ parse stored Workspace/Project records
          ├─ resolve immutable Project registry entry
          ├─ derive effective archive context
-         ├─ for catalog command: apply move/lifecycle/idempotency atomically
+         ├─ for a Workspace Registry mutation: apply move/lifecycle/idempotency atomically
          └─ return ProjectAdmission { projectId, workspaceId, accessState }
 └─ Gateway either rejects ancestor_archived or calls Project by ProjectId
 ```
 
-The admission result is not a lock token. The Project call does not participate in the Catalog transaction. When ingress has only a project-local Entity ID, the owner-resolution step must use [#53](https://github.com/dmmulroy/overseer/issues/53)'s selected mechanism; no module may scan Project namespaces or assume an unrecorded mapping.
+The admission result is not a lock token. The Project call does not participate in the Workspace Registry transaction. When ingress has only a project-local Entity ID, the owner-resolution step must use [#53](https://github.com/dmmulroy/overseer/issues/53)'s selected mechanism; no module may scan Project namespaces or assume an unrecorded mapping.
 
 ### Attachment transfer and finalization
 
@@ -517,24 +516,25 @@ feature interaction
 
 ### Gateway root
 
-For each invocation, the Gateway root parses stage configuration, establishes request correlation/tracing, wraps exact bindings in Catalog/Project/R2 adapters, and invokes the prebuilt HTTP handler. Request-scoped objects do not enter reusable layers. Static immutable schemas and handler definitions may be reused across invocations.
+The Gateway isolate build parses stage configuration and builds immutable binding adapters and application services. Each invocation establishes request correlation/tracing and builds the scope-bearing Effect HTTP router in Alchemy's fresh event scope before invoking it. Request-scoped objects do not enter reusable layers; static immutable schemas and handler definitions may be reused across invocations.
 
 The Gateway converts every expected error into a safe HTTP response. A rejected Effect or Promise may cross `fetch` only for a defect after logging safe context.
 
 ### Durable Object roots
 
-In each Catalog/Project constructor:
+In each Workspace Registry/Project constructor:
 
-1. call `blockConcurrencyWhile`;
-2. pass the full `ctx.storage` to the SQLite Effect adapter;
+1. rely on Alchemy's `DurableObjectBridge` to run the complete constructor under native `blockConcurrencyWhile`;
+2. use `state.raw.storage` only in the owning runtime root to create exactly one `@effect/sql-sqlite-do` client for the activation;
 3. run ordered migrations;
-4. build the object-local adapters and cohesive application modules;
-5. construct and prime the long-lived handler/RPC runtime outside any external request's I/O context;
-6. classify and log initialization failure so a rejected constructor callback safely resets the object.
+4. provide the client to a SQLite-backed Context service Layer;
+5. yield persistence, cryptographic ID, and other services from the application constructor; use Effect Clock for time;
+6. construct and prime the operation-specific RPC methods before external work;
+7. classify and log initialization failure so a rejected constructor safely resets the object.
 
-Do not let the first request own lazy layer construction. Keep transactions short, do not issue SQL transaction statements, and do not nest transactions. Effect resources must be eviction-safe; `dispose` is used only where a real lifecycle owner exists, such as tests, never for correctness.
+Do not let the first request own lazy Layer construction. Do not add another `blockConcurrencyWhile` or manually manage Alchemy bridge scopes. Keep transactions short, do not issue SQL transaction statements, and do not nest transactions. Effect resources must be eviction-safe; `dispose` is used only where a real lifecycle owner exists, such as tests, never for correctness.
 
-The Project `alarm()` method is another composition root over the already initialized object-local state plus an R2 adapter. It invokes `AttachmentReconciliation`, then passes the returned wake time directly to the native alarm binding. It does not call a public/request-shaped handler or introduce a scheduler interface.
+The Project Durable Object is not deployed until the first project-local capability needs it. Its future `alarm()` method is another composition root over initialized object-local state plus an R2 adapter. It invokes `AttachmentReconciliation`, then passes the returned wake time directly to native alarm storage. It does not use `ScheduledEvents`, call a public/request-shaped handler, or introduce a scheduler interface.
 
 ### Browser root
 
@@ -544,29 +544,29 @@ The browser root constructs one generated `AtomHttpApi.Service` over `FetchHttpC
 
 The seams below are the agreed interfaces for implementation slices. Lower tests supplement rather than replace the two primary seams.
 
-| Confidence sought | Public seam | Real dependencies | Observable assertions |
-|---|---|---|---|
-| Agent-client behavior | Authenticated Gateway HTTP in local Cloudflare/workerd | Real Gateway, Catalog/Project objects, SQLite, private-R2-compatible adapter, test Agent-deployment Access identity | REST representation/problem, links, status/headers, ETag/304, persisted result as observed through later REST, Timeline projection, transfer bytes |
-| Human behavior | Authenticated browser SPA against that Gateway | Built SPA, real generated client/query pipeline, same local runtime | Role/name-visible UI, URL/search state, keyboard/pointer behavior, focus return, responsive semantics, stale/draft/rollback presentation |
-| Domain invariants | Exported pure Domain Module interface | No I/O | Parsed value/error, transition decision, graph/reference/part plan; property checks where stronger than examples |
-| SQLite/DO mechanics | Catalog/Project RPC or owning application interface in representative workerd runtime | Full `ctx.storage`, migrations, transactions, interruption | committed/rolled-back observable result, reconstruction survival, constructor priming, typed record-corruption outcome |
-| R2 mechanics | Authenticated Attachment HTTP seam; focused adapter check only for provider-specific ranges/multipart | Private local R2-compatible binding | exact content/range headers and bytes, replacement/idempotency, no provider identifiers |
-| Client query mechanics | Rendered route and generated-client integration | Effect Atom registry and controllable real HTTP server/Gateway | 200/304, polling, cancellation, stale-readable state, optimism/rollback, targeted convergence |
-| Runtime compatibility | Pinned Effect/Cloudflare fixture | workerd versions used by production build | JSON error normalization, transaction rollback/interruption, cold start/abort priming |
+| Confidence sought      | Public seam                                                                                                         | Real dependencies                                                                                                              | Observable assertions                                                                                                                                                            |
+| ---------------------- | ------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Agent-client behavior  | Authenticated Gateway HTTP in local Cloudflare/workerd                                                              | Real Gateway, Workspace Registry/Project objects, SQLite, private-R2-compatible adapter, test Agent-deployment Access identity | REST representation/problem, links, status/headers, ETag/304, persisted result as observed through later REST, Timeline projection, transfer bytes                               |
+| Human behavior         | Authenticated browser SPA against that Gateway                                                                      | Built SPA, real generated client/query pipeline, same local runtime                                                            | Role/name-visible UI, URL/search state, keyboard/pointer behavior, focus return, responsive semantics, stale/draft/rollback presentation                                         |
+| Domain invariants      | Exported pure Domain Module interface                                                                               | No I/O                                                                                                                         | Parsed value/error, transition decision, graph/reference/part plan; property checks where stronger than examples                                                                 |
+| SQLite/DO mechanics    | Operation-specific Workspace Registry/Project RPC or owning application interface in representative workerd runtime | Full `ctx.storage`, migrations, transactions, interruption                                                                     | successful RPC, expected remote tag, remote defect/`RpcCallError`, commit/rollback, concurrent initialization, migration failure, reconstruction, cause-free corruption response |
+| R2 mechanics           | Authenticated Attachment HTTP seam; focused adapter check only for provider-specific ranges/multipart               | Private local R2-compatible binding                                                                                            | exact content/range headers and bytes, replacement/idempotency, no provider identifiers                                                                                          |
+| Client query mechanics | Rendered route and generated-client integration                                                                     | Effect Atom registry and controllable real HTTP server/Gateway                                                                 | 200/304, polling, cancellation, stale-readable state, optimism/rollback, targeted convergence                                                                                    |
+| Runtime compatibility  | Pinned Effect/Cloudflare fixture                                                                                    | workerd versions used by production build                                                                                      | JSON error normalization, transaction rollback/interruption, cold start/abort priming                                                                                            |
 
 No test asserts internal calls, SQL table names, private atom maps, layer construction order through spies, or module layout. Module mocks are forbidden. Tests use ordinary public imports and real/injected ports. Compile-time tests cover public inference where widening would change callers.
 
 ## Seam justification and rejected abstractions
 
-| Proposed seam | Why it is real | What is deliberately not added |
-|---|---|---|
-| Catalog RPC | Gateway and operational tooling call a separately located consistency owner. Transport serialization and object routing vary. | No public Catalog REST inside the object; no Workspace and Project repositories. |
-| Project RPC | Gateway and private recovery tooling call one separately located Project consistency owner. | No RPC method per SQL table and no request-shaped Project `fetch`. |
-| Project/Catalog state ports | Application policy must be testable apart from SQL while production needs transactional SQLite mechanics. | No repository per Entity, ORM model leakage, or transaction object exposed to callers. |
-| AttachmentTransfer | Simple/multipart Gateway handlers share non-transactional SQLite/R2 sequencing and recovery policy. | No direct R2 access, presigned flow, or generic blob service. |
-| AttachmentReconciliation | Native alarm and focused tests need the same idempotent due-row behavior. | No scheduler framework, queue, or durable job abstraction. |
-| Conditional query | Every route needs the same exact-URL ETag, grace, polling, cancellation, and stale behavior. | No Router data cache, persistent canonical cache, or synchronization engine. |
-| Drafts | IndexedDB and an inert test adapter are genuine storage implementations for explicit local drafts. | No generic browser persistence facade or offline mutation queue. |
-| Owned generic UI controls | Base UI behavior and app feature composition are distinct, and shadcn source is intentionally owned. | No Base UI mirror, component barrel, Box/Stack DSL, or domain variants. |
+| Proposed seam                          | Why it is real                                                                                                                | What is deliberately not added                                                              |
+| -------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------- |
+| Workspace Registry RPC                 | Gateway and operational tooling call a separately located consistency owner. Transport serialization and object routing vary. | No public Workspace Registry REST inside the object; no Workspace and Project repositories. |
+| Project RPC                            | Gateway and private recovery tooling call one separately located Project consistency owner.                                   | No RPC method per SQL table and no request-shaped Project `fetch`.                          |
+| Project/Workspace Registry state ports | Application policy must be testable apart from SQL while production needs transactional SQLite mechanics.                     | No repository per Entity, ORM model leakage, or transaction object exposed to callers.      |
+| AttachmentTransfer                     | Simple/multipart Gateway handlers share non-transactional SQLite/R2 sequencing and recovery policy.                           | No direct R2 access, presigned flow, or generic blob service.                               |
+| AttachmentReconciliation               | Native alarm and focused tests need the same idempotent due-row behavior.                                                     | No scheduler framework, queue, or durable job abstraction.                                  |
+| Conditional query                      | Every route needs the same exact-URL ETag, grace, polling, cancellation, and stale behavior.                                  | No Router data cache, persistent canonical cache, or synchronization engine.                |
+| Drafts                                 | IndexedDB and an inert test adapter are genuine storage implementations for explicit local drafts.                            | No generic browser persistence facade or offline mutation queue.                            |
+| Owned generic UI controls              | Base UI behavior and app feature composition are distinct, and shadcn source is intentionally owned.                          | No Base UI mirror, component barrel, Box/Stack DSL, or domain variants.                     |
 
 A new seam needs an actual second implementation, technology translation, or caller-facing responsibility. Symmetry is not sufficient.

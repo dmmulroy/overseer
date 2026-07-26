@@ -1,14 +1,10 @@
-import {
-  createRootRoute,
-  createRouter,
-} from "@tanstack/react-router";
+import { createRootRoute, createRouter, lazyRouteComponent } from "@tanstack/react-router";
 import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
-import { AppShell } from "./shell/app-shell.tsx";
 import { WorkspaceId } from "../domain/entity-id.ts";
 
 const rootRoute = createRootRoute({
-  component: AppShell,
+  component: lazyRouteComponent(() => import("./shell/app-shell.tsx"), "AppShell"),
   validateSearch: (search: Record<string, unknown>) => ({
     workspace_id: Option.getOrUndefined(
       Schema.decodeUnknownOption(WorkspaceId)(search.workspace_id),

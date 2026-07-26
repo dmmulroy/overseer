@@ -1,8 +1,5 @@
 import * as SqliteClient from "@effect/sql-sqlite-do/SqliteClient";
-import type {
-  DurableObjectState,
-  DurableObjectStorage,
-} from "@cloudflare/workers-types";
+import type { DurableObjectState, DurableObjectStorage } from "@cloudflare/workers-types";
 import * as Effect from "effect/Effect";
 import * as Exit from "effect/Exit";
 import * as FileSystem from "effect/FileSystem";
@@ -55,8 +52,7 @@ class CompatibilityGroup extends HttpApiGroup.make("compatibility")
   .add(commit)
   .add(count) {}
 
-class CompatibilityApi extends HttpApi.make("compatibility")
-  .add(CompatibilityGroup) {}
+class CompatibilityApi extends HttpApi.make("compatibility").add(CompatibilityGroup) {}
 
 const HttpPlatformStub = Layer.succeed(HttpPlatform.HttpPlatform, {
   fileResponse: () => Effect.die("The compatibility API does not serve files"),
@@ -66,68 +62,60 @@ const HttpPlatformStub = Layer.succeed(HttpPlatform.HttpPlatform, {
 function makeCompatibilityHandler(
   storage: DurableObjectStorage,
 ): (request: Request) => Promise<Response> {
-  const handlers = HttpApiBuilder.group(
-    CompatibilityApi,
-    "compatibility",
-    (handlers) =>
-      Effect.gen(function* () {
-        const sql = yield* SqlClient.SqlClient;
-        const readCount = SqlSchema.findOne({
-          Request: Schema.Void,
-          Result: Count,
-          execute: () => sql.unsafe("SELECT COUNT(*) AS count FROM compatibility_values"),
-        });
-        const rollback = Effect.fn("Compatibility.rollback")(function* () {
-          return yield* sql.withTransaction(
+  const handlers = HttpApiBuilder.group(CompatibilityApi, "compatibility", (handlers) =>
+    Effect.gen(function* () {
+      const sql = yield* SqlClient.SqlClient;
+      const readCount = SqlSchema.findOne({
+        Request: Schema.Void,
+        Result: Count,
+        execute: () => sql.unsafe("SELECT COUNT(*) AS count FROM compatibility_values"),
+      });
+      const rollback = Effect.fn("Compatibility.rollback")(function* () {
+        return yield* sql
+          .withTransaction(
             Effect.gen(function* () {
               yield* sql.unsafe("INSERT INTO compatibility_values DEFAULT VALUES");
               return yield* new IntentionalRollback();
             }),
-          ).pipe(
-            Effect.catchTag("SqlError", Effect.die),
-          );
-        });
-        const interrupt = Effect.fn("Compatibility.interrupt")(function* () {
-          const outcome = yield* Effect.exit(
-            sql.withTransaction(
-              Effect.gen(function* () {
-                yield* sql.unsafe("INSERT INTO compatibility_values DEFAULT VALUES");
-                return yield* Effect.interrupt;
-              }),
-            ),
-          );
-          if (!Exit.hasInterrupts(outcome)) {
-            return yield* Effect.die("The compatibility transaction was not interrupted");
-          }
-          return { interrupted: true as const };
-        });
-        const commit = Effect.fn("Compatibility.commit")(function* () {
-          yield* sql.withTransaction(
-            sql.unsafe("INSERT INTO compatibility_values DEFAULT VALUES"),
-          ).pipe(Effect.orDie);
-          return { committed: true as const };
-        });
-        const count = Effect.fn("Compatibility.count")(function* () {
-          return yield* readCount(undefined).pipe(Effect.orDie);
-        });
-        return handlers.handleAll({
-          rollback,
-          interrupt,
-          commit,
-          count,
-        });
-      }),
+          )
+          .pipe(Effect.catchTag("SqlError", Effect.die));
+      });
+      const interrupt = Effect.fn("Compatibility.interrupt")(function* () {
+        const outcome = yield* Effect.exit(
+          sql.withTransaction(
+            Effect.gen(function* () {
+              yield* sql.unsafe("INSERT INTO compatibility_values DEFAULT VALUES");
+              return yield* Effect.interrupt;
+            }),
+          ),
+        );
+        if (!Exit.hasInterrupts(outcome)) {
+          return yield* Effect.die("The compatibility transaction was not interrupted");
+        }
+        return { interrupted: true as const };
+      });
+      const commit = Effect.fn("Compatibility.commit")(function* () {
+        yield* sql
+          .withTransaction(sql.unsafe("INSERT INTO compatibility_values DEFAULT VALUES"))
+          .pipe(Effect.orDie);
+        return { committed: true as const };
+      });
+      const count = Effect.fn("Compatibility.count")(function* () {
+        return yield* readCount(undefined).pipe(Effect.orDie);
+      });
+      return handlers.handleAll({
+        rollback,
+        interrupt,
+        commit,
+        count,
+      });
+    }),
   );
   return HttpRouter.toWebHandler(
     HttpApiBuilder.layer(CompatibilityApi).pipe(
       Layer.provide(handlers),
       Layer.provide(SqliteClient.layer({ storage })),
-      Layer.provide([
-        Etag.layer,
-        HttpPlatformStub,
-        Path.layer,
-        FileSystem.layerNoop({}),
-      ]),
+      Layer.provide([Etag.layer, HttpPlatformStub, Path.layer, FileSystem.layerNoop({})]),
     ),
     { disableLogger: true },
   ).handler;
@@ -150,14 +138,12 @@ export class CompatibilityObject {
               "CREATE TABLE IF NOT EXISTS compatibility_values (id INTEGER PRIMARY KEY);",
             );
           });
-          const primed = yield* Effect.promise(() =>
-            handle(new Request("https://fixture/count"))
-          );
+          const primed = yield* Effect.promise(() => handle(new Request("https://fixture/count")));
           if (primed.status !== 200) {
             return yield* Effect.die("The compatibility handler did not prime");
           }
         }),
-      )
+      ),
     );
   }
 
@@ -185,7 +171,7 @@ export class AbortingCompatibilityObject {
           }
           return Effect.void;
         }),
-      )
+      ),
     );
   }
 
@@ -210,9 +196,8 @@ type FixtureEnvironment = {
 /** Forward fixture requests to the representative Durable Object bindings. */
 export default {
   async fetch(request: Request, env: FixtureEnvironment): Promise<Response> {
-    const namespace = new URL(request.url).pathname === "/initialization"
-      ? env.ABORTING
-      : env.COMPATIBILITY;
+    const namespace =
+      new URL(request.url).pathname === "/initialization" ? env.ABORTING : env.COMPATIBILITY;
     return namespace.getByName("default").fetch(request);
   },
 };

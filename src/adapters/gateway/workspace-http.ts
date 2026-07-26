@@ -1,9 +1,17 @@
 import * as Effect from "effect/Effect";
 import * as Option from "effect/Option";
+import * as Result from "effect/Result";
 import * as HttpServerResponse from "effect/unstable/http/HttpServerResponse";
 import * as HttpApiBuilder from "effect/unstable/httpapi/HttpApiBuilder";
-import type { Catalog } from "../../application/catalog/catalog.ts";
-import type { CatalogOutcome } from "../../application/catalog/catalog-rpc.ts";
+import { WorkspaceRegistryService } from "../../application/workspace-registry/workspace-registry.ts";
+import type {
+  IdempotencyKeyReused,
+  WorkspaceNotFound,
+  WorkspaceRegistryCursorInvalid,
+  WorkspaceRegistryRecordCorrupt,
+  WorkspaceRegistryRpcCallFailed,
+  WorkspaceRegistryStateUnavailable,
+} from "../../application/workspace-registry/workspace-registry-rpc.ts";
 import {
   DiscoveryPaths,
   type Link,
@@ -13,13 +21,13 @@ import {
   WorkspaceSchemaPaths,
 } from "../../contract/http-api.ts";
 import type { WorkspaceId } from "../../domain/entity-id.ts";
-import type { WorkspaceCursor } from "../../domain/pagination.ts";
-import type { Workspace } from "../../domain/workspace.ts";
-import { RequestId } from "../../domain/actor.ts";
-import { gatewayRequestContext } from "./gateway-request-context.ts";
-import type { ProblemResponder } from "./problem-response.ts";
+import type { IdempotencyKey } from "../../domain/idempotency.ts";
+import { type WorkspaceCursor, WorkspacePageLimit } from "../../domain/pagination.ts";
+import type { Workspace, WorkspaceName } from "../../domain/workspace.ts";
+import { GatewayRequestContext } from "./gateway-request-context.ts";
+import { ProblemResponse, type ProblemInput } from "./problem-response.ts";
 
-function projectWorkspace(workspace: Workspace): WorkspaceRepresentation {
+function workspaceRepresentation(workspace: Workspace): WorkspaceRepresentation {
   const self = `/api/workspaces/${workspace.id}`;
   return WorkspaceRepresentation.make({
     id: workspace.id,
@@ -35,17 +43,17 @@ function projectWorkspace(workspace: Workspace): WorkspaceRepresentation {
   });
 }
 
-function projectCollection(
+function workspaceCollection(
   workspaces: ReadonlyArray<Workspace>,
-  cursor: Option.Option<string>,
-  nextCursor: Option.Option<string>,
-  limit: number,
+  cursor: Option.Option<WorkspaceCursor>,
+  nextCursor: Option.Option<WorkspaceCursor>,
+  limit: WorkspacePageLimit,
 ): WorkspaceCollection {
   const currentQuery = Option.isSome(cursor)
     ? `?cursor=${encodeURIComponent(cursor.value)}&limit=${limit}`
     : limit === 50
-    ? ""
-    : `?limit=${limit}`;
+      ? ""
+      : `?limit=${limit}`;
   const links: Record<string, Link> = {
     self: { href: `${DiscoveryPaths.workspaces}${currentQuery}` },
     create: {
@@ -60,147 +68,148 @@ function projectCollection(
     };
   }
   return WorkspaceCollection.make({
-    items: workspaces.map(projectWorkspace),
+    items: workspaces.map(workspaceRepresentation),
     links,
   });
 }
 
-function json(value: unknown, status = 200, headers?: Readonly<Record<string, string>>) {
+function json(
+  value: unknown,
+  status = 200,
+  headers?: Readonly<Record<string, string>>,
+): HttpServerResponse.HttpServerResponse {
   return HttpServerResponse.jsonUnsafe(value, { status, headers });
 }
 
-function requestProblem(
-  requestId: RequestId,
-  respond: ProblemResponder,
-  input: Omit<Parameters<ProblemResponder>[0], "requestId">,
-): HttpServerResponse.HttpServerResponse {
-  return HttpServerResponse.fromWeb(respond({ ...input, requestId }));
-}
+const requestProblem = Effect.fn("Gateway.requestProblem")(function* (
+  input: Omit<ProblemInput, "requestId">,
+) {
+  const context = yield* GatewayRequestContext;
+  const problems = yield* ProblemResponse;
+  return problems.render({ ...input, requestId: context.requestId });
+});
 
-function workspaceOutcome(
-  outcome: CatalogOutcome,
-  requestId: RequestId,
-  respond: ProblemResponder,
-): HttpServerResponse.HttpServerResponse {
-  switch (outcome._tag) {
-    case "WorkspaceFound":
-    case "WorkspaceRenamed":
-      return json(projectWorkspace(outcome.workspace));
-    case "WorkspaceCollection":
-      return json(projectCollection(
-        outcome.workspaces,
-        Option.fromNullishOr(outcome.cursor),
-        Option.fromNullishOr(outcome.nextCursor),
-        outcome.limit,
-      ));
-    case "CursorInvalid":
-      return requestProblem(requestId, respond, {
+type WorkspaceFailure =
+  | WorkspaceRegistryCursorInvalid
+  | WorkspaceNotFound
+  | IdempotencyKeyReused
+  | WorkspaceRegistryRecordCorrupt
+  | WorkspaceRegistryStateUnavailable
+  | WorkspaceRegistryRpcCallFailed;
+
+const workspaceFailure = Effect.fn("Gateway.workspaceFailure")(function* (
+  failure: WorkspaceFailure,
+) {
+  switch (failure._tag) {
+    case "WorkspaceRegistryCursorInvalid":
+      return yield* requestProblem({
         code: "malformed_request",
         detail: "The Workspace cursor is invalid or expired.",
       });
     case "WorkspaceNotFound":
-      return requestProblem(requestId, respond, {
+      return yield* requestProblem({
         code: "resource_not_found",
         detail: "The requested Workspace does not exist.",
       });
     case "IdempotencyKeyReused":
-      return requestProblem(requestId, respond, {
+      return yield* requestProblem({
         code: "idempotency_key_reused",
         detail: "This Idempotency-Key was already used for a different request.",
       });
-    case "CatalogProtocolInvalid":
-    case "CatalogRecordCorrupt":
-    case "CatalogStateUnavailable":
-      return requestProblem(requestId, respond, {
+    case "WorkspaceRegistryRecordCorrupt":
+    case "WorkspaceRegistryStateUnavailable":
+      return yield* requestProblem({
         code: "service_unavailable",
-        detail: "The Workspace Catalog is temporarily unavailable.",
+        detail: "The Workspace Registry is temporarily unavailable.",
       });
-    case "WorkspaceCreated":
-      return json(projectWorkspace(outcome.workspace), 201, {
-        location: `/api/workspaces/${outcome.workspace.id}`,
-        ...(outcome.replayed ? { "idempotency-replayed": "true" } : {}),
+    case "WorkspaceRegistryRpcCallFailed":
+      return yield* requestProblem({
+        code: "internal_error",
+        detail: "Overseer could not complete the Workspace Registry call.",
       });
   }
-}
+});
 
-function listWorkspaces(
-  catalog: Catalog,
-  respond: ProblemResponder,
-  query: {
-    readonly cursor?: WorkspaceCursor;
-    readonly limit?: number;
-  },
-): Effect.Effect<
-  HttpServerResponse.HttpServerResponse,
-  never,
-  never
-> {
-  return Effect.gen(function* () {
-    const context = yield* gatewayRequestContext;
-    const outcome = yield* catalog.listWorkspaces({
+const listWorkspacesResponse = Effect.fn("Gateway.listWorkspaces")(function* (query: {
+  readonly cursor?: WorkspaceCursor;
+  readonly limit?: WorkspacePageLimit;
+}) {
+  const workspaceRegistry = yield* WorkspaceRegistryService;
+  const result = yield* Effect.result(
+    workspaceRegistry.listWorkspaces({
       cursor: Option.fromNullishOr(query.cursor),
-      limit: query.limit ?? 50,
-    });
-    return workspaceOutcome(outcome, context.requestId, respond);
-  });
-}
-
-function readWorkspace(
-  catalog: Catalog,
-  respond: ProblemResponder,
-  workspaceId: WorkspaceId,
-): Effect.Effect<
-  HttpServerResponse.HttpServerResponse,
-  never,
-  never
-> {
-  return Effect.gen(function* () {
-    const context = yield* gatewayRequestContext;
-    const outcome = yield* catalog.readWorkspace(workspaceId);
-    return workspaceOutcome(outcome, context.requestId, respond);
-  });
-}
-
-function makeWorkspaceHandlers(
-  catalog: Catalog,
-  respond: ProblemResponder,
-) {
-  return HttpApiBuilder.group(OverseerApi, "workspaces", (handlers) =>
-    handlers
-      .handle("listWorkspaces", ({ query }) =>
-        listWorkspaces(catalog, respond, query))
-      .handle("headWorkspaces", ({ query }) =>
-        listWorkspaces(catalog, respond, query))
-      .handle("readWorkspace", ({ params }) =>
-        readWorkspace(catalog, respond, params.workspace_id))
-      .handle("headWorkspace", ({ params }) =>
-        readWorkspace(catalog, respond, params.workspace_id))
-      .handle("createWorkspace", ({ headers, payload }) =>
-        Effect.gen(function* () {
-          const context = yield* gatewayRequestContext;
-          const outcome = yield* catalog.createWorkspace({
-            name: payload.name,
-            principalKey: context.idempotencyPrincipal,
-            idempotencyKey: headers["idempotency-key"],
-          });
-          return workspaceOutcome(outcome, context.requestId, respond);
-        }))
-      .handle("renameWorkspace", ({ payload, params }) =>
-        Effect.gen(function* () {
-          const context = yield* gatewayRequestContext;
-          const outcome = yield* catalog.renameWorkspace(
-            params.workspace_id,
-            payload.name,
-          );
-          return workspaceOutcome(outcome, context.requestId, respond);
-        })),
+      limit: query.limit ?? WorkspacePageLimit.make(50),
+    }),
   );
-}
+  return Result.isFailure(result)
+    ? yield* workspaceFailure(result.failure)
+    : json(
+        workspaceCollection(
+          result.success.workspaces,
+          result.success.cursor,
+          result.success.nextCursor,
+          result.success.limit,
+        ),
+      );
+});
 
-/** Build the Workspace HTTP handlers over the Catalog application seam. */
-export function workspaceHandlers(
-  catalog: Catalog,
-  respond: ProblemResponder,
-): ReturnType<typeof makeWorkspaceHandlers> {
-  return makeWorkspaceHandlers(catalog, respond);
-}
+const readWorkspaceResponse = Effect.fn("Gateway.readWorkspace")(function* (
+  workspaceId: WorkspaceId,
+) {
+  const workspaceRegistry = yield* WorkspaceRegistryService;
+  const result = yield* Effect.result(workspaceRegistry.readWorkspace(workspaceId));
+  return Result.isFailure(result)
+    ? yield* workspaceFailure(result.failure)
+    : json(workspaceRepresentation(result.success));
+});
+
+const createWorkspaceResponse = Effect.fn("Gateway.createWorkspace")(function* (input: {
+  readonly name: WorkspaceName;
+  readonly idempotencyKey: IdempotencyKey;
+}) {
+  const context = yield* GatewayRequestContext;
+  const workspaceRegistry = yield* WorkspaceRegistryService;
+  const result = yield* Effect.result(
+    workspaceRegistry.createWorkspace({
+      name: input.name,
+      idempotencyScope: context.idempotencyScope,
+      idempotencyKey: input.idempotencyKey,
+    }),
+  );
+  if (Result.isFailure(result)) {
+    return yield* workspaceFailure(result.failure);
+  }
+  return json(workspaceRepresentation(result.success.workspace), 201, {
+    location: `/api/workspaces/${result.success.workspace.id}`,
+    ...(result.success.replayed ? { "idempotency-replayed": "true" } : {}),
+  });
+});
+
+const renameWorkspaceResponse = Effect.fn("Gateway.renameWorkspace")(function* (
+  workspaceId: WorkspaceId,
+  name: WorkspaceName,
+) {
+  const workspaceRegistry = yield* WorkspaceRegistryService;
+  const result = yield* Effect.result(workspaceRegistry.renameWorkspace(workspaceId, name));
+  return Result.isFailure(result)
+    ? yield* workspaceFailure(result.failure)
+    : json(workspaceRepresentation(result.success));
+});
+
+/** Workspace HTTP handlers backed by yielded application services. */
+export const layer = HttpApiBuilder.group(OverseerApi, "workspaces", (handlers) =>
+  handlers
+    .handle("listWorkspaces", ({ query }) => listWorkspacesResponse(query))
+    .handle("headWorkspaces", ({ query }) => listWorkspacesResponse(query))
+    .handle("readWorkspace", ({ params }) => readWorkspaceResponse(params.workspace_id))
+    .handle("headWorkspace", ({ params }) => readWorkspaceResponse(params.workspace_id))
+    .handle("createWorkspace", ({ headers, payload }) =>
+      createWorkspaceResponse({
+        name: payload.name,
+        idempotencyKey: headers["idempotency-key"],
+      }),
+    )
+    .handle("renameWorkspace", ({ payload, params }) =>
+      renameWorkspaceResponse(params.workspace_id, payload.name),
+    ),
+);

@@ -1,8 +1,4 @@
-import {
-  createRemoteJWKSet,
-  errors as JoseErrors,
-  jwtVerify,
-} from "jose";
+import { createRemoteJWKSet, errors as JoseErrors, jwtVerify } from "jose";
 import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
@@ -15,6 +11,7 @@ import {
   EmailAddress,
   HumanPrincipalId,
 } from "../../domain/actor.ts";
+import { GatewayConfiguration } from "./gateway-configuration.ts";
 
 const InvalidAccessIdentityReason = Schema.Literals([
   "unsupported_token_type",
@@ -48,10 +45,7 @@ function parseAccessIdentity(
     return new InvalidAccessIdentity("unsupported_token_type");
   }
 
-  if (
-    typeof claims.common_name === "string" &&
-    (claims.sub === undefined || claims.sub === "")
-  ) {
+  if (typeof claims.common_name === "string" && (claims.sub === undefined || claims.sub === "")) {
     const deploymentId = Schema.decodeUnknownOption(AgentDeploymentId)(claims.common_name);
     return Option.isSome(deploymentId)
       ? AuthenticatedPrincipal.cases.AgentDeploymentPrincipal.make({
@@ -71,14 +65,6 @@ function parseAccessIdentity(
     : new InvalidAccessIdentity("invalid_human_claims");
 }
 
-/** Cloudflare Access application audience accepted by the Gateway. */
-export const AccessAudience = Schema.String.check(Schema.isMinLength(1)).pipe(
-  Schema.brand("AccessAudience"),
-);
-
-/** Cloudflare Access application audience accepted by the Gateway. */
-export type AccessAudience = typeof AccessAudience.Type;
-
 const AccessAuthenticationFailureReason = Schema.Literals([
   "missing_assertion",
   "invalid_assertion",
@@ -87,9 +73,7 @@ const AccessAuthenticationFailureReason = Schema.Literals([
 ]);
 type AccessAuthenticationFailureReason = typeof AccessAuthenticationFailureReason.Type;
 
-const authenticationFailureMessages: Readonly<
-  Record<AccessAuthenticationFailureReason, string>
-> = {
+const authenticationFailureMessages: Readonly<Record<AccessAuthenticationFailureReason, string>> = {
   missing_assertion: "The Access assertion header is missing",
   invalid_assertion: "The Access assertion is invalid",
   invalid_identity: "The Access assertion identity is invalid",
@@ -115,11 +99,12 @@ export class AccessAuthenticationFailed extends Schema.TaggedErrorClass<AccessAu
 }
 
 function classifyVerificationFailure(cause: unknown): AccessAuthenticationFailed {
-  const reason = cause instanceof JoseErrors.JWKSTimeout ||
-      (cause instanceof JoseErrors.JOSEError && cause.code === "ERR_JOSE_GENERIC") ||
-      !(cause instanceof JoseErrors.JOSEError)
-    ? "verification_unavailable"
-    : "invalid_assertion";
+  const reason =
+    cause instanceof JoseErrors.JWKSTimeout ||
+    (cause instanceof JoseErrors.JOSEError && cause.code === "ERR_JOSE_GENERIC") ||
+    !(cause instanceof JoseErrors.JOSEError)
+      ? "verification_unavailable"
+      : "invalid_assertion";
 
   return new AccessAuthenticationFailed({ reason, cause });
 }
@@ -130,52 +115,53 @@ export class AccessAssertionVerifier extends Context.Service<
   {
     readonly verify: (
       assertion: Redacted.Redacted<string>,
-      audience: AccessAudience,
     ) => Effect.Effect<AuthenticatedPrincipal, AccessAuthenticationFailed>;
   }
 >()("@overseer/gateway/AccessAssertionVerifier") {}
 
-/** Build an Access verifier layer with one isolate-scoped remote key-set cache. */
-export function accessAssertionVerifierLayer(
-  issuer: URL,
-): Layer.Layer<AccessAssertionVerifier> {
-  return Layer.sync(AccessAssertionVerifier, () => {
-    const keySet = createRemoteJWKSet(
-      new URL("/cdn-cgi/access/certs", issuer),
-    );
+/** Construct an Access verifier with one isolate-scoped remote key-set cache. */
+export const make = Effect.gen(function* () {
+  const configuration = yield* GatewayConfiguration;
+  const { accessAudience: audience, accessIssuer: issuer } = configuration;
+  const keySet = createRemoteJWKSet(new URL("/cdn-cgi/access/certs", issuer));
 
-    const verify = Effect.fn("GatewayAccess.verifyAssertion")(function* (
-      assertion: Redacted.Redacted<string>,
-      audience: AccessAudience,
-    ) {
-      if (Redacted.value(assertion).length === 0) {
-        return yield* Effect.fail(new AccessAuthenticationFailed({
+  const verify = Effect.fn("GatewayAccess.verifyAssertion")(function* (
+    assertion: Redacted.Redacted<string>,
+  ) {
+    if (Redacted.value(assertion).length === 0) {
+      return yield* Effect.fail(
+        new AccessAuthenticationFailed({
           reason: "missing_assertion",
           cause: new Error("The Access assertion header is missing"),
-        }));
-      }
+        }),
+      );
+    }
 
-      const verified = yield* Effect.tryPromise({
-        try: () =>
-          jwtVerify(Redacted.value(assertion), keySet, {
-            algorithms: ["RS256"],
-            audience,
-            issuer: issuer.origin,
-            requiredClaims: ["exp", "iat"],
-            typ: "JWT",
-          }),
-        catch: classifyVerificationFailure,
-      });
-      const identity = parseAccessIdentity(verified.payload);
+    const verified = yield* Effect.tryPromise({
+      try: () =>
+        jwtVerify(Redacted.value(assertion), keySet, {
+          algorithms: ["RS256"],
+          audience,
+          issuer: issuer.origin,
+          requiredClaims: ["exp", "iat"],
+          typ: "JWT",
+        }),
+      catch: classifyVerificationFailure,
+    });
+    const identity = parseAccessIdentity(verified.payload);
 
-      return identity instanceof InvalidAccessIdentity
-        ? yield* Effect.fail(new AccessAuthenticationFailed({
+    return identity instanceof InvalidAccessIdentity
+      ? yield* Effect.fail(
+          new AccessAuthenticationFailed({
             reason: "invalid_identity",
             cause: identity,
-          }))
-        : identity;
-    });
-
-    return AccessAssertionVerifier.of({ verify });
+          }),
+        )
+      : identity;
   });
-}
+
+  return AccessAssertionVerifier.of({ verify });
+});
+
+/** Production Access assertion verifier layer. */
+export const layer = Layer.effect(AccessAssertionVerifier, make);

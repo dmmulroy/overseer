@@ -9,11 +9,9 @@ import * as OpenApi from "effect/unstable/httpapi/OpenApi";
 import { RequestId } from "../domain/actor.ts";
 import { WorkspaceId } from "../domain/entity-id.ts";
 import { IdempotencyKey } from "../domain/idempotency.ts";
-import { WorkspaceCursor } from "../domain/pagination.ts";
-import {
-  WorkspaceName,
-  WorkspaceTimestamp,
-} from "../domain/workspace.ts";
+import { WorkspaceCursor, WorkspacePageLimitFromString } from "../domain/pagination.ts";
+import { WorkspaceName, WorkspaceTimestamp } from "../domain/workspace.ts";
+import { WorkspaceNameRequest } from "./request-schemas.ts";
 
 /** Stable paths owned by the discovery contract. */
 export const DiscoveryPaths = {
@@ -21,7 +19,6 @@ export const DiscoveryPaths = {
   schemas: "/api/schemas",
   openapi: "/api/openapi.json",
   workspaces: "/api/workspaces",
-  projects: "/api/projects",
 } as const;
 
 /** Response media types owned by the discovery contract. */
@@ -32,17 +29,18 @@ export const DiscoveryMediaTypes = {
   schema: "application/schema+json",
 } as const;
 
-/** Canonical content-addressed request-schema paths for Workspace operations. */
-export const WorkspaceSchemaPaths = {
-  create: "/api/schemas/sha256-c8aabdb8c675c0dcacec739982adb32587a2957f6f49f55ea498b9865386f85e/create_workspace",
-  rename: "/api/schemas/sha256-5fa6ff48fcff72fb74d0d49e4d7881e8b1df11208bee60d63a8127d0e0e4d550/rename_workspace",
-} as const;
+export { WorkspaceSchemaPaths } from "./request-schemas.ts";
+
+const LinkMethod = Schema.Literals(["GET", "POST", "PATCH"]);
+const RequestSchemaReference = Schema.String.check(
+  Schema.isPattern(/^\/api\/schemas\/sha256-[0-9a-f]{64}\/[a-z][a-z0-9_]*$/),
+);
 
 /** Link to a discoverable REST resource or operation. */
 export const Link = Schema.Struct({
   href: Schema.String,
-  method: Schema.optionalKey(Schema.String),
-  schema: Schema.optionalKey(Schema.String),
+  method: Schema.optionalKey(LinkMethod),
+  schema: Schema.optionalKey(RequestSchemaReference),
 }).annotate({ identifier: "Link" });
 
 /** Link to a discoverable REST resource or operation. */
@@ -77,8 +75,10 @@ export const ProblemCode = Schema.Literals([
   "internal_error",
   "malformed_request",
   "method_not_allowed",
+  "payload_too_large",
   "origin_not_allowed",
   "representation_not_acceptable",
+  "request_body_unreadable",
   "resource_not_found",
   "service_unavailable",
   "unsupported_media_type",
@@ -89,42 +89,90 @@ export const ProblemCode = Schema.Literals([
 export type ProblemCode = typeof ProblemCode.Type;
 
 /** HTTP failure statuses introduced by the public Gateway contract. */
-export const ProblemStatus = Schema.Literals([400, 401, 403, 404, 405, 406, 409, 415, 422, 500, 503]);
+export const ProblemStatus = Schema.Literals([
+  400, 401, 403, 404, 405, 406, 409, 413, 415, 422, 500, 503,
+]);
 
 /** HTTP failure statuses introduced by the Gateway bootstrap contract. */
 export type ProblemStatus = typeof ProblemStatus.Type;
 
-/** RFC 9457 problem representation shared by all API failures. */
-export const ProblemDocument = Schema.Struct({
+const problemDocumentFields = {
   type: Schema.String,
   title: Schema.String,
-  status: ProblemStatus,
   detail: Schema.String,
   code: ProblemCode,
   request_id: RequestId,
   retryable: Schema.Boolean,
-  errors: Schema.optionalKey(Schema.Array(Schema.Struct({
-    code: Schema.String,
-    path: Schema.String,
-    message: Schema.String,
-  }))),
+  errors: Schema.optionalKey(
+    Schema.Array(
+      Schema.Struct({
+        code: Schema.String,
+        path: Schema.String,
+        message: Schema.String,
+      }),
+    ),
+  ),
   details: Schema.optionalKey(Schema.Record(Schema.String, Schema.Unknown)),
   links: Schema.optionalKey(Schema.Record(Schema.String, Link)),
-}).annotate({ identifier: "Problem" });
+};
+
+const problemDocumentAtStatus = <const Status extends ProblemStatus>(status: Status) =>
+  Schema.Struct({
+    ...problemDocumentFields,
+    status: Schema.Literal(status),
+  });
+
+const Problem400 = problemDocumentAtStatus(400);
+const Problem401 = problemDocumentAtStatus(401);
+const Problem403 = problemDocumentAtStatus(403);
+const Problem404 = problemDocumentAtStatus(404);
+const Problem405 = problemDocumentAtStatus(405);
+const Problem406 = problemDocumentAtStatus(406);
+const Problem409 = problemDocumentAtStatus(409);
+const Problem413 = problemDocumentAtStatus(413);
+const Problem415 = problemDocumentAtStatus(415);
+const Problem422 = problemDocumentAtStatus(422);
+const Problem500 = problemDocumentAtStatus(500);
+const Problem503 = problemDocumentAtStatus(503);
 
 /** RFC 9457 problem representation shared by all API failures. */
-export interface ProblemDocument extends Schema.Schema.Type<typeof ProblemDocument> {}
+export const ProblemDocument = Schema.Union([
+  Problem400,
+  Problem401,
+  Problem403,
+  Problem404,
+  Problem405,
+  Problem406,
+  Problem409,
+  Problem413,
+  Problem415,
+  Problem422,
+  Problem500,
+  Problem503,
+]).annotate({ identifier: "Problem" });
 
-const problemAtStatus = (status: ProblemStatus) =>
-  ProblemDocument.pipe(
+/** RFC 9457 problem representation shared by all API failures. */
+export type ProblemDocument = typeof ProblemDocument.Type;
+
+const problemAtStatus = <const Status extends ProblemStatus>(status: Status) =>
+  problemDocumentAtStatus(status).pipe(
     HttpApiSchema.asJson({ contentType: DiscoveryMediaTypes.problem }),
     HttpApiSchema.status(status),
   );
-const endpointProblems = ([400, 404, 405, 406, 409, 415, 422, 503] as const).map(problemAtStatus);
+const errorsAtStatuses = <const Statuses extends ReadonlyArray<ProblemStatus>>(
+  statuses: Statuses,
+) => statuses.map(problemAtStatus);
+const representationReadProblems = errorsAtStatuses([406, 500, 503]);
+const requestSchemaReadProblems = errorsAtStatuses([404, 406, 500, 503]);
+const workspaceListProblems = errorsAtStatuses([400, 406, 500, 503]);
+const workspaceCreateProblems = errorsAtStatuses([400, 403, 409, 413, 415, 422, 500, 503]);
+const workspaceReadProblems = errorsAtStatuses([400, 404, 406, 500, 503]);
+const workspaceRenameProblems = errorsAtStatuses([400, 403, 404, 413, 415, 422, 500, 503]);
 const conditionalReadHeaders = {
   accept: Schema.optionalKey(Schema.String),
   "if-none-match": Schema.optionalKey(Schema.String),
 };
+const NotModified = HttpApiSchema.Empty(304);
 const OpenApiDocument = Schema.Unknown.pipe(
   HttpApiSchema.asJson({ contentType: DiscoveryMediaTypes.openapi }),
 );
@@ -132,18 +180,7 @@ const JsonSchemaDocument = Schema.Unknown.pipe(
   HttpApiSchema.asJson({ contentType: DiscoveryMediaTypes.schema }),
 );
 
-/** Body accepted when creating or renaming a Workspace. */
-export const WorkspaceNameRequest = Schema.Struct({ name: WorkspaceName }).pipe(
-  Schema.flip,
-  Schema.check(Schema.makeFilter(
-    (body) => Object.keys(body).length === 1,
-    { expected: "an object containing only the name field" },
-  )),
-  Schema.flip,
-);
-
-/** Body accepted when creating or renaming a Workspace. */
-export interface WorkspaceNameRequest extends Schema.Schema.Type<typeof WorkspaceNameRequest> {}
+export { WorkspaceNameRequest } from "./request-schemas.ts";
 
 /** Full Workspace REST representation. */
 export const WorkspaceRepresentation = Schema.Struct({
@@ -157,7 +194,9 @@ export const WorkspaceRepresentation = Schema.Struct({
 }).annotate({ identifier: "Workspace" });
 
 /** Full Workspace REST representation. */
-export interface WorkspaceRepresentation extends Schema.Schema.Type<typeof WorkspaceRepresentation> {}
+export interface WorkspaceRepresentation extends Schema.Schema.Type<
+  typeof WorkspaceRepresentation
+> {}
 
 /** Exact active Workspace collection page. */
 export const WorkspaceCollection = Schema.Struct({
@@ -180,33 +219,33 @@ const workspaceCreateHeaders = {
 const workspaceCreated = WorkspaceRepresentation.pipe(HttpApiSchema.status(201));
 const discover = HttpApiEndpoint.get("discover", DiscoveryPaths.root, {
   headers: conditionalReadHeaders,
-  success: DiscoveryDocument,
-  error: endpointProblems,
+  success: [DiscoveryDocument, NotModified],
+  error: representationReadProblems,
 });
 const headDiscovery = HttpApiEndpoint.head("headDiscovery", DiscoveryPaths.root, {
   headers: conditionalReadHeaders,
-  success: DiscoveryDocument,
-  error: endpointProblems,
+  success: [DiscoveryDocument, NotModified],
+  error: representationReadProblems,
 });
 const discoverSchemas = HttpApiEndpoint.get("discoverSchemas", DiscoveryPaths.schemas, {
   headers: conditionalReadHeaders,
-  success: SchemaIndex,
-  error: endpointProblems,
+  success: [SchemaIndex, NotModified],
+  error: representationReadProblems,
 });
 const headSchemas = HttpApiEndpoint.head("headSchemas", DiscoveryPaths.schemas, {
   headers: conditionalReadHeaders,
-  success: SchemaIndex,
-  error: endpointProblems,
+  success: [SchemaIndex, NotModified],
+  error: representationReadProblems,
 });
 const openApi = HttpApiEndpoint.get("openApi", DiscoveryPaths.openapi, {
   headers: conditionalReadHeaders,
-  success: OpenApiDocument,
-  error: endpointProblems,
+  success: [OpenApiDocument, NotModified],
+  error: representationReadProblems,
 });
 const headOpenApi = HttpApiEndpoint.head("headOpenApi", DiscoveryPaths.openapi, {
   headers: conditionalReadHeaders,
-  success: OpenApiDocument,
-  error: endpointProblems,
+  success: [OpenApiDocument, NotModified],
+  error: representationReadProblems,
 });
 const readRequestSchema = HttpApiEndpoint.get(
   "readRequestSchema",
@@ -214,8 +253,8 @@ const readRequestSchema = HttpApiEndpoint.get(
   {
     params: { content_hash: Schema.String, schema_name: Schema.String },
     headers: conditionalReadHeaders,
-    success: JsonSchemaDocument,
-    error: endpointProblems,
+    success: [JsonSchemaDocument, NotModified],
+    error: requestSchemaReadProblems,
   },
 );
 const headRequestSchema = HttpApiEndpoint.head(
@@ -224,57 +263,61 @@ const headRequestSchema = HttpApiEndpoint.head(
   {
     params: { content_hash: Schema.String, schema_name: Schema.String },
     headers: conditionalReadHeaders,
-    success: JsonSchemaDocument,
-    error: endpointProblems,
+    success: [JsonSchemaDocument, NotModified],
+    error: requestSchemaReadProblems,
   },
 );
 
-const workspaceListQuery = {
+const workspaceListQuery = Schema.Struct({
   cursor: Schema.optionalKey(WorkspaceCursor),
-  limit: Schema.optionalKey(
-    Schema.NumberFromString.check(
-      Schema.isInt(),
-      Schema.isBetween({ minimum: 1, maximum: 100 }),
+  limit: Schema.optionalKey(WorkspacePageLimitFromString),
+}).pipe(
+  Schema.flip,
+  Schema.check(
+    Schema.makeFilter(
+      (query) => Object.keys(query).every((key) => key === "cursor" || key === "limit"),
+      { expected: "an object containing only cursor and limit fields" },
     ),
   ),
-};
+  Schema.flip,
+);
 
 const listWorkspaces = HttpApiEndpoint.get("listWorkspaces", DiscoveryPaths.workspaces, {
   headers: conditionalReadHeaders,
   query: workspaceListQuery,
-  success: WorkspaceCollection,
-  error: endpointProblems,
+  success: [WorkspaceCollection, NotModified],
+  error: workspaceListProblems,
 });
 const headWorkspaces = HttpApiEndpoint.head("headWorkspaces", DiscoveryPaths.workspaces, {
   headers: conditionalReadHeaders,
   query: workspaceListQuery,
-  success: WorkspaceCollection,
-  error: endpointProblems,
+  success: [WorkspaceCollection, NotModified],
+  error: workspaceListProblems,
 });
 const createWorkspace = HttpApiEndpoint.post("createWorkspace", DiscoveryPaths.workspaces, {
   headers: workspaceCreateHeaders,
   payload: WorkspaceNameRequest,
   success: workspaceCreated,
-  error: endpointProblems,
+  error: workspaceCreateProblems,
 });
 const readWorkspace = HttpApiEndpoint.get("readWorkspace", "/api/workspaces/:workspace_id", {
   params: workspacePath,
   headers: conditionalReadHeaders,
-  success: WorkspaceRepresentation,
-  error: endpointProblems,
+  success: [WorkspaceRepresentation, NotModified],
+  error: workspaceReadProblems,
 });
 const headWorkspace = HttpApiEndpoint.head("headWorkspace", "/api/workspaces/:workspace_id", {
   params: workspacePath,
   headers: conditionalReadHeaders,
-  success: WorkspaceRepresentation,
-  error: endpointProblems,
+  success: [WorkspaceRepresentation, NotModified],
+  error: workspaceReadProblems,
 });
 const renameWorkspace = HttpApiEndpoint.patch("renameWorkspace", "/api/workspaces/:workspace_id", {
   params: workspacePath,
   headers: workspaceMutationHeaders,
   payload: WorkspaceNameRequest,
   success: WorkspaceRepresentation,
-  error: endpointProblems,
+  error: workspaceRenameProblems,
 });
 
 /** Discovery endpoints in the public Overseer API. */

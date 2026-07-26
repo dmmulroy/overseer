@@ -1,4 +1,5 @@
 import * as Schema from "effect/Schema";
+import { Ulid } from "./ulid.ts";
 
 const visibleAscii = /^[!-~]+$/;
 
@@ -52,12 +53,15 @@ export const HarnessName = Schema.String.check(
 export type HarnessName = typeof HarnessName.Type;
 
 /** Gateway-generated request correlation identity. */
-export const RequestId = Schema.String.check(Schema.isUUID(4)).pipe(
-  Schema.brand("RequestId"),
-);
+export const RequestId = Schema.TemplateLiteral(["request_", Ulid]).pipe(Schema.brand("RequestId"));
 
 /** Gateway-generated request correlation identity. */
 export type RequestId = typeof RequestId.Type;
+
+/** Prefix a ULID for use as a request correlation identity. */
+export function makeRequestId(ulid: Ulid): RequestId {
+  return RequestId.make(`request_${ulid}`);
+}
 
 /** A principal established by a validated Cloudflare Access assertion. */
 export const AuthenticatedPrincipal = Schema.TaggedUnion({

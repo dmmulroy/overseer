@@ -1,12 +1,13 @@
 import { exportJWK, generateKeyPair, SignJWT, type CryptoKey } from "jose";
 import * as Schema from "effect/Schema";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it } from "vite-plus/test";
 import type { Miniflare } from "miniflare";
 import {
   ProblemDocument,
   WorkspaceCollection,
   WorkspaceRepresentation,
 } from "../../src/contract/http-api.ts";
+import { makeGatewayIngressTestHandler } from "../fixtures/alchemy-gateway.ts";
 import { startGateway } from "../fixtures/gateway.ts";
 
 const issuer = "https://overseer-workspaces.cloudflareaccess.com";
@@ -114,7 +115,9 @@ describe("Workspace REST interface", () => {
   it("creates, lists, reads, and renames Workspaces without normalizing names", async () => {
     const created = await createWorkspace("  Personal  ", "workspace-create-personal");
     expect(created.status).toBe(201);
-    expect(created.headers.get("location")).toMatch(/^\/api\/workspaces\/workspace_[0-9A-HJKMNP-TV-Z]{26}$/);
+    expect(created.headers.get("location")).toMatch(
+      /^\/api\/workspaces\/workspace_[0-9A-HJKMNP-TV-Z]{26}$/,
+    );
     const workspace = await workspaceJson(created);
     expect(workspace).toMatchObject({
       id: expect.stringMatching(/^workspace_[0-9A-HJKMNP-TV-Z]{26}$/),
@@ -173,20 +176,22 @@ describe("Workspace REST interface", () => {
     });
   });
 
-  it("gives human and Agent principals the same Workspace operations with independent key scopes", async () => {
-    const human = await createWorkspace("Human scoped", "shared-principal-key");
+  it("isolates equal idempotency keys in scopes derived from different authenticated callers", async () => {
+    const human = await createWorkspace("Human scoped", "shared-idempotency-key");
     expect(human.status).toBe(201);
+    const humanWorkspace = await workspaceJson(human);
 
     const agent = await agentApi("/api/workspaces", {
       method: "POST",
       headers: {
         "content-type": "application/json",
-        "idempotency-key": "shared-principal-key",
+        "idempotency-key": "shared-idempotency-key",
       },
       body: JSON.stringify({ name: "Agent scoped" }),
     });
     expect(agent.status).toBe(201);
     const agentWorkspace = await workspaceJson(agent);
+    expect(agentWorkspace.id).not.toBe(humanWorkspace.id);
 
     const renamed = await agentApi(`/api/workspaces/${agentWorkspace.id}`, {
       method: "PATCH",
@@ -278,18 +283,18 @@ describe("Workspace REST interface", () => {
       body: "{",
     });
     expect(malformed.status).toBe(400);
-    const malformedProblem = Schema.decodeUnknownSync(ProblemDocument)(
-      await malformed.json(),
-    );
+    const malformedProblem = Schema.decodeUnknownSync(ProblemDocument)(await malformed.json());
     expect(malformedProblem).toMatchObject({ code: "malformed_request" });
     expect(malformed.headers.get("x-request-id")).toBe(malformedProblem.request_id);
 
-    const oversized = await createWorkspace(
-      "x".repeat(2 * 1024 * 1024),
-      "workspace-oversized",
-    );
-    expect(oversized.status).toBe(400);
+    const oversized = await createWorkspace("x".repeat(2 * 1024 * 1024), "workspace-oversized");
+    expect(oversized.status).toBe(413);
     expect(oversized.headers.get("content-type")).toBe("application/problem+json");
+    await expect(oversized.json()).resolves.toMatchObject({
+      code: "payload_too_large",
+      status: 413,
+      retryable: false,
+    });
 
     const invalid = await createWorkspace("  \t  ", "workspace-invalid-name");
     expect(invalid.status).toBe(422);
@@ -321,6 +326,20 @@ describe("Workspace REST interface", () => {
     expect(missingKey.status).toBe(400);
     await expect(missingKey.json()).resolves.toMatchObject({ code: "malformed_request" });
 
+    for (const path of [
+      "/api/workspaces?sort=name",
+      "/api/workspaces?limit=0",
+      "/api/workspaces?limit=101",
+      "/api/workspaces?limit=1.5",
+      "/api/workspaces?limit=1&limit=2",
+    ]) {
+      const malformedQuery = await api(path);
+      expect(malformedQuery.status).toBe(400);
+      await expect(malformedQuery.json()).resolves.toMatchObject({
+        code: "malformed_request",
+      });
+    }
+
     const malformedId = await api("/api/workspaces/not-a-workspace");
     expect(malformedId.status).toBe(400);
     await expect(malformedId.json()).resolves.toMatchObject({ code: "malformed_request" });
@@ -328,6 +347,69 @@ describe("Workspace REST interface", () => {
     const absent = await api("/api/workspaces/workspace_01J00000000000000000000000");
     expect(absent.status).toBe(404);
     await expect(absent.json()).resolves.toMatchObject({ code: "resource_not_found" });
+  });
+
+  it("classifies an unreadable request body at the Gateway ingress", async () => {
+    const fixture = await makeGatewayIngressTestHandler("success");
+    try {
+      const body = new ReadableStream<Uint8Array>({
+        pull(controller) {
+          controller.error(new Error("Unreadable request body fixture"));
+        },
+      });
+      const requestInit = {
+        method: "POST",
+        duplex: "half",
+        headers: {
+          "content-type": "application/json",
+          "idempotency-key": "workspace-unreadable",
+          origin,
+        },
+        body,
+      };
+      const response = await fixture.handle(
+        new Request("https://overseer.test/api/workspaces", requestInit),
+      );
+
+      expect(response.status).toBe(400);
+      await expect(response.json()).resolves.toMatchObject({
+        code: "request_body_unreadable",
+        status: 400,
+      });
+    } finally {
+      await fixture.dispose();
+    }
+  });
+
+  it("returns a safe internal error for response encoding failures", async () => {
+    const fixture = await makeGatewayIngressTestHandler("response_body_encoding_failure");
+    try {
+      const response = await fixture.handle(new Request("https://overseer.test/api"));
+
+      expect(response.status).toBe(500);
+      expect(response.headers.get("content-type")).toBe("application/problem+json");
+      await expect(response.json()).resolves.toMatchObject({
+        code: "internal_error",
+        detail: "Overseer could not encode the response.",
+        status: 500,
+      });
+    } finally {
+      await fixture.dispose();
+    }
+  });
+
+  it("does not disclose unexpected defect details", async () => {
+    const fixture = await makeGatewayIngressTestHandler("unexpected_defect");
+    try {
+      const response = await fixture.handle(new Request("https://overseer.test/api"));
+      const body = await response.text();
+
+      expect(response.status).toBe(500);
+      expect(body).toContain("internal_error");
+      expect(body).not.toContain("Sensitive unexpected defect fixture");
+    } finally {
+      await fixture.dispose();
+    }
   });
 
   it("supports strong validators and HEAD for resources and exact collection pages", async () => {

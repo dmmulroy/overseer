@@ -2,14 +2,14 @@ import * as Schema from "effect/Schema";
 
 const visibleAscii = /^[!-~]+$/;
 
-/** Stable principal scope used to partition idempotency keys. */
-export const IdempotencyPrincipal = Schema.String.check(
+/** Stable scope that partitions idempotency keys between authenticated callers. */
+export const IdempotencyScope = Schema.String.check(
   Schema.isMinLength(1),
   Schema.isMaxLength(600),
-).pipe(Schema.brand("IdempotencyPrincipal"));
+).pipe(Schema.brand("IdempotencyScope"));
 
-/** Stable principal scope used to partition idempotency keys. */
-export type IdempotencyPrincipal = typeof IdempotencyPrincipal.Type;
+/** Stable scope that partitions idempotency keys between authenticated callers. */
+export type IdempotencyScope = typeof IdempotencyScope.Type;
 
 /** Caller-supplied key for replaying one ordinary POST mutation. */
 export const IdempotencyKey = Schema.String.check(

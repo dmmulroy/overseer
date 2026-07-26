@@ -1,34 +1,49 @@
-import * as Context from "effect/Context";
+import * as BrowserCrypto from "@effect/platform-browser/BrowserCrypto";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as ManagedRuntime from "effect/ManagedRuntime";
+import * as Option from "effect/Option";
 import * as Result from "effect/Result";
 import * as Schema from "effect/Schema";
-import type * as Scope from "effect/Scope";
 import * as HttpEffect from "effect/unstable/http/HttpEffect";
-import type * as HttpServerRequest from "effect/unstable/http/HttpServerRequest";
-import type * as HttpServerResponse from "effect/unstable/http/HttpServerResponse";
+import * as HttpServerResponse from "effect/unstable/http/HttpServerResponse";
+import { layer as accessAssertionVerifierLayer } from "../../src/adapters/gateway/access-principal.ts";
 import {
   AccessAudience,
-  accessAssertionVerifierLayer,
-} from "../../src/adapters/gateway/access-principal.ts";
-import { makeGatewayApplication } from "../../src/adapters/gateway/gateway-application.ts";
-import { makeCatalogRpcClient } from "../../src/adapters/gateway/catalog-rpc-client.ts";
-import { makeCatalog } from "../../src/application/catalog/catalog.ts";
-import type {
-  CatalogCommand,
-  CatalogOutcome,
-  CatalogRead,
-} from "../../src/application/catalog/catalog-rpc.ts";
-import { TestWorkspaceCatalog } from "./workspace-catalog.ts";
-
-export { TestWorkspaceCatalog };
-import {
   ExactOrigin,
+  GatewayConfiguration,
   HttpsOrigin,
 } from "../../src/adapters/gateway/gateway-configuration.ts";
-import { makeProblemResponder } from "../../src/adapters/gateway/problem-response.ts";
-import { RequestId } from "../../src/domain/actor.ts";
+import {
+  GatewayApplication,
+  layer as gatewayApplicationLayer,
+} from "../../src/adapters/gateway/gateway-application.ts";
+import { layer as gatewayApiLayer } from "../../src/adapters/gateway/gateway-http.ts";
+import {
+  layer as problemResponseLayer,
+  renderGatewayConfigurationUnavailable,
+} from "../../src/adapters/gateway/problem-response.ts";
+import {
+  layer as ulidGeneratorLayer,
+  UlidGeneratorService,
+} from "../../src/application/ulid-generator.ts";
+import { WorkspaceRegistryService } from "../../src/application/workspace-registry/workspace-registry.ts";
+import {
+  CreateWorkspaceRpcInput,
+  IdempotencyKeyReused,
+  RenameWorkspaceRpcInput,
+  WORKSPACE_REGISTRY_SINGLETON_NAME,
+  WorkspaceNotFound,
+  WorkspaceRegistryCursorInvalid,
+  WorkspaceRegistryRecordCorrupt,
+  WorkspaceRegistryRpcCallFailed,
+  WorkspaceRegistryStateUnavailable,
+  type WorkspaceRegistryRpc,
+} from "../../src/application/workspace-registry/workspace-registry-rpc.ts";
+import { makeRequestId } from "../../src/domain/actor.ts";
+import { TestWorkspaceRegistry } from "./workspace-registry.ts";
+
+export { TestWorkspaceRegistry };
 
 const TestGatewayConfiguration = Schema.Struct({
   accessAudience: AccessAudience,
@@ -36,73 +51,164 @@ const TestGatewayConfiguration = Schema.Struct({
   allowedOrigin: ExactOrigin,
 });
 
-class TestGatewayApplication extends Context.Service<
-  TestGatewayApplication,
-  Effect.Effect<
-    HttpServerResponse.HttpServerResponse,
-    never,
-    HttpServerRequest.HttpServerRequest | Scope.Scope
-  >
->()("@overseer/test/GatewayApplication") {}
+const ListWorkspacesFailure = Schema.Union([
+  WorkspaceRegistryCursorInvalid,
+  WorkspaceRegistryRecordCorrupt,
+  WorkspaceRegistryStateUnavailable,
+]);
+const ReadWorkspaceFailure = Schema.Union([
+  WorkspaceNotFound,
+  WorkspaceRegistryRecordCorrupt,
+  WorkspaceRegistryStateUnavailable,
+]);
+const CreateWorkspaceFailure = Schema.Union([
+  IdempotencyKeyReused,
+  WorkspaceRegistryRecordCorrupt,
+  WorkspaceRegistryStateUnavailable,
+]);
+const RenameWorkspaceFailure = ReadWorkspaceFailure;
 
-type CatalogStub = {
-  readonly read: (request: CatalogRead) => Promise<CatalogOutcome>;
-  readonly command: (request: CatalogCommand) => Promise<CatalogOutcome>;
+type EffectSuccess<T> = T extends Effect.Effect<infer A, infer _E, infer _R> ? A : never;
+
+type NativeWorkspaceRegistryStub = {
+  readonly [K in keyof WorkspaceRegistryRpc]: (
+    ...args: Parameters<WorkspaceRegistryRpc[K]>
+  ) => Promise<EffectSuccess<ReturnType<WorkspaceRegistryRpc[K]>>>;
 };
 
-type CatalogNamespace = {
-  readonly getByName: (name: string) => CatalogStub;
+type WorkspaceRegistryNamespace = {
+  readonly getByName: (name: string) => NativeWorkspaceRegistryStub;
 };
 
 type GatewayEnvironment = {
   readonly ASSETS?: { readonly fetch: (request: Request) => Promise<Response> };
-  readonly CATALOG: CatalogNamespace;
+  readonly WORKSPACE_REGISTRY: WorkspaceRegistryNamespace;
   readonly ACCESS_AUDIENCE: string;
   readonly ACCESS_ISSUER: string;
   readonly ALLOWED_ORIGIN: string;
 };
 
-let application:
-  | Promise<(request: Request) => Promise<Response>>
-  | undefined;
+let application: Promise<(request: Request) => Promise<Response>> | undefined;
+
+function callFailed(operation: WorkspaceRegistryRpcCallFailed["operation"], cause: unknown) {
+  return new WorkspaceRegistryRpcCallFailed({ operation, cause });
+}
 
 function makeHandler(
   configuration: typeof TestGatewayConfiguration.Type,
-  catalogNamespace: CatalogNamespace,
+  workspaceRegistryNamespace: WorkspaceRegistryNamespace,
 ): Promise<(request: Request) => Promise<Response>> {
-  const runtime = ManagedRuntime.make(
-    Layer.effect(
-      TestGatewayApplication,
-      makeGatewayApplication(
-        {
-          accessIssuer: configuration.accessIssuer,
-          allowedOrigin: configuration.allowedOrigin,
-          problemTypeBaseUrl: new URL("/problems/", configuration.allowedOrigin),
-        },
-        Effect.succeed(configuration.accessAudience),
-        makeCatalog(
-          makeCatalogRpcClient(() => {
-            const catalogStub = catalogNamespace.getByName("default");
-            return {
-              read: (request) => Effect.tryPromise(() => catalogStub.read(request)),
-              command: (request) => Effect.tryPromise(() => catalogStub.command(request)),
-            };
+  const WorkspaceRegistryLive = Layer.effect(
+    WorkspaceRegistryService,
+    Effect.sync(() => {
+      const stub = () => workspaceRegistryNamespace.getByName(WORKSPACE_REGISTRY_SINGLETON_NAME);
+      return WorkspaceRegistryService.of({
+        listWorkspaces: Effect.fn("TestWorkspaceRegistryRpc.listWorkspaces")((input) =>
+          Effect.tryPromise({
+            try: () =>
+              stub().listWorkspaces(
+                Option.match(input.cursor, {
+                  onNone: () => ({ limit: input.limit }),
+                  onSome: (cursor) => ({ cursor, limit: input.limit }),
+                }),
+              ),
+            catch: (cause) => {
+              const decoded = Schema.decodeUnknownResult(ListWorkspacesFailure)(cause);
+              return Result.isSuccess(decoded)
+                ? decoded.success
+                : callFailed("listWorkspaces", cause);
+            },
+          }).pipe(
+            Effect.map((page) => ({
+              workspaces: page.workspaces,
+              cursor: Option.fromNullishOr(page.cursor),
+              nextCursor: Option.fromNullishOr(page.nextCursor),
+              limit: page.limit,
+            })),
+          ),
+        ),
+        readWorkspace: Effect.fn("TestWorkspaceRegistryRpc.readWorkspace")((workspaceId) =>
+          Effect.tryPromise({
+            try: () => stub().readWorkspace(workspaceId),
+            catch: (cause) => {
+              const decoded = Schema.decodeUnknownResult(ReadWorkspaceFailure)(cause);
+              return Result.isSuccess(decoded)
+                ? decoded.success
+                : callFailed("readWorkspace", cause);
+            },
           }),
         ),
-      ),
-    ).pipe(
-      Layer.provide(
-        accessAssertionVerifierLayer(configuration.accessIssuer),
-      ),
-    ),
+        createWorkspace: Effect.fn("TestWorkspaceRegistryRpc.createWorkspace")((input) =>
+          Effect.tryPromise({
+            try: () => stub().createWorkspace(CreateWorkspaceRpcInput.make(input)),
+            catch: (cause) => {
+              const decoded = Schema.decodeUnknownResult(CreateWorkspaceFailure)(cause);
+              return Result.isSuccess(decoded)
+                ? decoded.success
+                : callFailed("createWorkspace", cause);
+            },
+          }),
+        ),
+        renameWorkspace: Effect.fn("TestWorkspaceRegistryRpc.renameWorkspace")(
+          (workspaceId, name) =>
+            Effect.tryPromise({
+              try: () =>
+                stub().renameWorkspace(RenameWorkspaceRpcInput.make({ workspaceId, name })),
+              catch: (cause) => {
+                const decoded = Schema.decodeUnknownResult(RenameWorkspaceFailure)(cause);
+                return Result.isSuccess(decoded)
+                  ? decoded.success
+                  : callFailed("renameWorkspace", cause);
+              },
+            }),
+        ),
+      });
+    }),
   );
+  const GatewayConfigurationLive = Layer.succeed(
+    GatewayConfiguration,
+    GatewayConfiguration.of({
+      accessAudience: configuration.accessAudience,
+      accessIssuer: configuration.accessIssuer,
+      allowedOrigin: configuration.allowedOrigin,
+      problemTypeBaseUrl: new URL("/problems/", configuration.allowedOrigin),
+    }),
+  );
+  const ProblemResponseLive = problemResponseLayer.pipe(Layer.provide(GatewayConfigurationLive));
+  const GatewayApiLive = gatewayApiLayer.pipe(
+    Layer.provide([ProblemResponseLive, WorkspaceRegistryLive]),
+  );
+  const AccessVerifierLive = accessAssertionVerifierLayer.pipe(
+    Layer.provide(GatewayConfigurationLive),
+  );
+  const ApplicationLive = gatewayApplicationLayer.pipe(
+    Layer.provide([
+      GatewayConfigurationLive,
+      AccessVerifierLive,
+      GatewayApiLive,
+      ProblemResponseLive,
+      ulidGeneratorLayer,
+    ]),
+  );
+  const runtime = ManagedRuntime.make(ApplicationLive.pipe(Layer.provide(BrowserCrypto.layer)));
 
-  return runtime.runPromise(TestGatewayApplication).then((handler) =>
-    HttpEffect.toWebHandler(handler)
+  return runtime
+    .runPromise(GatewayApplication)
+    .then((gateway) => HttpEffect.toWebHandler(gateway.fetch));
+}
+
+function unavailableResponse(): Promise<Response> {
+  return Effect.runPromise(
+    Effect.gen(function* () {
+      const ulids = yield* UlidGeneratorService;
+      return renderGatewayConfigurationUnavailable(makeRequestId(yield* ulids.next())).pipe(
+        HttpServerResponse.toWeb,
+      );
+    }).pipe(Effect.provide(ulidGeneratorLayer.pipe(Layer.provide(BrowserCrypto.layer)))),
   );
 }
 
-/** Raw workerd adapter used to exercise the Effect-native Gateway in Miniflare. */
+/** Raw workerd adapter used for fast HTTP and SQLite coverage in Miniflare. */
 export default {
   async fetch(request: Request, env: GatewayEnvironment): Promise<Response> {
     const pathname = new URL(request.url).pathname;
@@ -120,19 +226,10 @@ export default {
     });
 
     if (Result.isFailure(decoded)) {
-      const requestId = RequestId.make(crypto.randomUUID());
-      const respond = makeProblemResponder(
-        new URL("/problems/", new URL(request.url).origin),
-      );
-
-      return respond({
-        code: "gateway_unavailable",
-        detail: "The Gateway configuration is invalid.",
-        requestId,
-      });
+      return unavailableResponse();
     }
 
-    application ??= makeHandler(decoded.success, env.CATALOG);
+    application ??= makeHandler(decoded.success, env.WORKSPACE_REGISTRY);
     return (await application)(request);
   },
 };

@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import * as Schema from "effect/Schema";
 import { exportJWK, generateKeyPair, SignJWT, type CryptoKey } from "jose";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it } from "vite-plus/test";
 import type { Miniflare } from "miniflare";
 import { SchemaIndex } from "../../src/contract/http-api.ts";
 import { startGateway } from "../fixtures/gateway.ts";
@@ -49,6 +49,29 @@ async function agentAssertion(): Promise<string> {
     .setIssuedAt()
     .setExpirationTime("5 minutes")
     .sign(privateKey);
+}
+
+function canonicalizeJson(value: unknown): unknown {
+  if (Array.isArray(value)) {
+    return value.map(canonicalizeJson);
+  }
+  if (typeof value !== "object" || value === null) {
+    return value;
+  }
+  return Object.fromEntries(
+    Object.entries(value)
+      .sort(([left], [right]) => (left < right ? -1 : left > right ? 1 : 0))
+      .map(([key, nested]) => [key, canonicalizeJson(nested)]),
+  );
+}
+
+function requestSchemaContentHash(document: object): string {
+  const content = Object.fromEntries(
+    Object.entries(document).filter(([key]) => key !== "$schema" && key !== "$id"),
+  );
+  return createHash("sha256")
+    .update(JSON.stringify(canonicalizeJson(content)))
+    .digest("hex");
 }
 
 describe("authenticated API discovery", () => {
@@ -253,18 +276,48 @@ describe("authenticated API discovery", () => {
       "https://overseer.test/api/openapi.json",
       {
         headers: {
-          accept: "application/vnd.oai.openapi+json;version=\"3.1\"",
+          accept: 'application/vnd.oai.openapi+json;version="3.1"',
           "cf-access-jwt-assertion": assertion,
         },
       },
     );
     expect(quotedOpenApiVersion.status).toBe(200);
 
+    const acceptExtension = await gateway.dispatchFetch("https://overseer.test/api/openapi.json", {
+      headers: {
+        accept: "application/vnd.oai.openapi+json;version=3.1;q=0.8;profile=agent",
+        "cf-access-jwt-assertion": assertion,
+      },
+    });
+    expect(acceptExtension.status).toBe(200);
+
     const missing = await gateway.dispatchFetch("https://overseer.test/api/missing", {
       headers: { "cf-access-jwt-assertion": assertion },
     });
     expect(missing.status).toBe(404);
     await expect(missing.json()).resolves.toMatchObject({ code: "resource_not_found" });
+
+    for (const method of ["GET", "HEAD"]) {
+      const emptySchemaSegment = await gateway.dispatchFetch(
+        "https://overseer.test/api/schemas//create_workspace",
+        {
+          method,
+          headers: { "cf-access-jwt-assertion": assertion },
+        },
+      );
+      expect(emptySchemaSegment.status).toBe(404);
+      expect(emptySchemaSegment.headers.get("cache-control")).toBe("no-store");
+      expect(emptySchemaSegment.headers.get("content-type")).toBe("application/problem+json");
+      expect(emptySchemaSegment.headers.get("x-request-id")).toMatch(/^request_/);
+      if (method === "GET") {
+        await expect(emptySchemaSegment.json()).resolves.toMatchObject({
+          code: "resource_not_found",
+          status: 404,
+        });
+      } else {
+        expect(await emptySchemaSegment.text()).toBe("");
+      }
+    }
 
     const wrongMethod = await gateway.dispatchFetch("https://overseer.test/api", {
       method: "POST",
@@ -305,9 +358,7 @@ describe("authenticated API discovery", () => {
     );
     expect(requestSchema.status).toBe(200);
     expect(requestSchema.headers.get("content-type")).toBe("application/schema+json");
-    expect(requestSchema.headers.get("cache-control")).toBe(
-      "public, max-age=31536000, immutable",
-    );
+    expect(requestSchema.headers.get("cache-control")).toBe("public, max-age=31536000, immutable");
     const schemaDocument: unknown = await requestSchema.json();
     expect(schemaDocument).toMatchObject({
       $schema: "https://json-schema.org/draft/2020-12/schema",
@@ -320,13 +371,30 @@ describe("authenticated API discovery", () => {
     if (typeof schemaDocument !== "object" || schemaDocument === null) {
       throw new Error("Request schema response was not an object");
     }
-    const canonicalSchema = Object.fromEntries(
-      Object.entries(schemaDocument).filter(([key]) => key !== "$schema" && key !== "$id"),
-    );
-    const contentHash = createHash("sha256")
-      .update(JSON.stringify(canonicalSchema))
-      .digest("hex");
+    const contentHash = requestSchemaContentHash(schemaDocument);
     expect(schemaIndex.items[0]?.href).toContain(`/sha256-${contentHash}/`);
+
+    for (const method of ["GET", "HEAD"]) {
+      const unknownSchema = await gateway.dispatchFetch(
+        `https://overseer.test/api/schemas/sha256-${"0".repeat(64)}/unknown_schema`,
+        {
+          method,
+          headers: { "cf-access-jwt-assertion": assertion },
+        },
+      );
+      expect(unknownSchema.status).toBe(404);
+      expect(unknownSchema.headers.get("cache-control")).toBe("no-store");
+      expect(unknownSchema.headers.get("content-type")).toBe("application/problem+json");
+      expect(unknownSchema.headers.get("x-request-id")).toMatch(/^request_/);
+      if (method === "GET") {
+        await expect(unknownSchema.json()).resolves.toMatchObject({
+          code: "resource_not_found",
+          status: 404,
+        });
+      } else {
+        expect(await unknownSchema.text()).toBe("");
+      }
+    }
 
     const renameSchema = await gateway.dispatchFetch(
       `https://overseer.test${schemaIndex.items[1]?.href ?? ""}`,
@@ -336,12 +404,7 @@ describe("authenticated API discovery", () => {
     if (typeof renameDocument !== "object" || renameDocument === null) {
       throw new Error("Rename schema response was not an object");
     }
-    const canonicalRenameSchema = Object.fromEntries(
-      Object.entries(renameDocument).filter(([key]) => key !== "$schema" && key !== "$id"),
-    );
-    const renameContentHash = createHash("sha256")
-      .update(JSON.stringify(canonicalRenameSchema))
-      .digest("hex");
+    const renameContentHash = requestSchemaContentHash(renameDocument);
     expect(schemaIndex.items[1]?.href).toContain(`/sha256-${renameContentHash}/`);
 
     const openapi = await gateway.dispatchFetch("https://overseer.test/api/openapi.json", {
@@ -355,7 +418,8 @@ describe("authenticated API discovery", () => {
       "application/vnd.oai.openapi+json;version=3.1",
     );
     expect(openapi.headers.get("etag")).not.toBeNull();
-    await expect(openapi.json()).resolves.toMatchObject({
+    const openApiJson = await openapi.json();
+    await expect(Promise.resolve(openApiJson)).resolves.toMatchObject({
       openapi: "3.1.0",
       paths: {
         "/api": { get: {}, head: {} },
@@ -369,6 +433,7 @@ describe("authenticated API discovery", () => {
                   "application/vnd.oai.openapi+json;version=3.1": {},
                 },
               },
+              "304": {},
               "401": {
                 content: {
                   "application/problem+json": {},
@@ -379,6 +444,7 @@ describe("authenticated API discovery", () => {
           head: {
             security: [{ cloudflareAccess: [] }],
             responses: {
+              "304": {},
               "401": {
                 content: {
                   "application/problem+json": {},
@@ -389,9 +455,76 @@ describe("authenticated API discovery", () => {
         },
       },
     });
+
+    const openApiPaths = Schema.decodeUnknownSync(
+      Schema.Struct({ paths: Schema.Record(Schema.String, Schema.Unknown) }),
+    )(openApiJson).paths;
+    const workspaceOperations = Schema.decodeUnknownSync(
+      Schema.Struct({
+        get: Schema.Struct({ responses: Schema.Record(Schema.String, Schema.Unknown) }),
+        post: Schema.Struct({ responses: Schema.Record(Schema.String, Schema.Unknown) }),
+      }),
+    )(openApiPaths["/api/workspaces"]);
+    expect(Object.keys(workspaceOperations.get.responses).sort()).toEqual([
+      "200",
+      "304",
+      "400",
+      "401",
+      "406",
+      "500",
+      "503",
+    ]);
+    expect(Object.keys(workspaceOperations.post.responses).sort()).toEqual([
+      "201",
+      "400",
+      "401",
+      "403",
+      "409",
+      "413",
+      "415",
+      "422",
+      "500",
+      "503",
+    ]);
+    expect(workspaceOperations.post.responses["413"]).toMatchObject({
+      content: {
+        "application/problem+json": {
+          schema: { properties: { status: { enum: [413] } } },
+        },
+      },
+    });
+
+    const workspaceItemOperations = Schema.decodeUnknownSync(
+      Schema.Struct({
+        get: Schema.Struct({ responses: Schema.Record(Schema.String, Schema.Unknown) }),
+        patch: Schema.Struct({ responses: Schema.Record(Schema.String, Schema.Unknown) }),
+      }),
+    )(openApiPaths["/api/workspaces/{workspace_id}"]);
+    expect(Object.keys(workspaceItemOperations.get.responses).sort()).toEqual([
+      "200",
+      "304",
+      "400",
+      "401",
+      "404",
+      "406",
+      "500",
+      "503",
+    ]);
+    expect(Object.keys(workspaceItemOperations.patch.responses).sort()).toEqual([
+      "200",
+      "400",
+      "401",
+      "403",
+      "404",
+      "413",
+      "415",
+      "422",
+      "500",
+      "503",
+    ]);
   });
 
-  it("discovers the stable Workspace, Project, schema, and OpenAPI resources", async () => {
+  it("discovers the stable Workspace, schema, and OpenAPI resources", async () => {
     const response = await gateway.dispatchFetch("https://overseer.test/api", {
       headers: {
         accept: "application/json",
@@ -408,7 +541,6 @@ describe("authenticated API discovery", () => {
       links: {
         self: { href: "/api" },
         workspaces: { href: "/api/workspaces" },
-        projects: { href: "/api/projects" },
         schemas: { href: "/api/schemas" },
         openapi: { href: "/api/openapi.json" },
       },

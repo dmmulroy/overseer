@@ -7,17 +7,25 @@
     <script>
       (() => {
         let saved = null;
+        let storageStatus = "available";
         try {
           saved = localStorage.getItem("overseer-theme");
         } catch {
-          // Restricted storage still falls back to the live system preference.
+          storageStatus = "unavailable";
         }
-        const preference = saved === "light" || saved === "dark" ? saved : "system";
-        const resolved = preference === "system"
-          ? (matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light")
-          : preference;
+        const validPreference =
+          saved === null || saved === "light" || saved === "dark" || saved === "system";
+        const preference = validPreference && saved !== null ? saved : "system";
+        if (!validPreference) storageStatus = "invalid";
+        const resolved =
+          preference === "system"
+            ? matchMedia("(prefers-color-scheme: dark)").matches
+              ? "dark"
+              : "light"
+            : preference;
         document.documentElement.classList.toggle("dark", resolved === "dark");
         document.documentElement.dataset.theme = resolved;
+        document.documentElement.dataset.themeStorageStatus = storageStatus;
         document.documentElement.style.colorScheme = resolved;
       })();
     </script>

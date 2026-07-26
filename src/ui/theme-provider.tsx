@@ -12,29 +12,48 @@ import {
 /** Theme preference selected by the human. */
 export type ThemePreference = "light" | "dark" | "system";
 
+type ThemeStorageStatus = "available" | "invalid" | "unavailable";
+
 type ThemeContextValue = {
   readonly preference: ThemePreference;
   readonly setPreference: (preference: ThemePreference) => void;
+  readonly storageStatus: ThemeStorageStatus;
+};
+
+type StoredThemePreference = {
+  readonly preference: ThemePreference;
+  readonly storageStatus: ThemeStorageStatus;
 };
 
 const storageKey = "overseer-theme";
 const ThemeContext = createContext<ThemeContextValue | null>(null);
 
-function readPreference(): ThemePreference {
+function readStoredThemePreference(): StoredThemePreference {
   const stored = Result.try(() => localStorage.getItem(storageKey));
   if (Result.isFailure(stored)) {
-    console.warn("Theme preference storage is unavailable");
-    return "system";
+    return { preference: "system", storageStatus: "unavailable" };
   }
-  return stored.success === "light" || stored.success === "dark"
-    ? stored.success
-    : "system";
+  if (
+    stored.success === "light" ||
+    stored.success === "dark" ||
+    stored.success === "system" ||
+    stored.success === null
+  ) {
+    return {
+      preference: stored.success ?? "system",
+      storageStatus: "available",
+    };
+  }
+  return { preference: "system", storageStatus: "invalid" };
 }
 
 function applyTheme(preference: ThemePreference): void {
-  const resolved = preference === "system"
-    ? (matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light")
-    : preference;
+  const resolved =
+    preference === "system"
+      ? matchMedia("(prefers-color-scheme: dark)").matches
+        ? "dark"
+        : "light"
+      : preference;
   document.documentElement.classList.toggle("dark", resolved === "dark");
   document.documentElement.dataset.theme = resolved;
   document.documentElement.style.colorScheme = resolved;
@@ -42,17 +61,20 @@ function applyTheme(preference: ThemePreference): void {
 
 /** Own theme persistence and live operating-system preference changes. */
 export function ThemeProvider({ children }: PropsWithChildren): React.JSX.Element {
-  const [preference, setPreferenceState] = useState<ThemePreference>(readPreference);
+  const [storedPreference] = useState(readStoredThemePreference);
+  const [preference, setPreferenceState] = useState<ThemePreference>(storedPreference.preference);
+  const [storageStatus, setStorageStatus] = useState<ThemeStorageStatus>(
+    storedPreference.storageStatus,
+  );
   const setPreference = useCallback((next: ThemePreference) => {
     const persisted = Result.try(() => localStorage.setItem(storageKey, next));
-    if (Result.isFailure(persisted)) {
-      console.warn("Theme preference could not be saved");
-    }
+    setStorageStatus(Result.isFailure(persisted) ? "unavailable" : "available");
     setPreferenceState(next);
   }, []);
 
   useEffect(() => {
     applyTheme(preference);
+    document.documentElement.dataset.themeStorageStatus = storageStatus;
     const media = matchMedia("(prefers-color-scheme: dark)");
     const onChange = () => {
       if (preference === "system") {
@@ -61,9 +83,12 @@ export function ThemeProvider({ children }: PropsWithChildren): React.JSX.Elemen
     };
     media.addEventListener("change", onChange);
     return () => media.removeEventListener("change", onChange);
-  }, [preference]);
+  }, [preference, storageStatus]);
 
-  const value = useMemo(() => ({ preference, setPreference }), [preference, setPreference]);
+  const value = useMemo(
+    () => ({ preference, setPreference, storageStatus }),
+    [preference, setPreference, storageStatus],
+  );
   return <ThemeContext.Provider value={value}>{children}</ThemeContext.Provider>;
 }
 

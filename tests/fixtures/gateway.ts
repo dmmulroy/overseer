@@ -1,6 +1,6 @@
 import { build } from "esbuild";
 import { Miniflare } from "miniflare";
-import { build as buildVite } from "vite";
+import { build as buildVite } from "vite-plus";
 
 /** Configuration supplied to the Gateway fixture. */
 export type GatewayFixtureConfig = {
@@ -35,7 +35,7 @@ export async function startGateway(config: GatewayFixtureConfig): Promise<Minifl
     compatibilityDate: "2026-07-19",
     modules: [{ type: "ESModule", path: "gateway.js", contents: output.text }],
     durableObjects: {
-      CATALOG: { className: "TestWorkspaceCatalog", useSQLite: true },
+      WORKSPACE_REGISTRY: { className: "TestWorkspaceRegistry", useSQLite: true },
     },
     outboundService: (request: Request) => {
       const url = new URL(request.url);

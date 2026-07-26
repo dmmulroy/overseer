@@ -5,7 +5,9 @@
     "lib": ["ES2023", "DOM", "DOM.Iterable"],
     "module": "ESNext",
     "moduleResolution": "Bundler",
+    "paths": { "@/*": ["./src/*"] },
     "allowImportingTsExtensions": true,
+    "noEmit": true,
     "verbatimModuleSyntax": true,
     "resolveJsonModule": true,
     "jsx": "react-jsx",
@@ -17,7 +19,7 @@
     "noUnusedLocals": true,
     "noUnusedParameters": true,
     "skipLibCheck": true,
-    "types": ["vite/client", "node", "vitest/globals"]
+    "types": ["vite-plus/client", "node"]
   },
-  "include": ["src", "tests", "alchemy.run.ts", "vite.config.ts", "vitest.config.ts"]
+  "include": ["src", "tests", "alchemy.run.ts", "vite.config.ts"]
 }

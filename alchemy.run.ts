@@ -2,10 +2,8 @@ import * as Alchemy from "alchemy";
 import * as Cloudflare from "alchemy/Cloudflare";
 import * as Effect from "effect/Effect";
 import { GatewayDeploymentConfiguration } from "./src/adapters/gateway/gateway-configuration.ts";
-import GatewayLive, {
-  AgentDeploymentToken,
-  Gateway,
-} from "./src/runtime/gateway.ts";
+import GatewayLive, { AgentDeploymentToken } from "./src/infra/gateway.ts";
+import { Gateway } from "./src/infra/gateway-resource.ts";
 
 /** Provision one isolated Overseer stage and its Access-protected Gateway. */
 export default Alchemy.Stack(
@@ -25,7 +23,5 @@ export default Alchemy.Stack(
       agentClientId: agentToken.clientId,
       agentClientSecret: agentToken.clientSecret,
     };
-  }).pipe(
-    Effect.provide(GatewayLive),
-  ),
+  }).pipe(Effect.provide(GatewayLive)),
 );

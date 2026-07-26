@@ -1,20 +1,15 @@
+import * as DateTime from "effect/DateTime";
 import * as Schema from "effect/Schema";
 import { WorkspaceId } from "./entity-id.ts";
 
-const hasMinimumLength = Schema.makeFilter(
-  (name: string) => Array.from(name).length >= 1,
-  {
-    expected: "at least 1 Unicode character",
-    meta: { _tag: "isMinLength", minLength: 1 },
-  },
-);
-const hasMaximumLength = Schema.makeFilter(
-  (name: string) => Array.from(name).length <= 200,
-  {
-    expected: "at most 200 Unicode characters",
-    meta: { _tag: "isMaxLength", maxLength: 200 },
-  },
-);
+const hasMinimumLength = Schema.makeFilter((name: string) => Array.from(name).length >= 1, {
+  expected: "at least 1 Unicode character",
+  meta: { _tag: "isMinLength", minLength: 1 },
+});
+const hasMaximumLength = Schema.makeFilter((name: string) => Array.from(name).length <= 200, {
+  expected: "at most 200 Unicode characters",
+  meta: { _tag: "isMaxLength", maxLength: 200 },
+});
 const containsNonWhitespace = Schema.isPattern(/\S/u);
 const isSingleLineWithoutControls = Schema.isPattern(/^[^\p{Cc}\p{Zl}\p{Zp}]*$/u);
 const isCanonicalUtcTimestamp = Schema.makeFilter(
@@ -45,7 +40,7 @@ export const WorkspaceTimestamp = Schema.String.check(
 /** UTC RFC 3339 timestamp used by Workspace persistence. */
 export type WorkspaceTimestamp = typeof WorkspaceTimestamp.Type;
 
-/** Active Workspace state persisted by the Catalog. */
+/** Active Workspace state persisted by the Workspace Registry. */
 export const Workspace = Schema.Struct({
   id: WorkspaceId,
   name: WorkspaceName,
@@ -54,6 +49,18 @@ export const Workspace = Schema.Struct({
   updatedAt: WorkspaceTimestamp,
 });
 
-/** Active Workspace state persisted by the Catalog. */
+/** Active Workspace state persisted by the Workspace Registry. */
 export interface Workspace extends Schema.Schema.Type<typeof Workspace> {}
 
+/** Choose a Workspace update timestamp that strictly advances persisted time. */
+export function advanceWorkspaceTimestamp(
+  current: WorkspaceTimestamp,
+  candidate: WorkspaceTimestamp,
+): WorkspaceTimestamp {
+  if (candidate > current) return candidate;
+  const advanced = DateTime.makeUnsafe(current).pipe(
+    DateTime.add({ milliseconds: 1 }),
+    DateTime.formatIso,
+  );
+  return WorkspaceTimestamp.make(advanced);
+}

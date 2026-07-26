@@ -5,11 +5,14 @@ Overseer is a personal issue tracker built from generic work-tracking primitives
 ## Language
 
 **Entity ID**:
-An immutable, globally unique identity for an independently addressable Workspace, Project, Issue, Label, Comment, Attachment, or structured Timeline event. Display names never serve as identity; relation and value records do not receive IDs.
+An immutable, globally unique identity for an independently addressable Workspace, Project, Issue, Label, Comment, Attachment, or structured Timeline event. Overseer-generated IDs use type-prefixed ULIDs. Display names never serve as identity; relation and value records do not receive IDs.
 
 **Workspace**:
 The top-level organizational container for projects, with a required non-empty mutable name and no other intrinsic metadata in the MVP. Its name need not be unique. It can be archived and later restored.
 _Avoid_: Organization, tenant
+
+**Workspace Registry**:
+The authoritative registry of Workspaces and Projects, including which Workspace contains each Project and whether their top-level ancestry permits access. It owns Workspace and Project identity and membership, not Project-local content.
 
 **Project**:
 A container that belongs to exactly one workspace at a time and may move atomically between workspaces with its identity and all owned content unchanged. It owns issues and a stable, project-local issue number space, and has a required non-empty mutable name with no other intrinsic metadata in the MVP. Its name need not be unique. It can be archived and later restored. A project is not inherently a board or workflow.
