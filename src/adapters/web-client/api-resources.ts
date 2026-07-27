@@ -14,9 +14,9 @@ import {
   OverseerApi,
   ProblemDocument,
   ProjectCollection,
-  ProjectRepresentation,
+  ProjectResponse,
   WorkspaceCollection,
-  WorkspaceRepresentation,
+  WorkspaceResponse,
 } from "../../contract/http-api.ts";
 import {
   ProjectCursor,
@@ -38,7 +38,7 @@ export class OverseerHttpClient extends AtomHttpApi.Service<OverseerHttpClient>(
   },
 ) {}
 
-/** Expected failure classifications for conditional browser resource reads. */
+/** Expected failure classifications for browser resource refreshes. */
 export const BrowserReadFailureReason = Schema.Literals([
   "transport",
   "status",
@@ -47,10 +47,10 @@ export const BrowserReadFailureReason = Schema.Literals([
   "not-modified-without-cache",
 ]);
 
-/** Expected failure classifications for conditional browser resource reads. */
+/** Expected failure classifications for browser resource refreshes. */
 export type BrowserReadFailureReason = typeof BrowserReadFailureReason.Type;
 
-/** A conditional browser resource read failed at the HTTP boundary. */
+/** A browser resource refresh failed at the HTTP boundary. */
 export class BrowserResourceReadFailed extends Schema.TaggedErrorClass<BrowserResourceReadFailed>()(
   "BrowserResourceReadFailed",
   {
@@ -66,14 +66,14 @@ export class BrowserResourceReadFailed extends Schema.TaggedErrorClass<BrowserRe
 
 /** Browser-owned discovery data retained with its exact HTTP validator. */
 export type DiscoveryResource = {
-  readonly representation: DiscoveryDocument;
+  readonly data: DiscoveryDocument;
   readonly etag: string;
   readonly validatedAt: number;
 };
 
 /** Complete Workspace data assembled for browser navigation, not an HTTP page. */
 export type BrowserWorkspaceCollection = {
-  readonly items: ReadonlyArray<WorkspaceRepresentation>;
+  readonly items: ReadonlyArray<WorkspaceResponse>;
   readonly links: Readonly<Record<string, Link>>;
 };
 
@@ -85,7 +85,7 @@ export type WorkspaceResource = {
 
 /** Complete Project data assembled for browser navigation, not an HTTP page. */
 export type BrowserProjectCollection = {
-  readonly items: ReadonlyArray<ProjectRepresentation>;
+  readonly items: ReadonlyArray<ProjectResponse>;
   readonly links: Readonly<Record<string, Link>>;
 };
 
@@ -102,8 +102,8 @@ export type WorkspacePageNavigation = {
   readonly limit: WorkspacePageLimit;
 };
 
-type ConditionalValue<A> = {
-  readonly representation: A;
+type CacheEntry<A> = {
+  readonly data: A;
   readonly etag: string;
   readonly validatedAt: number;
 };
@@ -113,8 +113,8 @@ type WorkspacePageQuery = {
   readonly limit?: WorkspacePageLimit;
 };
 
-type WorkspacePageValue = ConditionalValue<WorkspaceCollection>;
-type ProjectPageValue = ConditionalValue<ProjectCollection>;
+type CachedWorkspacePage = CacheEntry<WorkspaceCollection>;
+type CachedProjectPage = CacheEntry<ProjectCollection>;
 
 const retryableStatuses = new Set([408, 429, 500, 502, 503, 504]);
 
@@ -229,7 +229,7 @@ function decodeModified<A>(options: {
   readonly response: HttpClientResponse.HttpClientResponse;
   readonly schema: Schema.ConstraintDecoder<A, never>;
   readonly now: number;
-}): Effect.Effect<ConditionalValue<A>, BrowserResourceReadFailed> {
+}): Effect.Effect<CacheEntry<A>, BrowserResourceReadFailed> {
   const etag = options.response.headers.etag;
   return Effect.gen(function* () {
     const parsedEtag = yield* Schema.decodeUnknownEffect(StrongEtag)(etag).pipe(
@@ -254,18 +254,18 @@ function decodeModified<A>(options: {
         }),
       ),
     );
-    const representation = yield* Schema.decodeUnknownEffect(options.schema)(json).pipe(
+    const data = yield* Schema.decodeUnknownEffect(options.schema)(json).pipe(
       Effect.mapError((cause) =>
         readFailure({
           operation: options.operation,
           reason: "decode",
-          message: `Browser ${options.operation} response representation was invalid`,
+          message: `Browser ${options.operation} response data was invalid`,
           retryable: false,
           cause,
         }),
       ),
     );
-    return { representation, etag: parsedEtag, validatedAt: options.now };
+    return { data, etag: parsedEtag, validatedAt: options.now };
   });
 }
 
@@ -420,7 +420,7 @@ const readDiscovery = OverseerHttpClient.use((client) =>
           readFailure({
             operation: "discovery",
             reason: "not-modified-without-cache",
-            message: "Browser discovery received 304 without a retained representation",
+            message: "Browser discovery received 304 without cached data",
             retryable: false,
             cause: response,
           }),
@@ -442,7 +442,7 @@ const readDiscovery = OverseerHttpClient.use((client) =>
   }),
 );
 
-/** Conditional API discovery query with cancellation-safe retry and validation. */
+/** Cached API discovery query with cancellation-safe retry and ETag validation. */
 export const discoveryQuery = OverseerHttpClient.runtime.atom(readDiscovery).pipe(
   Atom.swr({
     staleTime: "5 seconds",
@@ -454,14 +454,14 @@ export const discoveryQuery = OverseerHttpClient.runtime.atom(readDiscovery).pip
   Atom.setIdleTTL("5 minutes"),
 );
 
-let retainedWorkspacePages = new Map<string, WorkspacePageValue>();
+let retainedWorkspacePages = new Map<string, CachedWorkspacePage>();
 
 const readWorkspacePage = Effect.fn("Browser.readWorkspacePage")(function* (
   exactUrl: string,
   query: WorkspacePageQuery,
-  previousPages: ReadonlyMap<string, WorkspacePageValue>,
-  validatedPages: Map<string, WorkspacePageValue>,
-): Effect.fn.Return<WorkspacePageValue, BrowserResourceReadFailed, OverseerHttpClient> {
+  previousPages: ReadonlyMap<string, CachedWorkspacePage>,
+  validatedPages: Map<string, CachedWorkspacePage>,
+): Effect.fn.Return<CachedWorkspacePage, BrowserResourceReadFailed, OverseerHttpClient> {
   const client = yield* OverseerHttpClient;
   const previous = previousPages.get(exactUrl);
   const now = yield* Clock.currentTimeMillis;
@@ -490,7 +490,7 @@ const readWorkspacePage = Effect.fn("Browser.readWorkspacePage")(function* (
         readFailure({
           operation: "workspaces",
           reason: "not-modified-without-cache",
-          message: "Browser Workspace page received 304 without a retained representation",
+          message: "Browser Workspace page received 304 without cached data",
           retryable: false,
           cause: response,
         }),
@@ -514,8 +514,8 @@ const readWorkspacePage = Effect.fn("Browser.readWorkspacePage")(function* (
 const readWorkspaceCollection = Effect.gen(function* () {
   const origin = browserOrigin();
   const previousPages = retainedWorkspacePages;
-  const validatedPages = new Map<string, WorkspacePageValue>();
-  const items: Array<WorkspaceRepresentation> = [];
+  const validatedPages = new Map<string, CachedWorkspacePage>();
+  const items: Array<WorkspaceResponse> = [];
   let links: Readonly<Record<string, Link>> = {};
   let query: WorkspacePageQuery = {};
   let exactUrl = new URL(DiscoveryPaths.workspaces, origin).href;
@@ -524,13 +524,13 @@ const readWorkspaceCollection = Effect.gen(function* () {
 
   while (true) {
     const page = yield* readWorkspacePage(exactUrl, query, previousPages, validatedPages);
-    items.push(...page.representation.items);
+    items.push(...page.data.items);
     latestValidation = Math.max(latestValidation, page.validatedAt);
-    if (items.length === page.representation.items.length) {
-      const { next: _next, ...stableLinks } = page.representation.links;
+    if (items.length === page.data.items.length) {
+      const { next: _next, ...stableLinks } = page.data.links;
       links = stableLinks;
     }
-    const next = page.representation.links.next;
+    const next = page.data.links.next;
     if (next === undefined) {
       retainedWorkspacePages = validatedPages;
       return {
@@ -556,7 +556,7 @@ const readWorkspaceCollection = Effect.gen(function* () {
   }
 });
 
-/** Complete Workspace collection query with conditional per-page validation. */
+/** Complete Workspace collection query with per-page ETag cache validation. */
 export const workspaceQuery = OverseerHttpClient.runtime.atom(readWorkspaceCollection).pipe(
   Atom.swr({
     staleTime: "5 seconds",
@@ -646,14 +646,14 @@ export const parseProjectPageNavigation = Effect.fn("Browser.parseProjectPageNav
   },
 );
 
-let retainedProjectPages = new Map<string, ProjectPageValue>();
+let retainedProjectPages = new Map<string, CachedProjectPage>();
 
 const readProjectPage = Effect.fn("Browser.readProjectPage")(function* (
   exactUrl: string,
   query: { readonly cursor?: ProjectCursorType; readonly limit?: ProjectPageLimit },
-  previousPages: ReadonlyMap<string, ProjectPageValue>,
-  validatedPages: Map<string, ProjectPageValue>,
-): Effect.fn.Return<ProjectPageValue, BrowserResourceReadFailed, OverseerHttpClient> {
+  previousPages: ReadonlyMap<string, CachedProjectPage>,
+  validatedPages: Map<string, CachedProjectPage>,
+): Effect.fn.Return<CachedProjectPage, BrowserResourceReadFailed, OverseerHttpClient> {
   const client = yield* OverseerHttpClient;
   const previous = previousPages.get(exactUrl);
   const now = yield* Clock.currentTimeMillis;
@@ -682,7 +682,7 @@ const readProjectPage = Effect.fn("Browser.readProjectPage")(function* (
         readFailure({
           operation: "projects",
           reason: "not-modified-without-cache",
-          message: "Browser Project page received 304 without a retained representation",
+          message: "Browser Project page received 304 without cached data",
           retryable: false,
           cause: response,
         }),
@@ -705,8 +705,8 @@ const readProjectPage = Effect.fn("Browser.readProjectPage")(function* (
 const readProjectCollection = Effect.gen(function* () {
   const origin = browserOrigin();
   const previousPages = retainedProjectPages;
-  const validatedPages = new Map<string, ProjectPageValue>();
-  const items: Array<ProjectRepresentation> = [];
+  const validatedPages = new Map<string, CachedProjectPage>();
+  const items: Array<ProjectResponse> = [];
   let links: Readonly<Record<string, Link>> = {};
   let query: { readonly cursor?: ProjectCursorType; readonly limit?: ProjectPageLimit } = {};
   let exactUrl = new URL(DiscoveryPaths.projects, origin).href;
@@ -714,13 +714,13 @@ const readProjectCollection = Effect.gen(function* () {
   const seenCursors = new Set<ProjectCursorType>();
   while (true) {
     const page = yield* readProjectPage(exactUrl, query, previousPages, validatedPages);
-    items.push(...page.representation.items);
+    items.push(...page.data.items);
     latestValidation = Math.max(latestValidation, page.validatedAt);
-    if (items.length === page.representation.items.length) {
-      const { next: _next, ...stableLinks } = page.representation.links;
+    if (items.length === page.data.items.length) {
+      const { next: _next, ...stableLinks } = page.data.links;
       links = stableLinks;
     }
-    const next = page.representation.links.next;
+    const next = page.data.links.next;
     if (next === undefined) {
       retainedProjectPages = validatedPages;
       return {
@@ -745,7 +745,7 @@ const readProjectCollection = Effect.gen(function* () {
   }
 });
 
-/** Complete Project collection query with conditional per-page validation. */
+/** Complete Project collection query with per-page ETag cache validation. */
 export const projectQuery = OverseerHttpClient.runtime.atom(readProjectCollection).pipe(
   Atom.swr({
     staleTime: "5 seconds",

@@ -4,7 +4,7 @@ import { chromium, type Browser, type BrowserContext, type Page } from "playwrig
 import axe from "axe-core";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from "vite-plus/test";
 import type { Miniflare } from "miniflare";
-import { ProjectRepresentation, WorkspaceRepresentation } from "../../src/contract/http-api.ts";
+import { ProjectResponse, WorkspaceResponse } from "../../src/contract/http-api.ts";
 import { startGateway } from "../fixtures/gateway.ts";
 
 declare global {
@@ -42,7 +42,7 @@ async function seedWorkspace(name: string, key: string): Promise<string> {
     body: JSON.stringify({ name }),
   });
   expect(response.status).toBe(201);
-  const workspace = Schema.decodeUnknownSync(WorkspaceRepresentation)(await response.json());
+  const workspace = Schema.decodeUnknownSync(WorkspaceResponse)(await response.json());
   return workspace.id;
 }
 
@@ -61,7 +61,7 @@ async function seedProject(workspaceId: string, name: string, key: string): Prom
     },
   );
   expect(response.status).toBe(201);
-  return Schema.decodeUnknownSync(ProjectRepresentation)(await response.json()).id;
+  return Schema.decodeUnknownSync(ProjectResponse)(await response.json()).id;
 }
 
 beforeAll(async () => {
@@ -418,13 +418,10 @@ describe("authenticated application shell", () => {
     expect(new URL(page.url()).searchParams.get("workspace_id")).toBe(selectedId);
   });
 
-  it("conditionally validates retained Workspace pages after an explicit refresh", async () => {
-    const workspaceId = await seedWorkspace(
-      "Conditionally retained Workspace",
-      "browser-conditionally-retained",
-    );
+  it("validates cached Workspace pages after an explicit refresh", async () => {
+    const workspaceId = await seedWorkspace("Cached Workspace", "browser-cached-workspace");
     await page.goto(new URL(`/?workspace_id=${workspaceId}`, gatewayUrl).href);
-    await page.getByRole("heading", { name: "Conditionally retained Workspace" }).waitFor();
+    await page.getByRole("heading", { name: "Cached Workspace" }).waitFor();
 
     let resolveValidator: ((validator: string | undefined) => void) | undefined;
     const validatorReceived = new Promise<string | undefined>((resolve) => {
@@ -440,7 +437,7 @@ describe("authenticated application shell", () => {
     expect(
       await page
         .getByRole("heading", {
-          name: "Conditionally retained Workspace",
+          name: "Cached Workspace",
         })
         .isVisible(),
     ).toBe(true);

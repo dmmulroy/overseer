@@ -17,12 +17,12 @@ import * as HttpApiBuilder from "effect/unstable/httpapi/HttpApiBuilder";
 import { WorkspaceRegistryService } from "../../application/workspace-registry/workspace-registry.ts";
 import { CloudflareAccess, OverseerApi } from "../../contract/http-api.ts";
 import { openApiDocument } from "../../contract/openapi.ts";
-import { discoveryDocument, schemaIndex } from "../../contract/representations.ts";
+import { discoveryDocument, schemaIndex } from "../../contract/api-discovery.ts";
 import { requestSchemaDocument } from "../../contract/request-schemas.ts";
 import type { RequestId } from "../../domain/actor.ts";
 import { GatewayRequestContext } from "./gateway-request-context.ts";
 import { ProblemResponse } from "./problem-response.ts";
-import { finalizeRepresentationResponse } from "./representation-response.ts";
+import { finalizeApiResponse } from "./api-response.ts";
 import { layer as projectHttpLayer } from "./project-http.ts";
 import { layer as workspaceHttpLayer } from "./workspace-http.ts";
 
@@ -160,7 +160,7 @@ export const make = Effect.gen(function* () {
       return response;
     }
 
-    return yield* finalizeRepresentationResponse({
+    return yield* finalizeApiResponse({
       request,
       requestId,
       response,

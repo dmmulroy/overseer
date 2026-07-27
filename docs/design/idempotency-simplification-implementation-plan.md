@@ -35,11 +35,11 @@ Do not add a generic idempotency service. Idempotency belongs to the authoritati
 - A successful key maps to exactly one Workspace or Project creation result.
 - First successful use wins.
 - Replays ignore changed request bodies, authenticated principals, and Project target paths.
-- Replaying a Workspace creation key through Workspace creation returns that Workspace's current representation.
-- Replaying a Project creation key through Project creation returns that Project's current representation, even if the repeated request names another Workspace.
+- Replaying a Workspace creation key through Workspace creation returns that Workspace's current data.
+- Replaying a Project creation key through Project creation returns that Project's current data, even if the repeated request names another Workspace.
 - Reusing a Workspace creation key through Project creation, or a Project creation key through Workspace creation, returns `409 idempotency_key_reused` because the stored result has the wrong response type.
 - A replay returns `201`, the entity's canonical `Location`, and `Idempotency-Replayed: true`.
-- No HTTP response bytes, historical representation, request body, request fingerprint, or canonical target are retained.
+- No HTTP response bytes, historical response body, request body, request fingerprint, or canonical target are retained.
 - Invalid requests do not reserve keys.
 - Failed transactions do not reserve keys.
 - Entity creation and key recording commit in one SQLite transaction.
@@ -212,7 +212,7 @@ The replay lookup occurs before Workspace validation so a successful Project cre
 - Keep `Idempotency-Replayed` based on the existing `replayed` result field.
 - Keep `IdempotencyKeyReused` in the Workspace failure union.
 - Change its HTTP detail from “different request” to wording that says the key already identifies a Project creation.
-- Do not change list, read, rename, or representation behavior.
+- Do not change list, read, rename, or response behavior.
 
 ### `src/adapters/gateway/project-http.ts`
 
@@ -238,7 +238,7 @@ The replay lookup occurs before Workspace validation so a successful Project cre
 
 - Remove principal-derived `IdempotencyScope` from the request path.
 - Document object-local key ownership.
-- Document first-successful-use, current-representation replay, and cross-result-type conflict.
+- Document first-successful-use, current-data replay, and cross-result-type conflict.
 - Explicitly say that body, principal, and Project target changes are ignored on replay.
 
 ### `src/contract/http-api.ts`
@@ -307,7 +307,7 @@ Remove:
 - all replay JSON parsing and encoding;
 - the Project-to-`workspace_json` compatibility write and comment.
 
-Add a private raw row representation for:
+Add a private raw row type for:
 
 ```ts
 type RecordedCreationRow = {
@@ -410,7 +410,7 @@ Change same-key/different-name behavior:
 - include the replay header;
 - do not create the second requested name.
 
-Add or extend coverage for current-representation replay:
+Add or extend coverage for current-data replay:
 
 1. Create a Workspace.
 2. Rename it.
@@ -425,7 +425,7 @@ Keep all validation, media-type, listing, pagination, read, and rename tests unc
 - Change cross-Workspace-target reuse from `409` to replaying the original Project.
 - Add same-key/same-result-type/different-name replay.
 - Keep cross-result-type reuse as `409` by reusing a Workspace creation key through Project creation.
-- Add current-representation replay after Project rename and assert ID, current name, `201`, `Location`, and replay header.
+- Add current-data replay after Project rename and assert ID, current name, `201`, `Location`, and replay header.
 - Assert no duplicate Project is created.
 - Keep unrelated Project behavior tests unchanged.
 
@@ -472,7 +472,7 @@ Do not assert raw table names from the public behavior test.
 - Remove request fingerprint language.
 - Remove exact historical status/body replay.
 - Remove 24-hour retention claims.
-- Define authoritative-object-local key ownership and current-representation replay.
+- Define authoritative-object-local key ownership and current-data replay.
 - State that the same key may be reused in different Durable Objects.
 - Explain why current Workspace and Project creates share a namespace.
 - Mark #52 resolved through local ownership rather than coordination.
@@ -507,7 +507,7 @@ The completed implementation must prove these observable behaviors through real 
 5. Changed Project target is ignored on replay.
 6. Another authenticated principal receives the same recorded result for the same object-local key.
 7. Cross-result-type reuse returns `409 idempotency_key_reused`.
-8. Replay after rename returns the current representation with the original ID.
+8. Replay after rename returns the current data with the original ID.
 9. A failed key write rolls back entity creation and does not reserve the key.
 10. Durable Object reconstruction preserves key behavior.
 11. Corrupt key references become a cause-free remote corruption error and public `503`.

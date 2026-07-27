@@ -18,7 +18,7 @@ The following are fixed by #49 and are not implementation choices:
 - Cloudflare Access authenticates the human and independently credentialed Agent deployments;
 - Alchemy exclusively owns each stage's Worker, Durable Object, R2, Access, domain, and class-lifecycle resources;
 - the same-origin REST interface is rooted at `/api` and the pinned Effect HTTP declaration is its single contract source;
-- the browser uses ordinary conditional REST reads, not realtime or a synchronization protocol;
+- the browser uses ordinary ETag-based REST reads, not realtime or a synchronization protocol;
 - transactions stop at one Durable Object.
 
 ### Local, reversible choices made by the program design
@@ -75,32 +75,32 @@ The Gateway, Workspace Registry constructor/RPC handler, Project constructor/RPC
 
 ## Component ownership and trust
 
-| Part                              | Owns                                                                                                                                                                                                                              | Authoritative data                                                                                                                                                                                                                                                 | Ingress                                                    | Trust boundary                                                                                                                                      |
-| --------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ---------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Cloudflare Access                 | Admission policy and credential lifecycle                                                                                                                                                                                         | Human Allow policy, one Service Auth credential per Agent deployment, application audience                                                                                                                                                                         | Public hostname                                            | Establishes that a request passed Access, but the Gateway still validates the Access JWT, issuer, audience, signature, time, and identity claims.   |
-| Gateway Worker                    | Public HTTP protocol, media negotiation, Access assertion parsing, human Origin checks, Agent-session header checks, request IDs, REST representation rendering, conditional responses, SPA/static delivery, Attachment streaming | No durable domain data                                                                                                                                                                                                                                             | Access-protected HTTP only                                 | Only public application ingress. Converts untrusted HTTP into parsed Overseer values and typed calls. Never trusts caller-supplied Actor fields.    |
-| Static React SPA                  | Human interaction, URL state, session-memory canonical reads, explicit local drafts                                                                                                                                               | Current URL and persisted Issue/Comment drafts only; server resources are never authoritative in the browser                                                                                                                                                       | Gateway asset routes and authenticated `/api` calls        | Browser data, IndexedDB, focus/visibility, and network state are untrusted. Human unsafe requests must have the configured exact Origin.            |
-| Workspace Registry Durable Object | Workspace/Project registry, membership, Project moves, archive lifecycle, workspace registry admission                                                                                                                            | Workspace records, Project records and immutable Project registry, migration ledger, and object-local creation keys                                                                                                                                                | Binding-only typed RPC from a composition root             | One-object SQLite transaction boundary. It neither accepts public HTTP nor owns project-local content.                                              |
-| Project Durable Object            | Project-local consistency and invariant enforcement                                                                                                                                                                               | Issues and number counter, Labels, Comments, Revisions, Parent/Sub-issue and Blocking relations, Label assignments, Assignees, references, Timeline events/projections/positions, Attachment metadata/lifecycle, migration ledger, and Project-local creation keys | Binding-only typed RPC and its native `alarm()` entrypoint | One Project and one SQLite transaction boundary. A Project ID selects the object; mutable names and Issue numbers never do.                         |
-| Attachment R2 bucket              | Opaque file bytes and R2 multipart mechanics                                                                                                                                                                                      | Attachment objects, internal multipart upload IDs/part ETags, final opaque object ETag                                                                                                                                                                             | Gateway transfer adapter and Project-alarm R2 adapter only | Private binding. It has no public/custom domain, presigned URL, authorization policy, or authoritative lifecycle metadata.                          |
-| Recovery R2 bucket                | Retained logical export objects                                                                                                                                                                                                   | Versioned verified export bytes and manifests                                                                                                                                                                                                                      | Operational recovery adapter only                          | Private retained binding. It is not an application datastore or attachment fallback.                                                                |
-| Native Project alarm              | At-least-once wake-up                                                                                                                                                                                                             | No independent work queue or schedule records beyond the platform alarm timestamp                                                                                                                                                                                  | Cloudflare calls `alarm()`                                 | A prompt to scan authoritative Attachment rows. The scan is idempotent; correctness does not depend on a single delivery.                           |
-| Alchemy stage graph               | Provisioning and class lifecycle                                                                                                                                                                                                  | Encrypted deployment state and declared resource graph                                                                                                                                                                                                             | Deployment command                                         | Resource-management boundary, never a runtime domain interface. Stages have distinct hostnames, namespaces, buckets, Access applications, and data. |
+| Part                              | Owns                                                                                                                                                                                                                        | Authoritative data                                                                                                                                                                                                                                             | Ingress                                                    | Trust boundary                                                                                                                                      |
+| --------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Cloudflare Access                 | Admission policy and credential lifecycle                                                                                                                                                                                   | Human Allow policy, one Service Auth credential per Agent deployment, application audience                                                                                                                                                                     | Public hostname                                            | Establishes that a request passed Access, but the Gateway still validates the Access JWT, issuer, audience, signature, time, and identity claims.   |
+| Gateway Worker                    | Public HTTP protocol, media negotiation, Access assertion parsing, human Origin checks, Agent-session header checks, request IDs, REST response rendering, ETag cache validation, SPA/static delivery, Attachment streaming | No durable domain data                                                                                                                                                                                                                                         | Access-protected HTTP only                                 | Only public application ingress. Converts untrusted HTTP into parsed Overseer values and typed calls. Never trusts caller-supplied Actor fields.    |
+| Static React SPA                  | Human interaction, URL state, session-memory canonical reads, explicit local drafts                                                                                                                                         | Current URL and persisted Issue/Comment drafts only; server resources are never authoritative in the browser                                                                                                                                                   | Gateway asset routes and authenticated `/api` calls        | Browser data, IndexedDB, focus/visibility, and network state are untrusted. Human unsafe requests must have the configured exact Origin.            |
+| Workspace Registry Durable Object | Workspace/Project registry, membership, Project moves, archive lifecycle, workspace registry admission                                                                                                                      | Workspace records, Project records and immutable Project registry, migration ledger, and object-local creation keys                                                                                                                                            | Binding-only typed RPC from a composition root             | One-object SQLite transaction boundary. It neither accepts public HTTP nor owns project-local content.                                              |
+| Project Durable Object            | Project-local consistency and invariant enforcement                                                                                                                                                                         | Issues and number counter, Labels, Comments, Revisions, Parent/Sub-issue and Blocking relations, Label assignments, Assignees, references, Timeline events/entries/positions, Attachment metadata/lifecycle, migration ledger, and Project-local creation keys | Binding-only typed RPC and its native `alarm()` entrypoint | One Project and one SQLite transaction boundary. A Project ID selects the object; mutable names and Issue numbers never do.                         |
+| Attachment R2 bucket              | Opaque file bytes and R2 multipart mechanics                                                                                                                                                                                | Attachment objects, internal multipart upload IDs/part ETags, final opaque object ETag                                                                                                                                                                         | Gateway transfer adapter and Project-alarm R2 adapter only | Private binding. It has no public/custom domain, presigned URL, authorization policy, or authoritative lifecycle metadata.                          |
+| Recovery R2 bucket                | Retained logical export objects                                                                                                                                                                                             | Versioned verified export bytes and manifests                                                                                                                                                                                                                  | Operational recovery adapter only                          | Private retained binding. It is not an application datastore or attachment fallback.                                                                |
+| Native Project alarm              | At-least-once wake-up                                                                                                                                                                                                       | No independent work queue or schedule records beyond the platform alarm timestamp                                                                                                                                                                              | Cloudflare calls `alarm()`                                 | A prompt to scan authoritative Attachment rows. The scan is idempotent; correctness does not depend on a single delivery.                           |
+| Alchemy stage graph               | Provisioning and class lifecycle                                                                                                                                                                                            | Encrypted deployment state and declared resource graph                                                                                                                                                                                                         | Deployment command                                         | Resource-management boundary, never a runtime domain interface. Stages have distinct hostnames, namespaces, buckets, Access applications, and data. |
 
 ## Entity and record ownership
 
-An Entity is written only by its authoritative object. Other parts may hold identifiers, projections, immutable Actor snapshots, or cache entries but may not duplicate authority.
+An Entity is written only by its authoritative object. Other parts may hold identifiers, read-only data, immutable Actor snapshots, or cache entries but may not duplicate authority.
 
-| Record family                                                                                                       | Authoritative owner                                       | Notes                                                                                                                                                                                                                                  |
-| ------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Workspace and Project entities                                                                                      | Workspace Registry SQLite                                 | A Project move changes only Workspace Registry membership. Its Entity ID and Project Durable Object name remain unchanged.                                                                                                             |
-| Issue, Label, Comment, and Timeline event entities                                                                  | Owning Project SQLite                                     | Project-local Issue numbers are allocated atomically from the owning Project's monotonic counter.                                                                                                                                      |
-| Attachment entity metadata                                                                                          | Owning Project SQLite                                     | R2 contains bytes and provider metadata only. Public pending/ready/deleted lifecycle is Project state.                                                                                                                                 |
-| Revisions, Parent/Sub-issue, Blocking, Label assignment, Assignee, Mention/reference, and Timeline position records | Owning Project SQLite                                     | These are values or relations, not independently identified entities. Shared events have one Entity ID and one immutable projection position on every same-Project affected Issue. Cross-Project Issue projection semantics await #51. |
-| Actor and Agent-session snapshots                                                                                   | Owning Project SQLite on the Comment/event they attribute | The Gateway derives the Actor from Access; caller session metadata is parsed but grants no authority.                                                                                                                                  |
-| Attachment bytes and multipart provider records                                                                     | Attachment R2                                             | Keys derive only from immutable Project and Attachment IDs. R2 upload IDs, keys, and part ETags never cross an application or public interface.                                                                                        |
-| Browser canonical resources and ETags                                                                               | No durable owner in the browser                           | Session-memory copies are disposable observations. Only explicit drafts and their base revision/context persist in IndexedDB.                                                                                                          |
-| Logical exports                                                                                                     | Recovery R2                                               | Export manifests identify source object, schema version, creation time, and verification result; they do not become live authority until an explicit restore procedure.                                                                |
+| Record family                                                                                                       | Authoritative owner                                       | Notes                                                                                                                                                                                                                        |
+| ------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Workspace and Project entities                                                                                      | Workspace Registry SQLite                                 | A Project move changes only Workspace Registry membership. Its Entity ID and Project Durable Object name remain unchanged.                                                                                                   |
+| Issue, Label, Comment, and Timeline event entities                                                                  | Owning Project SQLite                                     | Project-local Issue numbers are allocated atomically from the owning Project's monotonic counter.                                                                                                                            |
+| Attachment entity metadata                                                                                          | Owning Project SQLite                                     | R2 contains bytes and provider metadata only. Public pending/ready/deleted lifecycle is Project state.                                                                                                                       |
+| Revisions, Parent/Sub-issue, Blocking, Label assignment, Assignee, Mention/reference, and Timeline position records | Owning Project SQLite                                     | These are values or relations, not independently identified entities. Shared events have one Entity ID and one immutable Timeline position on every same-Project affected Issue. Cross-Project Timeline behavior awaits #51. |
+| Actor and Agent-session snapshots                                                                                   | Owning Project SQLite on the Comment/event they attribute | The Gateway derives the Actor from Access; caller session metadata is parsed but grants no authority.                                                                                                                        |
+| Attachment bytes and multipart provider records                                                                     | Attachment R2                                             | Keys derive only from immutable Project and Attachment IDs. R2 upload IDs, keys, and part ETags never cross an application or public interface.                                                                              |
+| Browser canonical resources and ETags                                                                               | No durable owner in the browser                           | Session-memory copies are disposable observations. Only explicit drafts and their base revision/context persist in IndexedDB.                                                                                                |
+| Logical exports                                                                                                     | Recovery R2                                               | Export manifests identify source object, schema version, creation time, and verification result; they do not become live authority until an explicit restore procedure.                                                      |
 
 ## Trust and admission order
 
@@ -113,7 +113,7 @@ Every public request follows this order before protected data is disclosed:
 5. Project-scoped operations ask Workspace Registry for current routing/admission state. Commands admitted after an effective archive are rejected; an already-admitted command may finish.
 6. The Gateway invokes the authoritative object's operation-specific typed RPC method and projects its success or typed failure.
 
-The inbound HTTP adapter owns steps 1–4's protocol/authentication parsing and final response projection. A Gateway-composed `ProjectOperations` Application Module owns Entity-owner resolution, Workspace Registry admission, and Project invocation for steps 5–6; the authoritative object owns idempotency in its transaction. `AttachmentTransfer` owns the equivalent admission and cross-store transfer sequence. Raw HTTP and bindings remain outside both modules.
+The inbound HTTP adapter owns steps 1–4's protocol/authentication parsing and final HTTP response mapping. A Gateway-composed `ProjectOperations` Application Module owns Entity-owner resolution, Workspace Registry admission, and Project invocation for steps 5–6; the authoritative object owns idempotency in its transaction. `AttachmentTransfer` owns the equivalent admission and cross-store transfer sequence. Raw HTTP and bindings remain outside both modules.
 
 Workspace Registry admission is a guard against writes to archived ancestry, not a distributed transaction or lock. No Workspace Registry lock is held while Project work runs.
 
@@ -146,13 +146,13 @@ sequenceDiagram
     PDO->>PDO: read Project SQLite
     PDO-->>G: plain success or typed tagged failure
   end
-  G->>G: render representation, links, cache policy, strong ETag
+  G->>G: render response data, links, cache policy, strong ETag
   G-->>C: 200 JSON or typed problem
 ```
 
 The Gateway may construct a Project stub directly from a parsed Project ID only after Workspace Registry confirms the immutable registry entry and current archive context. A canonical URL containing only a project-local Entity ID must first use the routing mechanism selected by #53. Namespace enumeration is never discovery, and this artifact does not assume a hidden locator.
 
-### Project-local mutation and Timeline projection
+### Project-local mutation and Timeline entries
 
 ```mermaid
 sequenceDiagram
@@ -171,17 +171,17 @@ sequenceDiagram
   PDO->>SQL: load parsed aggregate state when the key is unused
   PDO->>PDO: apply domain decisions and target-state semantics
   PDO->>SQL: persist decided entity/relation/revision changes
-  PDO->>SQL: append decided event and affected Issue projections
+  PDO->>SQL: append decided event and affected Timeline entries
   PDO->>SQL: advance aggregate Issue updated_at values
   PDO->>SQL: record the successful key-to-entity result and commit once
-  PDO-->>G: current primary representation or tagged failure
+  PDO-->>G: current entity data or tagged failure
   G->>G: project links and expected errors to REST
-  G-->>C: 200/201 representation + fresh ETag
+  G-->>C: 200/201 response body + fresh ETag
 ```
 
-A no-op performs no Revision, event, timestamp, association, or idempotent relation change. A shared graph/reference event and all of its Issue-local projection positions commit in the same Project transaction. Creation and key recording commit together in the authoritative object's transaction.
+A no-op performs no Revision, event, timestamp, association, or idempotent relation change. A shared graph/reference event and all of its Issue-local Timeline positions commit in the same Project transaction. Creation and key recording commit together in the authoritative object's transaction.
 
-### Conditional read and ETag response
+### ETag cache validation response
 
 ```mermaid
 sequenceDiagram
@@ -191,16 +191,16 @@ sequenceDiagram
 
   C->>G: GET/HEAD canonical URL + If-None-Match
   G->>O: typed exact read (including filters/cursor)
-  O-->>G: current parsed representation/page
+  O-->>G: current parsed data/page
   G->>G: encode canonical response bytes and strong ETag
   alt validator matches
     G-->>C: 304 + ETag + cache headers, no body
   else changed or no validator
-    G-->>C: 200 + exact representation + ETag
+    G-->>C: 200 + exact response body + ETag
   end
 ```
 
-An ETag validates one exact representation or filtered/ordered page, including its pagination links. It is never an entity concurrency version and is never accepted as a mutation precondition.
+An ETag validates one exact response body or filtered/ordered page, including its pagination links. It is never an entity concurrency version and is never accepted as a mutation precondition.
 
 ### Attachment simple and multipart transfer/finalization
 
@@ -223,11 +223,11 @@ sequenceDiagram
     R2-->>G: stored length + opaque ETag
     G->>PDO: finalize exact length/checksum
     PDO->>PDO: pending -> ready in SQLite transaction
-    PDO-->>G: ready Attachment representation
+    PDO-->>G: ready Attachment data
     G-->>C: 201 ready Attachment + Location
   else Multipart (>95 MiB..1 GiB)
     G->>PDO: initiate idempotent pending Attachment
-    PDO-->>G: pending representation + part plan
+    PDO-->>G: pending Attachment data + part plan
     G-->>C: 201 pending Attachment
     loop concurrent or out-of-order numbered parts
       C->>G: PUT exact part bytes
@@ -243,7 +243,7 @@ sequenceDiagram
     G->>R2: complete multipart upload
     R2-->>G: final size + opaque ETag
     G->>PDO: finalize ready metadata
-    PDO-->>G: ready Attachment representation
+    PDO-->>G: ready Attachment data
     G-->>C: 200 ready Attachment
   end
 ```
@@ -273,18 +273,18 @@ sequenceDiagram
 
 Pending uploads and ready Attachments never associated with Markdown expire after seven days. Explicitly deleted bytes are restorable for thirty days. The alarm owns no independent job table and can safely repeat after interruption. It uses the native Project `alarm()` entrypoint and direct alarm storage calls, not Alchemy `ScheduledEvents` or a scheduler abstraction. Infrastructure cleanup does not invent Attachment-specific Timeline events.
 
-## Contracts and projections
+## Contracts and API responses
 
 ### REST contract source
 
 One shared, exactly pinned Effect `HttpApi`/Schema declaration owns:
 
-- every stable route, method, path/query/header/body parser, success representation, expected problem variant, and media type;
+- every stable route, method, path/query/header/body parser, success response body, expected problem variant, and media type;
 - generated OpenAPI 3.1 at `/api/openapi.json`;
 - content-addressed JSON Schema 2020-12 request documents under `/api/schemas/...`;
 - the generated browser and Agent-client types.
 
-The declaration is a wire-contract module, not a domain module. It imports protocol projections built from parsed Overseer values. It does not expose Effect internals, SQL rows, Durable Object stubs, R2 records, or Cloudflare bindings.
+The declaration is a wire-contract module, not a domain module. It imports API schemas built from parsed Overseer values. It does not expose Effect internals, SQL rows, Durable Object stubs, R2 records, or Cloudflare bindings.
 
 ### Internal RPC contracts
 
@@ -313,7 +313,7 @@ A future DO-to-DO call captures the required namespace in the caller's Alchemy o
 
 - A caller-supplied key identifies the first successful create result in one authoritative Durable Object and does not expire in the current implementation.
 - Entity creation and key recording commit in the same object-local SQLite transaction. Invalid requests and failed transactions do not reserve keys.
-- Replays ignore changed bodies, authenticated principals, and target paths. They return `201`, the current entity representation, its canonical `Location`, and `Idempotency-Replayed: true`.
+- Replays ignore changed bodies, authenticated principals, and target paths. They return `201`, the current entity data, its canonical `Location`, and `Idempotency-Replayed: true`.
 - A key recorded for another result type in the same object namespace returns `409 idempotency_key_reused`. Workspace and Project creation therefore conflict in the current shared Registry namespace.
 - The same key may be used independently in another Durable Object. Future Project-owned creates use Project-local key storage; no deployment-global coordination exists.
 - Multipart part replacement, completion, and abort use their dedicated state/part semantics.
@@ -326,9 +326,9 @@ Unexpected defects are logged/traced with safe context and become `500`; raw SQL
 
 ### Client freshness boundary
 
-The browser's conditional-query module owns `{ representation, etag, validated_at }` for each exact canonical URL in session memory. TanStack Router owns URLs and route lifetime, not canonical data. IndexedDB owns only explicit Issue/Comment drafts and their base revision/context.
+The browser's resource cache module owns `{ data, etag, validated_at }` for each exact canonical URL in session memory. TanStack Router owns URLs and route lifetime, not canonical data. IndexedDB owns only explicit Issue/Comment drafts and their base revision/context.
 
-The active Issue validates every 15 seconds and the active exact Issue-list page every 30 seconds. Only visible rendered routes poll. Completion schedules the next poll; duplicate demand coalesces; navigation cancels orphaned work. A result validated within five seconds may satisfy navigation, wake-up, or pre-mutation validation. `200` replaces representation and ETag; `304` advances only local `validated_at`. A failed validation leaves cached content readable but disables server writes. Retryable failures wait 5, 15, 30, then repeating 60 seconds and honor a longer `Retry-After`; success resets the backoff. Routine refresh stays quiet for two seconds before showing `Updating…`. Mutation success installs the returned representation before targeted conditional convergence.
+The active Issue validates every 15 seconds and the active exact Issue-list page every 30 seconds. Only visible rendered routes poll. Completion schedules the next poll; duplicate demand coalesces; navigation cancels orphaned work. A result validated within five seconds may satisfy navigation, wake-up, or pre-mutation validation. `200` replaces cached data and ETag; `304` advances only local `validated_at`. A failed validation leaves cached content readable but disables server writes. Retryable failures wait 5, 15, 30, then repeating 60 seconds and honor a longer `Retry-After`; success resets the backoff. Routine refresh stays quiet for two seconds before showing `Updating…`. Mutation success installs the returned data before refreshing the affected cached resources.
 
 ## Migration and recovery responsibility
 

@@ -40,7 +40,7 @@ The Gateway no longer accepts service values, Layers, or configuration Effects a
 
 ### Response hashing
 
-`finalizeRepresentationResponse` yields Effect's `Crypto` service and uses `digest("SHA-256", ...)`. A platform digest failure is logged with safe request context and rendered as the standard internal problem. The adapter no longer calls ambient `crypto.subtle` through a raw Promise.
+`finalizeApiResponse` yields Effect's `Crypto` service and uses `digest("SHA-256", ...)`. A platform digest failure is logged with safe request context and rendered as the standard internal problem. The adapter no longer calls ambient `crypto.subtle` through a raw Promise.
 
 ### Configuration and Access
 

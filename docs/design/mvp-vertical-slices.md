@@ -12,7 +12,7 @@ A slice is complete only when:
 - the human proof runs through the authenticated browser SPA when the slice has a human surface;
 - all less-trusted input and persisted output at touched boundaries is parsed;
 - expected failures are typed through the owning application module and projected as safe RFC 9457 problems;
-- applicable links, direct representations, collection envelopes, idempotency, ETags, and no-op behavior follow the shared contract for the operations introduced;
+- applicable links, direct response bodies, collection envelopes, idempotency, ETags, and no-op behavior follow the shared contract for the operations introduced;
 - the UI added by the slice works at desktop and mobile widths, in light/dark/system themes, with keyboard/focus behavior and automated accessibility checks appropriate to that UI;
 - retry/freshness behavior introduced by the slice uses production-shaped outcomes rather than a later test-only architecture;
 - strict typecheck, production build, focused tests, local-workerd tests, browser tests, and accessibility checks for the accumulated application are clean;
@@ -66,7 +66,7 @@ Archive/restore is deferred to the lifecycle slice so this checkpoint stays focu
 **Acceptance demonstration**
 
 1. An Agent client with a test Agent-deployment Access identity requests `/api`, follows `workspaces`, follows its create schema, and creates “Personal” with an idempotency key.
-2. Replaying that key with a changed body or principal returns the same Workspace's current representation with `201` and `Idempotency-Replayed: true`; reusing it for Project creation returns the typed cross-result conflict.
+2. Replaying that key with a changed body or principal returns the same Workspace's current data with `201` and `Idempotency-Replayed: true`; reusing it for Project creation returns the typed cross-result conflict.
 3. The Agent client creates “Overseer,” follows canonical links, moves it to a second Workspace, and proves its Project URL/ID did not change.
 4. `If-None-Match` on an unchanged Project returns `304`; OpenAPI and schema links resolve with their specified media/cache behavior.
 5. The human opens the SPA, sees the same Workspaces/Project, changes context on desktop and mobile, reloads, and remains on a valid URL-backed context with no accessibility or console errors.
@@ -108,7 +108,7 @@ Filters whose underlying data has not been introduced yet still parse according 
 - the write-side Mention/reference extraction and reconciliation plan required by Issue bodies;
 - Project Issue create/read/list and basic Issue-reference read RPC/REST cases plus the #53-selected canonical owner-routing contract;
 - parsed Issue filter/sort/cursor types and exact collection page;
-- conditional list query atom and 30-second visible-route cadence.
+- cached list query atom and 30-second visible-route cadence.
 
 **Primary test seams**
 
@@ -119,7 +119,7 @@ Filters whose underlying data has not been introduced yet still parse according 
 
 1. An Agent client creates at least 101 Issues, retries one create, and observes unique monotonic project-local numbers without duplication.
 2. It follows next/previous links rather than editing cursors, filters by state/assignee status/number, and receives actionable errors for a cursor rebound to different filters or unknown/contradictory parameters.
-3. It reads `/api/projects/{project_id}/issues/{number}` and receives the canonical representation whose `self` is `/api/issues/{issue_id}`.
+3. It reads `/api/projects/{project_id}/issues/{number}` and receives the canonical response whose `self` is `/api/issues/{issue_id}`.
 4. It validates an unchanged exact page to `304`, mutates the dataset with a new Issue, and observes a changed page ETag.
 5. An Issue created with a same-Project mention exposes the current outgoing reference through its authenticated reference collection, and the target exposes the reciprocal incoming reference; unresolved text creates neither.
 6. The human applies list filters, follows a row to the focused route and Back, and recovers the exact list URL/filter/page context at desktop and mobile widths.
@@ -139,7 +139,7 @@ Filters whose underlying data has not been introduced yet still parse according 
 
 **Vertical scope**
 
-- full Issue representation, relationship counts/navigation placeholders only where a real readable collection now exists, and current applicable action links;
+- full Issue response, relationship counts/navigation placeholders only where a real readable collection now exists, and current applicable action links;
 - close/reopen and guarded claim/release/reassign target-state commands, including no-ops;
 - immutable Actor/Agent-session attribution and closed Timeline event vocabulary for these changes;
 - atomic event creation, Issue-local Timeline position allocation, and aggregate `updated_at` behavior;
@@ -149,10 +149,10 @@ Filters whose underlying data has not been introduced yet still parse according 
 
 **Contracts carried forward**
 
-- `CommandAttribution`, Assignee, Issue action, Timeline event/projection/position types;
+- `CommandAttribution`, Assignee, Issue action, Timeline event/entry/position types;
 - close/reopen/claim/release/reassign command cases and action-specific errors;
 - Issue detail, Timeline, and Event REST routes;
-- conditional detail query, mutation preflight, optimism, and targeted convergence modules.
+- cached detail query, mutation preflight, optimism, and targeted refresh modules.
 
 **Primary test seams**
 
@@ -161,9 +161,9 @@ Filters whose underlying data has not been introduced yet still parse according 
 
 **Acceptance demonstration**
 
-1. An Agent client reads an open unassigned Issue, follows `claim`, and gets the current full representation with `release`/`reassign` replacing `claim`.
+1. An Agent client reads an open unassigned Issue, follows `claim`, and gets the current full response with `release`/`reassign` replacing `claim`.
 2. A second stale claim gets `409 action_not_applicable`, the current Issue, and a safe `reassign` recovery link. A deliberate reassign succeeds.
-3. Repeating achieved close/release target states is a no-op: no timestamp advance and no extra Timeline event. Replaying a create key returns the current representation of the originally created entity.
+3. Repeating achieved close/release target states is a no-op: no timestamp advance and no extra Timeline event. Replaying a create key returns the current data for the originally created entity.
 4. Timeline reads show immutable Actor and Agent-session snapshots in true Issue-local order, including reference events produced by Issue bodies created in Slice 2; the owning Issue and visible list converge after each command.
 5. In the browser, keyboard and pointer users steer the Issue, see optimistic rollback on a retryable failure without misleading action links, and observe an external Agent-deployment change through ordinary polling.
 
@@ -180,7 +180,7 @@ Filters whose underlying data has not been introduced yet still parse according 
 **Prerequisites**
 
 - Slice 3 accepted;
-- Actor/session attribution, Timeline, conditional detail query, and command convergence are proven.
+- Actor/session attribution, Timeline, cached detail queries, and command refresh behavior are proven.
 
 **Vertical scope**
 
@@ -190,14 +190,14 @@ Filters whose underlying data has not been introduced yet still parse according 
 - Markdown rendering/composition using the settled limits and no raw Attachment association yet;
 - application-owned IndexedDB drafts with parsed records and base Revision/context;
 - pre-write five-second validation, inline divergence with full current/draft versions and actor/time/revision context, explicit keep-current/save-draft choice, and no silent merge;
-- returned-representation installation and targeted Issue/Timeline/list convergence;
+- returned-data installation and targeted Issue/Timeline/list convergence;
 - stale cached content remains readable, server writes disable after failed validation, local draft editing remains available.
 
 **Contracts carried forward**
 
 - Revision and Comment domain/RPC/REST cases;
 - field-scoped patch schemas and no-op outcomes;
-- Comment and Revision representations/routes;
+- Comment and Revision responses/routes;
 - Drafts port/IndexedDB adapter and divergence command state.
 
 **Primary test seams**
@@ -224,14 +224,14 @@ Filters whose underlying data has not been introduced yet still parse according 
 **Prerequisites**
 
 - Slice 4 accepted;
-- project-local transactions and detail/list convergence are stable; this slice introduces and proves atomic same-Project multi-Issue Timeline projection.
+- project-local transactions and detail/list convergence are stable; this slice introduces and proves atomic same-Project multi-Issue Timeline updates.
 
 **Vertical scope**
 
 - Label create/read/edit/delete/restore and preserved inactive Issue assignments;
 - Label assignment PUT/DELETE;
 - one Parent per Issue, complete-set ordered Sub-issue reorder, and inactive preserved hierarchy semantics;
-- directed “this Issue is blocked by that Issue” PUT/DELETE and reciprocal read-only blocking projection;
+- directed “this Issue is blocked by that Issue” PUT/DELETE and reciprocal read-only blocking view;
 - independent same-Project DAG checks over all currently preserved edges, self/duplicate/cross-Project rejection, active/inactive reasons, and readiness derivation; Issue-deletion effects join the same checks in Slice 8 when that public lifecycle exists;
 - one shared event ID projected atomically to every affected Issue, with each Issue's own permanent Timeline position;
 - list filter membership/order convergence for Label, Parent/root, blocking status, state, assignee, and readiness;
@@ -270,7 +270,7 @@ This is split from Attachments because reference reconciliation is independently
 **Prerequisites**
 
 - Slice 5 accepted;
-- Issue/Comment text revisions and atomic same-Project multi-Issue Timeline projection exist;
+- Issue/Comment text revisions and atomic same-Project multi-Issue Timeline updates exist;
 - Workspace Registry can resolve immutable Project registry context without cross-object transactions;
 - [#51](https://github.com/dmmulroy/overseer/issues/51) has settled whether qualified cross-Project Issue mentions create backlinks/events and what failure semantics apply. Same-Project references, Project mentions, and external URLs can proceed independently if #51 is still open, but the slice cannot be accepted as complete.
 
@@ -280,7 +280,7 @@ This is split from Attachments because reference reconciliation is independently
 - complete and expose Markdown-aware extraction excluding code and escaped content;
 - same-Project `#number`, qualified Project-number, Project, canonical Overseer URL, and external URL resolution according to the settled contract and #51;
 - source-item/target deduplication, outgoing/incoming Issue references where applicable, outgoing Project/URL references, and current-state reconciliation on text save;
-- atomic project-local backlinks and shared reference-event projections for same-Project Issue targets;
+- atomic project-local backlinks and shared reference-event Timeline entries for same-Project Issue targets;
 - the #51-selected cross-Project behavior, without a cross-object pseudo-transaction;
 - unresolved text remains literal Markdown; no fetched metadata or URL availability checks;
 - reference collection filters/order/ETags and human narrative/reference navigation;
@@ -293,7 +293,7 @@ Project mentions remain source-side links. Qualified Issue mentions must follow 
 - Mention/reference value family and reconciliation plan;
 - Workspace Registry resolution read needed for qualified Project identity;
 - Project reference command/read cases and REST collection;
-- typed reference projections and affected-query convergence.
+- typed reference views and affected-query convergence.
 
 **Primary test seams**
 
@@ -352,7 +352,7 @@ Project mentions remain source-side links. Qualified Issue mentions must follow 
 
 1. An Agent client performs a simple upload and receives one ready immutable Attachment with canonical content/snippet; wrong actual length fails safely and leaves reconcilable state.
 2. It initiates a multipart upload, sends parts concurrently/out of order, replaces one part, gets missing-part details from premature completion, then completes to the exact final size without seeing R2 IDs/ETags.
-3. Ready content supports authenticated HEAD, conditional `304`, valid single range `206`, safe-inline versus forced-download policy, and immediate unavailability after deletion.
+3. Ready content supports authenticated HEAD, ETag-based `304`, valid single range `206`, safe-inline versus forced-download policy, and immediate unavailability after deletion.
 4. Markdown in the owning Issue associates the ready Attachment; pending/deleted/cross-Issue references fail atomically. Deletion lists every live/deleted-Comment blocker. Named restore works only inside its deadline.
 5. A deliberately interrupted pending transfer and an expired never-associated Attachment are reconciled by repeated alarm delivery with the same final public state.
 6. The human uploads from the composer, inserts the snippet, observes progress/recovery accessibly on mobile and desktop, and can download/delete/restore through discovered actions.
@@ -387,7 +387,7 @@ This slice does not postpone basic lifecycle design or accessibility from earlie
 
 **Contracts carried forward**
 
-- final archive/tombstone action/read cases and inherited access projections;
+- final archive/tombstone action/read cases and inherited access rules;
 - logical export manifest and operational RPC types, private to recovery tooling, plus the first retained-recovery R2 bucket/binding;
 - no new public infrastructure or workflow contract.
 
@@ -429,7 +429,7 @@ The order avoids speculative infrastructure:
 - Issue identity/list pages exist before detail actions.
 - Timeline attribution exists before text contribution.
 - text/Revisions exist before derived references or Attachment associations, while reference and Attachment slices remain independently runnable;
-- multi-Issue event projection exists before graph/reference reconciliation;
+- multi-Issue Timeline event updates exist before graph/reference reconciliation;
 - Attachment and retained-recovery R2 resources appear only with their end-to-end transfer and recovery slices;
 - complete lifecycle/recovery is proven only after every resource can participate.
 

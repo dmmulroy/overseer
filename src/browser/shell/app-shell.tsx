@@ -8,7 +8,7 @@ import {
   projectQuery,
   workspaceQuery,
 } from "../../adapters/web-client/api-resources.ts";
-import type { ProjectRepresentation, WorkspaceRepresentation } from "../../contract/http-api.ts";
+import type { ProjectResponse, WorkspaceResponse } from "../../contract/http-api.ts";
 import type { ProjectId, WorkspaceId } from "../../domain/entity-id.ts";
 import { cn } from "../../lib/ui-classnames.ts";
 import { Button } from "../../ui/primitives/button.tsx";
@@ -51,7 +51,7 @@ type WorkspaceSwitcherProps = {
   readonly mode: "desktop" | "mobile";
   readonly selectedId: Option.Option<WorkspaceId>;
   readonly select: (workspaceId: WorkspaceId) => void;
-  readonly workspaces: ReadonlyArray<WorkspaceRepresentation>;
+  readonly workspaces: ReadonlyArray<WorkspaceResponse>;
 };
 
 function WorkspaceSwitcher(props: WorkspaceSwitcherProps): React.JSX.Element {
@@ -113,15 +113,15 @@ function WorkspaceSwitcher(props: WorkspaceSwitcherProps): React.JSX.Element {
   );
 }
 
-const noWorkspaces: ReadonlyArray<WorkspaceRepresentation> = [];
-const noProjects: ReadonlyArray<ProjectRepresentation> = [];
+const noWorkspaces: ReadonlyArray<WorkspaceResponse> = [];
+const noProjects: ReadonlyArray<ProjectResponse> = [];
 
 function ProjectSwitcher(props: {
   readonly mode: "desktop" | "mobile";
-  readonly projects: ReadonlyArray<ProjectRepresentation>;
+  readonly projects: ReadonlyArray<ProjectResponse>;
   readonly selectedId: Option.Option<ProjectId>;
-  readonly select: (project: ProjectRepresentation) => void;
-  readonly workspaces: ReadonlyArray<WorkspaceRepresentation>;
+  readonly select: (project: ProjectResponse) => void;
+  readonly workspaces: ReadonlyArray<WorkspaceResponse>;
 }): React.JSX.Element {
   if (props.mode === "desktop") {
     return (
@@ -240,13 +240,13 @@ function LoadingCard(props: {
 
 function ShellNavigation(props: {
   readonly mobileContext: string;
-  readonly mobileProjects: ReadonlyArray<ProjectRepresentation>;
-  readonly projects: ReadonlyArray<ProjectRepresentation>;
+  readonly mobileProjects: ReadonlyArray<ProjectResponse>;
+  readonly projects: ReadonlyArray<ProjectResponse>;
   readonly selectedProjectId: Option.Option<ProjectId>;
   readonly selectedWorkspaceId: Option.Option<WorkspaceId>;
-  readonly selectProject: (project: ProjectRepresentation) => void;
+  readonly selectProject: (project: ProjectResponse) => void;
   readonly selectWorkspace: (workspaceId: WorkspaceId) => void;
-  readonly workspaces: ReadonlyArray<WorkspaceRepresentation>;
+  readonly workspaces: ReadonlyArray<WorkspaceResponse>;
 }): React.JSX.Element {
   return (
     <>
@@ -339,14 +339,14 @@ type WorkspaceContentProps = {
   readonly refreshDiscovery: () => void;
   readonly refreshProjects: () => void;
   readonly refreshWorkspaces: () => void;
-  readonly selectedProject: Option.Option<ProjectRepresentation>;
-  readonly selectedWorkspace: Option.Option<WorkspaceRepresentation>;
+  readonly selectedProject: Option.Option<ProjectResponse>;
+  readonly selectedWorkspace: Option.Option<WorkspaceResponse>;
   readonly waiting: boolean;
   readonly projectInitial: boolean;
   readonly workspaceInitial: boolean;
   readonly workspaceStale: boolean;
   readonly workspaceUnavailable: boolean;
-  readonly workspaces: ReadonlyArray<WorkspaceRepresentation>;
+  readonly workspaces: ReadonlyArray<WorkspaceResponse>;
 };
 
 function WorkspaceContent(props: WorkspaceContentProps): React.JSX.Element {
@@ -579,7 +579,7 @@ export function AppShell(): React.JSX.Element {
     [navigate],
   );
   const selectProject = useCallback(
-    (project: ProjectRepresentation) => {
+    (project: ProjectResponse) => {
       void navigate({
         search: (previous) => ({
           ...previous,

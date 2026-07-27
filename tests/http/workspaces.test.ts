@@ -5,7 +5,7 @@ import type { Miniflare } from "miniflare";
 import {
   ProblemDocument,
   WorkspaceCollection,
-  WorkspaceRepresentation,
+  WorkspaceResponse,
 } from "../../src/contract/http-api.ts";
 import { makeGatewayIngressTestHandler } from "../fixtures/alchemy-gateway.ts";
 import { startGateway } from "../fixtures/gateway.ts";
@@ -93,7 +93,7 @@ async function agentApi(
 }
 
 async function workspaceJson(response: Awaited<ReturnType<typeof api>>) {
-  return Schema.decodeUnknownSync(WorkspaceRepresentation)(await response.json());
+  return Schema.decodeUnknownSync(WorkspaceResponse)(await response.json());
 }
 
 async function workspaceCollectionJson(response: Awaited<ReturnType<typeof api>>) {
@@ -402,7 +402,7 @@ describe("Workspace REST interface", () => {
   });
 
   it("supports strong validators and HEAD for resources and exact collection pages", async () => {
-    const created = await createWorkspace("Conditional", "workspace-conditional");
+    const created = await createWorkspace("ETag", "workspace-etag");
     const workspace = await workspaceJson(created);
 
     for (const path of ["/api/workspaces", `/api/workspaces/${workspace.id}`]) {

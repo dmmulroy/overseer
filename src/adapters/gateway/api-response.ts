@@ -11,8 +11,8 @@ import * as HttpServerResponse from "effect/unstable/http/HttpServerResponse";
 import type { RequestId } from "../../domain/actor.ts";
 import { ProblemResponse } from "./problem-response.ts";
 
-/** Inputs required to finalize one encoded representation response. */
-export type RepresentationResponseOptions = {
+/** Inputs required to finalize one encoded API response. */
+export type ApiResponseOptions = {
   readonly request: HttpServerRequest;
   readonly requestId: RequestId;
   readonly response: HttpServerResponse.HttpServerResponse;
@@ -71,11 +71,11 @@ function parseMediaType(input: string, isAcceptRange = false): Option.Option<Par
   });
 }
 
-function acceptsRepresentation(accept: string | undefined, representation: string): boolean {
+function acceptsContentType(accept: string | undefined, contentType: string): boolean {
   if (accept === undefined || accept.trim().length === 0) {
     return true;
   }
-  const offered = parseMediaType(representation);
+  const offered = parseMediaType(contentType);
   if (Option.isNone(offered)) {
     return false;
   }
@@ -150,24 +150,26 @@ function validatorMatches(ifNoneMatch: string | undefined, etag: string): boolea
 }
 
 /** Apply media negotiation, strong ETag validation, and common response headers. */
-export const finalizeRepresentationResponse: (
-  options: RepresentationResponseOptions,
+export const finalizeApiResponse: (
+  options: ApiResponseOptions,
 ) => Effect.Effect<HttpServerResponse.HttpServerResponse, never, Crypto.Crypto | ProblemResponse> =
-  Effect.fn("Gateway.finalizeRepresentationResponse")(function* (options) {
+  Effect.fn("Gateway.finalizeApiResponse")(function* (options) {
     const crypto = yield* Crypto.Crypto;
     const problems = yield* ProblemResponse;
     const body = options.response.body;
 
     if (body._tag !== "Uint8Array") {
-      return yield* Effect.die("A conditional JSON endpoint produced a non-buffered response body");
+      return yield* Effect.die(
+        "An ETag-enabled JSON endpoint produced a non-buffered response body",
+      );
     }
 
     const contentType = body.contentType;
 
-    if (!acceptsRepresentation(options.request.headers.accept, contentType)) {
+    if (!acceptsContentType(options.request.headers.accept, contentType)) {
       return problems.render({
-        code: "representation_not_acceptable",
-        detail: "The requested resource is not available in an acceptable representation.",
+        code: "response_type_not_acceptable",
+        detail: "The requested response format is not supported.",
         requestId: options.requestId,
       });
     }
@@ -204,9 +206,13 @@ export const finalizeRepresentationResponse: (
       "x-request-id": options.requestId,
     });
 
-    const isConditionalRead = options.request.method === "GET" || options.request.method === "HEAD";
+    const supportsCacheValidation =
+      options.request.method === "GET" || options.request.method === "HEAD";
 
-    if (isConditionalRead && validatorMatches(options.request.headers["if-none-match"], etag)) {
+    if (
+      supportsCacheValidation &&
+      validatorMatches(options.request.headers["if-none-match"], etag)
+    ) {
       return HttpServerResponse.empty({
         status: 304,
         headers: Headers.remove(headers, "content-type"),

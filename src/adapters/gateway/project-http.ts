@@ -18,7 +18,7 @@ import {
   type Link,
   OverseerApi,
   ProjectCollection,
-  ProjectRepresentation,
+  ProjectResponse,
   ProjectSchemaPaths,
 } from "../../contract/http-api.ts";
 import type { ProjectId, WorkspaceId } from "../../domain/entity-id.ts";
@@ -28,9 +28,9 @@ import type { Project, ProjectName } from "../../domain/project.ts";
 import { GatewayRequestContext } from "./gateway-request-context.ts";
 import { ProblemResponse, type ProblemInput } from "./problem-response.ts";
 
-function projectRepresentation(project: Project): ProjectRepresentation {
+function projectResponse(project: Project): ProjectResponse {
   const self = `/api/projects/${project.id}`;
-  return ProjectRepresentation.make({
+  return ProjectResponse.make({
     id: project.id,
     workspace_id: project.workspaceId,
     name: project.name,
@@ -66,7 +66,7 @@ function projectCollection(
     links.create = { href: base, method: "POST", schema: ProjectSchemaPaths.create };
   if (Option.isSome(nextCursor))
     links.next = { href: `${base}?cursor=${encodeURIComponent(nextCursor.value)}&limit=${limit}` };
-  return ProjectCollection.make({ items: projects.map(projectRepresentation), links });
+  return ProjectCollection.make({ items: projects.map(projectResponse), links });
 }
 function json(
   value: unknown,
@@ -154,7 +154,7 @@ const readProjectResponse = Effect.fn("Gateway.readProject")(function* (projectI
   const result = yield* Effect.result(registry.readProject(projectId));
   return Result.isFailure(result)
     ? yield* projectFailure(result.failure)
-    : json(projectRepresentation(result.success));
+    : json(projectResponse(result.success));
 });
 const createProjectResponse = Effect.fn("Gateway.createProject")(function* (
   workspaceId: WorkspaceId,
@@ -170,7 +170,7 @@ const createProjectResponse = Effect.fn("Gateway.createProject")(function* (
     }),
   );
   if (Result.isFailure(result)) return yield* projectFailure(result.failure);
-  return json(projectRepresentation(result.success.project), 201, {
+  return json(projectResponse(result.success.project), 201, {
     location: `/api/projects/${result.success.project.id}`,
     ...(result.success.replayed ? { "idempotency-replayed": "true" } : {}),
   });
@@ -183,7 +183,7 @@ const renameProjectResponse = Effect.fn("Gateway.renameProject")(function* (
   const result = yield* Effect.result(registry.renameProject(projectId, name));
   return Result.isFailure(result)
     ? yield* projectFailure(result.failure)
-    : json(projectRepresentation(result.success));
+    : json(projectResponse(result.success));
 });
 
 /** Project HTTP handlers backed by yielded Workspace Registry operations. */

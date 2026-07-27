@@ -10,12 +10,12 @@ Defines the Effect HTTP API:
 
 - stable paths and media types;
 - request, response, header, path, and query schemas;
-- Workspace representations and collection links;
+- Workspace response bodies and collection links;
 - stable problem codes and RFC 9457 problem documents;
 - endpoint groups and Cloudflare Access middleware metadata;
 - the top-level `OverseerApi` contract.
 
-### `representations.ts`
+### `api-discovery.ts`
 
 Builds discovery documents and the schema index from the contract.
 
@@ -29,4 +29,4 @@ Derives the OpenAPI document from `OverseerApi`. Do not maintain a separate hand
 
 ## Rules
 
-Contract schemas describe encoded public values. Domain schemas should be reused where wire and domain meaning are truly identical; explicit representations belong in adapters when names or meanings differ. Adding an endpoint requires updating this contract and then implementing its adapter handler, rather than introducing an undeclared route.
+Contract schemas describe encoded public values. Domain schemas should be reused where wire and domain meaning are truly identical; explicit API response types belong in adapters when names or meanings differ. Adding an endpoint requires updating this contract and then implementing its adapter handler, rather than introducing an undeclared route.

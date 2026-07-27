@@ -6,7 +6,7 @@ const timestamp = (value: number) => UlidTimestamp.make(value);
 const entropy = (value: Uint8Array) => UlidEntropy.make(value);
 
 describe("ULID", () => {
-  it("encodes the timestamp and entropy at their representation boundaries", () => {
+  it("encodes the timestamp and entropy at their field boundaries", () => {
     expect(makeUlid(timestamp(0), entropy(new Uint8Array(10)))).toBe("00000000000000000000000000");
     expect(makeUlid(timestamp(2 ** 48 - 1), entropy(new Uint8Array(10).fill(0xff)))).toBe(
       "7ZZZZZZZZZZZZZZZZZZZZZZZZZ",
@@ -20,7 +20,7 @@ describe("ULID", () => {
     ).toBe(true);
   });
 
-  it("rejects non-canonical representations and invalid refined inputs", () => {
+  it("rejects non-canonical encodings and invalid refined inputs", () => {
     expect(Schema.is(Ulid)("8ZZZZZZZZZZZZZZZZZZZZZZZZZ")).toBe(false);
     expect(Schema.is(Ulid)("01J0000000000000000000000I")).toBe(false);
     expect(Schema.is(UlidTimestamp)(-1)).toBe(false);

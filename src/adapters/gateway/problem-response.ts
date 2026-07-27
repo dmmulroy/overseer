@@ -30,10 +30,10 @@ const problemPolicies: Readonly<Record<ProblemCode, ProblemPolicy>> = {
   method_not_allowed: { retryable: false, status: 405, title: "Method not allowed" },
   payload_too_large: { retryable: false, status: 413, title: "Payload too large" },
   origin_not_allowed: { retryable: false, status: 403, title: "Origin not allowed" },
-  representation_not_acceptable: {
+  response_type_not_acceptable: {
     retryable: false,
     status: 406,
-    title: "Representation not acceptable",
+    title: "Response type not acceptable",
   },
   request_body_unreadable: { retryable: false, status: 400, title: "Request body unreadable" },
   resource_not_found: { retryable: false, status: 404, title: "Resource not found" },

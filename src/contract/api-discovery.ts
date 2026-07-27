@@ -5,7 +5,7 @@ import {
   SchemaIndex,
   WorkspaceSchemaPaths,
 } from "./http-api.ts";
-/** Build the stable API discovery representation. */
+/** Build the stable API discovery response body. */
 export function discoveryDocument(): DiscoveryDocument {
   return DiscoveryDocument.make({
     name: "Overseer",

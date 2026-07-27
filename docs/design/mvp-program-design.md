@@ -38,7 +38,7 @@ The current repository has product/domain documentation but no application sourc
 +   issue-relationships.ts               # Parent and Blocking DAG decisions/order rules
 +   label.ts                             # Label name/description/color/lifecycle
 +   comment.ts                           # Comment lifecycle and revision decisions
-+   timeline.ts                          # event vocabulary and projection values
++   timeline.ts                          # event vocabulary and Timeline entry values
 +   attachment.ts                        # metadata, part plan, lifecycle, retention decisions
 +   pagination.ts                        # parsed limits/sorts/filter values; no opaque encoding
 +   idempotency.ts                       # bounded caller-supplied creation key
@@ -74,7 +74,7 @@ The current repository has product/domain documentation but no application sourc
 +
 + src/contract/                           # inbound HTTP wire-contract Adapter Module
 +   http-api.ts                           # single Effect HttpApi declaration
-+   representations.ts                   # REST representations and common Link/Problem schemas
++   api-discovery.ts                     # API discovery data and common Link/Problem schemas
 +   request-schemas.ts                    # content-addressed schema publication
 +   openapi.ts                            # OpenAPI generated from http-api.ts
 +
@@ -83,7 +83,7 @@ The current repository has product/domain documentation but no application sourc
 +   request-context.ts                    # Actor/session/origin/request-id parsing
 +   gateway-http.ts                       # Effect HTTP handlers and media negotiation
 +   problem-response.ts                   # typed failures -> RFC 9457
-+   representation-response.ts            # strong ETag/HEAD/304/cache headers
++   api-response.ts            # strong ETag/HEAD/304/cache headers
 +   workspace-registry-rpc-client.ts                 # Workspace Registry Durable Object binding adapter
 +   project-rpc-client.ts                 # Project Durable Object binding adapter
 +   attachment-http.ts                    # raw upload/range/content streaming
@@ -118,7 +118,7 @@ The current repository has product/domain documentation but no application sourc
 + src/browser/                             # browser composition root and product UI
 +   main.tsx                              # RegistryProvider, generated client, Router
 +   route-tree.tsx                        # typed URLs/search and route lifetime
-+   client/conditional-query.ts           # exact-URL ETag/SWR/freshness module
++   client/resource-cache.ts              # exact-URL ETag/SWR/freshness module
 +   client/commands.ts                    # preflight, optimism, convergence, rollback
 +   client/wake-signal.ts                 # polling/focus/visibility/online scheduling
 +   shell/app-shell.tsx
@@ -201,7 +201,7 @@ Attachment: Pending(plan, expiresAt) | Ready(metadata) | Deleted(restorable, dea
 Relation: Active | Inactive(reason)
 ```
 
-Domain modules expose parsers/smart constructors, predicates, legal transition decisions, and representations. They do not perform I/O, read ambient time, allocate IDs, authorize a principal, or render HTTP.
+Domain modules expose parsers/smart constructors, predicates, legal transition decisions, and domain values. They do not perform I/O, read ambient time, allocate IDs, authorize a principal, or render HTTP.
 
 High-value pure decisions include:
 
@@ -265,11 +265,11 @@ The future Project Durable Object is one consistency and routing boundary, not o
 | Application module   | Caller-visible responsibility                                             | Narrow state port                                                                              |
 | -------------------- | ------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------- |
 | `IssueDiscovery`     | create/read/page Issues and allocate immutable Project-local numbers      | Issue records, number allocation, exact filtered keyset reads, and Project-local creation keys |
-| `IssueSteering`      | open/close and claim/release/reassign with attributed Timeline effects    | Issue state/Assignee plus event/projection writes                                              |
-| `TextContributions`  | Issue text, Comments, Revisions, no-ops, and narrative Timeline           | text/Comment/Revisions plus event/projection writes                                            |
-| `Classification`     | Label lifecycle and Issue assignments                                     | Label/assignment records plus affected Issue projections                                       |
-| `WorkStructure`      | Parent/Sub-issue order and Blocking invariants/readiness                  | preserved relation graphs plus affected Issue projections                                      |
-| `References`         | current Markdown-derived references and same-Project backlinks            | source text/reference sets plus affected Issue projections                                     |
+| `IssueSteering`      | open/close and claim/release/reassign with attributed Timeline effects    | Issue state/Assignee plus event/Timeline entry writes                                          |
+| `TextContributions`  | Issue text, Comments, Revisions, no-ops, and narrative Timeline           | text/Comment/Revisions plus event/Timeline entry writes                                        |
+| `Classification`     | Label lifecycle and Issue assignments                                     | Label/assignment records plus affected Timeline entries                                        |
+| `WorkStructure`      | Parent/Sub-issue order and Blocking invariants/readiness                  | preserved relation graphs plus affected Timeline entries                                       |
+| `References`         | current Markdown-derived references and same-Project backlinks            | source text/reference sets plus affected Timeline entries                                      |
 | `AttachmentMetadata` | pending/ready/deleted metadata, part progress, association, and retention | Attachment/association records and Project-local creation keys                                 |
 
 Each module defines operation-specific input/outcome types and an exact transaction port beside itself. One wider `ProjectSqlite` adapter may structurally satisfy all of those ports because one database owns the aggregate; callers never receive the wider adapter. This keeps SQL mechanics reusable without forcing unrelated application policies through one `ProjectState` interface.
@@ -309,14 +309,14 @@ IssueSteeringState:
   load parsed Issue steering state
   persist a decided state/Assignee transition
   allocate Timeline positions
-  append one event and all affected projections
+  append one event and all affected Timeline entries
 ```
 
 Ordinary create idempotency belongs to the authoritative Project object's existing transaction capability. It stores a key-to-entity reference with the successful mutation. Do not add a generic idempotency service, Gateway-level idempotency port, caller-global scope, or cross-object reservation.
 
 `EntityIds` constructs Entity IDs before persistence. SQLite transaction state allocates only values requiring database serialization, such as Issue numbers and Timeline positions. Application modules call pure domain decisions and commit their complete record/Revision/reference/Timeline plans in one short transaction. The adapter owns row schemas, SQL statements, keyset encoding, and rollback; it returns parsed values or typed corruption/unavailability failures, never raw rows.
 
-Qualified cross-Project Issue mention semantics are deliberately absent until [#51](https://github.com/dmmulroy/overseer/issues/51) resolves the contradiction between reciprocal atomic projections and one-Project transaction ownership. `References` may implement same-Project Issue references, Project mentions, and external URLs without inventing that missing policy.
+Qualified cross-Project Issue mention semantics are deliberately absent until [#51](https://github.com/dmmulroy/overseer/issues/51) resolves the contradiction between reciprocal atomic Timeline entries and one-Project transaction ownership. `References` may implement same-Project Issue references, Project mentions, and external URLs without inventing that missing policy.
 
 ### Private RPC seam
 
@@ -351,7 +351,7 @@ AttachmentObjects (application-owned port):
   inspect/delete/readRange by immutable ObjectIdentity
 ```
 
-`ObjectIdentity` is a correctly constructed Overseer value containing only immutable Project and Attachment IDs; the R2 adapter derives the private object key. Multipart provider handles and part ETags remain in adapter-owned transfer records. Where a private RPC must round-trip one, its codec exposes only an opaque parsed `TransferReference` and no application/domain code inspects or constructs its raw representation. Byte streams terminate in the transfer adapter and are not passed into domain modules.
+`ObjectIdentity` is a correctly constructed Overseer value containing only immutable Project and Attachment IDs; the R2 adapter derives the private object key. Multipart provider handles and part ETags remain in adapter-owned transfer records. Where a private RPC must round-trip one, its codec exposes only an opaque parsed `TransferReference` and no application/domain code inspects or constructs its raw value. Byte streams terminate in the transfer adapter and are not passed into domain modules.
 
 Expected transfer failures are values such as `TransferUnavailable`, `LengthMismatch`, `InvalidPart`, and `StoredObjectMismatch`. The Gateway maps them to the settled retry/problem behavior. The application module never retries an externally observable POST under a new key.
 
@@ -361,7 +361,7 @@ Expected transfer failures are values such as `TransferUnavailable`, `LengthMism
 
 `ProjectOperations` is a Gateway-level Application Module for project-local reads and commands. It receives narrow application-owned ports for Entity-owner resolution (as selected by #53), Workspace Registry admission, and Project RPC. Given a parsed operation, it resolves the owning Project when necessary, obtains current Workspace Registry admission, invokes the owning Project capability, and returns a typed application outcome. The authoritative Project operation applies creation-key policy in its local transaction. This is application policy and effect ordering, not HTTP behavior.
 
-Attachment transfer remains a separate cohesive Application Module because it additionally sequences byte streams and R2. It receives the same narrow Workspace Registry admission capability and performs admission before metadata/R2 effects. Neither application module sees headers, `Request`/`Response`, bindings, stubs, or problem representations.
+Attachment transfer remains a separate cohesive Application Module because it additionally sequences byte streams and R2. It receives the same narrow Workspace Registry admission capability and performs admission before metadata/R2 effects. Neither application module sees headers, `Request`/`Response`, bindings, stubs, or problem response bodies.
 
 ### HTTP adapter seam
 
@@ -369,20 +369,20 @@ The shared `HttpApi` declaration owns the wire contract. `gateway-http.ts` suppl
 
 1. parse protocol input and request context;
 2. invoke `ProjectOperations`, `AttachmentTransfer`, or the Workspace Registry application port with parsed inputs;
-3. project direct representations or `{ items, links }` pages;
-4. compute strong ETags over exact encoded representations;
+3. build direct API responses or `{ items, links }` pages;
+4. compute strong ETags over exact encoded response bodies;
 5. map expected errors through `problem-response.ts`.
 
-Outer Effect HTTP 404/405/media failures and schema failures are normalized into the same safe JSON problem contract. No route module classifies failures by message text. `representation-response.ts` owns GET/HEAD, `If-None-Match`, `304`, range-independent cache policy, and ETag headers so route handlers cannot drift.
+Outer Effect HTTP 404/405/media failures and schema failures are normalized into the same safe JSON problem contract. No route module classifies failures by message text. `api-response.ts` owns GET/HEAD, `If-None-Match`, `304`, range-independent cache policy, and ETag headers so route handlers cannot drift.
 
 ### Browser query and command seams
 
-`conditional-query.ts` is an application-owned Effect Atom module over a narrow `ConditionalResources` port. The port accepts a parsed canonical resource request and optional `StrongEtag`, then returns `Modified<Representation>` or `NotModified` with typed retry advice. `api-resources.ts` implements it with the generated client and owns `If-None-Match`, `200`/`304`, ETag/header parsing, and `Retry-After` translation. For one exact canonical URL, the application module owns:
+`resource-cache.ts` is an application-owned Effect Atom module over a narrow `ResourceReader` port. The port accepts a parsed canonical resource request and optional `StrongEtag`, then returns `Modified<Data>` or `NotModified` with typed retry advice. `api-resources.ts` implements it with the generated client and owns `If-None-Match`, `200`/`304`, ETag/header parsing, and `Retry-After` translation. For one exact canonical URL, the application module owns:
 
 ```text
-ConditionalResource<A> =
+CachedResource<A> =
   NoValue |
-  Success { representation: A; etag: StrongEtag; validatedAt: MonotonicInstant } |
+  Success { data: A; etag: StrongEtag; validatedAt: MonotonicInstant } |
   Refreshing { previous: Success<A>; startedAt } |
   Stale { previous: Success<A>; error; nextRetryAt } |
   Unavailable { error }
@@ -390,7 +390,7 @@ ConditionalResource<A> =
 
 The module handles `200`/`304`, five-second grace, one in-flight read, completion-based polling, cancellation, and stale-readable state. Retryable failures wait 5, 15, 30, then repeating 60 seconds while honoring a longer `Retry-After`; success resets the schedule. Routine refresh is silent for two seconds, after which presentation receives an `Updating` state. It exposes state and a force-validation action, not cache internals.
 
-`commands.ts` accepts a parsed command, a narrow typed `ResourceCommands` port, and the exact affected query keys. The generated-client adapter implements the port and translates HTTP outcomes; the application module owns pre-write validation, deterministic optimism, rollback, returned-representation installation, and targeted convergence. React feature code renders command/query states and drafts; it does not sequence network Effects itself. TanStack Router owns URL/search parsing and route lifetime only.
+`commands.ts` accepts a parsed command, a narrow typed `ResourceCommands` port, and the exact affected query keys. The generated-client adapter implements the port and translates HTTP outcomes; the application module owns pre-write validation, deterministic optimism, rollback, returned-data installation, and targeted convergence. React feature code renders command/query states and drafts; it does not sequence network Effects itself. TanStack Router owns URL/search parsing and route lifetime only.
 
 `Drafts` is an application-owned browser port:
 
@@ -418,8 +418,8 @@ infra/gateway.fetch(raw Request, raw bindings)
       │  └─ workspace-registry-rpc-client -> Workspace Registry application/SQLite
       └─ Project-read port
          └─ project-rpc-client -> owning application read/Project SQLite
-└─ contract/representations project parsed result + applicable links
-└─ representation-response -> 200/304/HEAD or problem-response
+└─ contract/API schemas build parsed response data + applicable links
+└─ api-response -> 200/304/HEAD or problem-response
 ```
 
 ### Project-local command
@@ -438,10 +438,10 @@ infra/gateway.fetch
                   ├─ load parsed aggregate slice for a new key
                   ├─ domain module decides transition/invariants/no-op
                   ├─ persist record/Revision/reference changes
-                  ├─ append event and every affected Timeline projection
+                  ├─ append event and every affected Timeline entry
                   ├─ record the key-to-entity result
                   └─ commit
-└─ gateway-http projects representation/links or typed problem
+└─ gateway-http builds response data/links or typed problem
 ```
 
 ### Workspace Registry admission
@@ -472,7 +472,7 @@ Gateway attachment HTTP entrypoint
    ├─ verify exact stored length and provider checksum
    └─ AttachmentMetadata.finalize -> Project RPC
       └─ pending -> ready transaction, no Attachment-specific Timeline event
-└─ return ready/pending representation or resumable typed problem
+└─ return ready/pending data or resumable typed problem
 
 Project alarm entrypoint after interruption
 └─ AttachmentReconciliation
@@ -488,12 +488,12 @@ Project alarm composition root
 
 ```text
 browser/main.tsx
-└─ RegistryProvider + ConditionalResources adapter + TanStack Router
-   └─ route mounts exact conditional query atom
+└─ RegistryProvider + ResourceReader adapter + TanStack Router
+   └─ route mounts exact resource cache atom
       ├─ render cached Success immediately when present
-      ├─ validate through narrow ConditionalResources port
+      ├─ validate through narrow ResourceReader port
       │  └─ generated-client adapter owns If-None-Match and 200/304 translation
-      ├─ Modified replaces representation/ETag; NotModified advances validatedAt
+      ├─ Modified replaces data/ETag; NotModified advances validatedAt
       └─ wake-signal schedules visible-route 15s/30s validation
 
 feature interaction
@@ -503,9 +503,9 @@ feature interaction
    ├─ apply supported deterministic optimistic reducer
    ├─ execute through narrow ResourceCommands port
    ├─ failure: rollback canonical view, preserve draft, expose typed error
-   └─ success: install returned representation first
+   └─ success: install returned data first
       ├─ invalidate owning Issue key
-      ├─ conditionally validate affected rendered pages
+      ├─ refresh affected rendered pages with their ETags
       ├─ validate visible list when membership/order may change
       └─ mark offscreen affected entries stale without fetching
 ```
@@ -551,7 +551,7 @@ The seams below are the agreed interfaces for implementation slices. Lower tests
 
 | Confidence sought      | Public seam                                                                                                         | Real dependencies                                                                                                              | Observable assertions                                                                                                                                                            |
 | ---------------------- | ------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Agent-client behavior  | Authenticated Gateway HTTP in local Cloudflare/workerd                                                              | Real Gateway, Workspace Registry/Project objects, SQLite, private-R2-compatible adapter, test Agent-deployment Access identity | REST representation/problem, links, status/headers, ETag/304, persisted result as observed through later REST, Timeline projection, transfer bytes                               |
+| Agent-client behavior  | Authenticated Gateway HTTP in local Cloudflare/workerd                                                              | Real Gateway, Workspace Registry/Project objects, SQLite, private-R2-compatible adapter, test Agent-deployment Access identity | REST data/errors, links, status/headers, ETag/304, persisted result as observed through later REST, Timeline entries, transfer bytes                                             |
 | Human behavior         | Authenticated browser SPA against that Gateway                                                                      | Built SPA, real generated client/query pipeline, same local runtime                                                            | Role/name-visible UI, URL/search state, keyboard/pointer behavior, focus return, responsive semantics, stale/draft/rollback presentation                                         |
 | Domain invariants      | Exported pure Domain Module interface                                                                               | No I/O                                                                                                                         | Parsed value/error, transition decision, graph/reference/part plan; property checks where stronger than examples                                                                 |
 | SQLite/DO mechanics    | Operation-specific Workspace Registry/Project RPC or owning application interface in representative workerd runtime | Full `ctx.storage`, migrations, transactions, interruption                                                                     | successful RPC, expected remote tag, remote defect/`RpcCallError`, commit/rollback, concurrent initialization, migration failure, reconstruction, cause-free corruption response |
@@ -570,7 +570,7 @@ No test asserts internal calls, SQL table names, private atom maps, layer constr
 | Project/Workspace Registry state ports | Application policy must be testable apart from SQL while production needs transactional SQLite mechanics.                     | No repository per Entity, ORM model leakage, or transaction object exposed to callers.      |
 | AttachmentTransfer                     | Simple/multipart Gateway handlers share non-transactional SQLite/R2 sequencing and recovery policy.                           | No direct R2 access, presigned flow, or generic blob service.                               |
 | AttachmentReconciliation               | Native alarm and focused tests need the same idempotent due-row behavior.                                                     | No scheduler framework, queue, or durable job abstraction.                                  |
-| Conditional query                      | Every route needs the same exact-URL ETag, grace, polling, cancellation, and stale behavior.                                  | No Router data cache, persistent canonical cache, or synchronization engine.                |
+| Cached resource query                  | Every route needs the same exact-URL ETag, grace, polling, cancellation, and stale behavior.                                  | No Router data cache, persistent canonical cache, or synchronization engine.                |
 | Drafts                                 | IndexedDB and an inert test adapter are genuine storage implementations for explicit local drafts.                            | No generic browser persistence facade or offline mutation queue.                            |
 | Owned generic UI controls              | Base UI behavior and app feature composition are distinct, and shadcn source is intentionally owned.                          | No Base UI mirror, component barrel, Box/Stack DSL, or domain variants.                     |
 

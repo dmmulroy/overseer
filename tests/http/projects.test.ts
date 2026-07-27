@@ -4,8 +4,8 @@ import { afterAll, beforeAll, describe, expect, it } from "vite-plus/test";
 import type { Miniflare } from "miniflare";
 import {
   ProjectCollection,
-  ProjectRepresentation,
-  WorkspaceRepresentation,
+  ProjectResponse,
+  WorkspaceResponse,
 } from "../../src/contract/http-api.ts";
 import { startGateway } from "../fixtures/gateway.ts";
 
@@ -99,7 +99,7 @@ async function createWorkspace(name: string, key: string) {
     headers: { "content-type": "application/json", "idempotency-key": key },
     body: JSON.stringify({ name }),
   });
-  return Schema.decodeUnknownSync(WorkspaceRepresentation)(await response.json());
+  return Schema.decodeUnknownSync(WorkspaceResponse)(await response.json());
 }
 
 async function createProject(workspaceId: string, name: string, key: string) {
@@ -115,7 +115,7 @@ describe("Project REST interface", () => {
     const workspace = await createWorkspace("Personal", "project-workspace");
     const created = await createProject(workspace.id, "  Overseer  ", "project-create");
     expect(created.status).toBe(201);
-    const project = Schema.decodeUnknownSync(ProjectRepresentation)(await created.json());
+    const project = Schema.decodeUnknownSync(ProjectResponse)(await created.json());
     expect(project).toMatchObject({
       id: expect.stringMatching(/^project_[0-9A-HJKMNP-TV-Z]{26}$/),
       workspace_id: workspace.id,
@@ -150,7 +150,7 @@ describe("Project REST interface", () => {
       body: JSON.stringify({ name: "Overseer renamed" }),
     });
     expect(renamed.status).toBe(200);
-    const renamedProject = Schema.decodeUnknownSync(ProjectRepresentation)(await renamed.json());
+    const renamedProject = Schema.decodeUnknownSync(ProjectResponse)(await renamed.json());
     expect(renamedProject).toMatchObject({
       id: project.id,
       workspace_id: workspace.id,
@@ -174,7 +174,7 @@ describe("Project REST interface", () => {
       body: JSON.stringify({ name: "Agent Project" }),
     });
     expect(created.status).toBe(201);
-    const project = Schema.decodeUnknownSync(ProjectRepresentation)(await created.json());
+    const project = Schema.decodeUnknownSync(ProjectResponse)(await created.json());
     const discovery = await agentApi("/api");
     await expect(discovery.json()).resolves.toMatchObject({
       links: { projects: { href: "/api/projects" } },
@@ -192,7 +192,7 @@ describe("Project REST interface", () => {
     const secondWorkspace = await createWorkspace("Second", "project-replay-workspace-second");
     const first = await createProject(firstWorkspace.id, "Replay Project", "project-replay-key");
     expect(first.status).toBe(201);
-    const firstProject = Schema.decodeUnknownSync(ProjectRepresentation)(await first.json());
+    const firstProject = Schema.decodeUnknownSync(ProjectResponse)(await first.json());
 
     const changedTargetReplay = await createProject(
       secondWorkspace.id,
@@ -262,9 +262,9 @@ describe("Project REST interface", () => {
   });
 
   it("supports strong validators and HEAD for Projects and exact collection pages", async () => {
-    const workspace = await createWorkspace("Conditional", "project-conditional-workspace");
-    const created = await createProject(workspace.id, "Conditional Project", "project-conditional");
-    const project = Schema.decodeUnknownSync(ProjectRepresentation)(await created.json());
+    const workspace = await createWorkspace("ETag", "project-etag-workspace");
+    const created = await createProject(workspace.id, "ETag Project", "project-etag");
+    const project = Schema.decodeUnknownSync(ProjectResponse)(await created.json());
     for (const path of [
       "/api/projects",
       `/api/workspaces/${workspace.id}/projects`,

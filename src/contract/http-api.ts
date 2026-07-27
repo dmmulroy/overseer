@@ -53,22 +53,22 @@ export const Link = Schema.Struct({
 /** Link to a discoverable REST resource or operation. */
 export interface Link extends Schema.Schema.Type<typeof Link> {}
 
-/** Authenticated API discovery representation. */
+/** Authenticated API discovery response body. */
 export const DiscoveryDocument = Schema.Struct({
   name: Schema.Literal("Overseer"),
   links: Schema.Record(Schema.String, Link),
 }).annotate({ identifier: "DiscoveryDocument" });
 
-/** Authenticated API discovery representation. */
+/** Authenticated API discovery response body. */
 export interface DiscoveryDocument extends Schema.Schema.Type<typeof DiscoveryDocument> {}
 
-/** Content-addressed request-schema discovery representation. */
+/** Content-addressed request-schema index response. */
 export const SchemaIndex = Schema.Struct({
   items: Schema.Array(Link),
   links: Schema.Record(Schema.String, Link),
 }).annotate({ identifier: "SchemaIndex" });
 
-/** Content-addressed request-schema discovery representation. */
+/** Content-addressed request-schema index response. */
 export interface SchemaIndex extends Schema.Schema.Type<typeof SchemaIndex> {}
 
 /** Stable problem codes introduced by the public Gateway contract. */
@@ -84,7 +84,7 @@ export const ProblemCode = Schema.Literals([
   "method_not_allowed",
   "payload_too_large",
   "origin_not_allowed",
-  "representation_not_acceptable",
+  "response_type_not_acceptable",
   "request_body_unreadable",
   "resource_not_found",
   "service_unavailable",
@@ -142,7 +142,7 @@ const Problem422 = problemDocumentAtStatus(422);
 const Problem500 = problemDocumentAtStatus(500);
 const Problem503 = problemDocumentAtStatus(503);
 
-/** RFC 9457 problem representation shared by all API failures. */
+/** RFC 9457 error response body shared by all API failures. */
 export const ProblemDocument = Schema.Union([
   Problem400,
   Problem401,
@@ -158,7 +158,7 @@ export const ProblemDocument = Schema.Union([
   Problem503,
 ]).annotate({ identifier: "Problem" });
 
-/** RFC 9457 problem representation shared by all API failures. */
+/** RFC 9457 error response body shared by all API failures. */
 export type ProblemDocument = typeof ProblemDocument.Type;
 
 const problemAtStatus = <const Status extends ProblemStatus>(status: Status) =>
@@ -169,7 +169,7 @@ const problemAtStatus = <const Status extends ProblemStatus>(status: Status) =>
 const errorsAtStatuses = <const Statuses extends ReadonlyArray<ProblemStatus>>(
   statuses: Statuses,
 ) => statuses.map(problemAtStatus);
-const representationReadProblems = errorsAtStatuses([406, 500, 503]);
+const apiDocumentReadProblems = errorsAtStatuses([406, 500, 503]);
 const requestSchemaReadProblems = errorsAtStatuses([404, 406, 500, 503]);
 const workspaceListProblems = errorsAtStatuses([400, 406, 500, 503]);
 const workspaceCreateProblems = errorsAtStatuses([400, 403, 409, 413, 415, 422, 500, 503]);
@@ -179,7 +179,7 @@ const projectListProblems = errorsAtStatuses([400, 404, 406, 500, 503]);
 const projectCreateProblems = errorsAtStatuses([400, 403, 404, 409, 413, 415, 422, 500, 503]);
 const projectReadProblems = errorsAtStatuses([400, 404, 406, 500, 503]);
 const projectRenameProblems = errorsAtStatuses([400, 403, 404, 413, 415, 422, 500, 503]);
-const conditionalReadHeaders = {
+const cacheValidationHeaders = {
   accept: Schema.optionalKey(Schema.String),
   "if-none-match": Schema.optionalKey(Schema.String),
 };
@@ -193,8 +193,8 @@ const JsonSchemaDocument = Schema.Unknown.pipe(
 
 export { ProjectNameRequest, WorkspaceNameRequest } from "./request-schemas.ts";
 
-/** Full Workspace REST representation. */
-export const WorkspaceRepresentation = Schema.Struct({
+/** Full Workspace API response body. */
+export const WorkspaceResponse = Schema.Struct({
   id: WorkspaceId,
   name: WorkspaceName,
   lifecycle: Schema.Literal("active"),
@@ -204,22 +204,20 @@ export const WorkspaceRepresentation = Schema.Struct({
   links: Schema.Record(Schema.String, Link),
 }).annotate({ identifier: "Workspace" });
 
-/** Full Workspace REST representation. */
-export interface WorkspaceRepresentation extends Schema.Schema.Type<
-  typeof WorkspaceRepresentation
-> {}
+/** Full Workspace API response body. */
+export interface WorkspaceResponse extends Schema.Schema.Type<typeof WorkspaceResponse> {}
 
 /** Exact active Workspace collection page. */
 export const WorkspaceCollection = Schema.Struct({
-  items: Schema.Array(WorkspaceRepresentation),
+  items: Schema.Array(WorkspaceResponse),
   links: Schema.Record(Schema.String, Link),
 }).annotate({ identifier: "WorkspaceCollection" });
 
 /** Exact active Workspace collection page. */
 export interface WorkspaceCollection extends Schema.Schema.Type<typeof WorkspaceCollection> {}
 
-/** Full Project REST representation. */
-export const ProjectRepresentation = Schema.Struct({
+/** Full Project API response body. */
+export const ProjectResponse = Schema.Struct({
   id: ProjectId,
   workspace_id: WorkspaceId,
   name: ProjectName,
@@ -230,12 +228,12 @@ export const ProjectRepresentation = Schema.Struct({
   links: Schema.Record(Schema.String, Link),
 }).annotate({ identifier: "Project" });
 
-/** Full Project REST representation. */
-export interface ProjectRepresentation extends Schema.Schema.Type<typeof ProjectRepresentation> {}
+/** Full Project API response body. */
+export interface ProjectResponse extends Schema.Schema.Type<typeof ProjectResponse> {}
 
 /** Exact active Project collection page. */
 export const ProjectCollection = Schema.Struct({
-  items: Schema.Array(ProjectRepresentation),
+  items: Schema.Array(ProjectResponse),
   links: Schema.Record(Schema.String, Link),
 }).annotate({ identifier: "ProjectCollection" });
 
@@ -251,43 +249,43 @@ const workspaceCreateHeaders = {
   ...workspaceMutationHeaders,
   "idempotency-key": IdempotencyKey,
 };
-const workspaceCreated = WorkspaceRepresentation.pipe(HttpApiSchema.status(201));
+const workspaceCreated = WorkspaceResponse.pipe(HttpApiSchema.status(201));
 const discover = HttpApiEndpoint.get("discover", DiscoveryPaths.root, {
-  headers: conditionalReadHeaders,
+  headers: cacheValidationHeaders,
   success: [DiscoveryDocument, NotModified],
-  error: representationReadProblems,
+  error: apiDocumentReadProblems,
 });
 const headDiscovery = HttpApiEndpoint.head("headDiscovery", DiscoveryPaths.root, {
-  headers: conditionalReadHeaders,
+  headers: cacheValidationHeaders,
   success: [DiscoveryDocument, NotModified],
-  error: representationReadProblems,
+  error: apiDocumentReadProblems,
 });
 const discoverSchemas = HttpApiEndpoint.get("discoverSchemas", DiscoveryPaths.schemas, {
-  headers: conditionalReadHeaders,
+  headers: cacheValidationHeaders,
   success: [SchemaIndex, NotModified],
-  error: representationReadProblems,
+  error: apiDocumentReadProblems,
 });
 const headSchemas = HttpApiEndpoint.head("headSchemas", DiscoveryPaths.schemas, {
-  headers: conditionalReadHeaders,
+  headers: cacheValidationHeaders,
   success: [SchemaIndex, NotModified],
-  error: representationReadProblems,
+  error: apiDocumentReadProblems,
 });
 const openApi = HttpApiEndpoint.get("openApi", DiscoveryPaths.openapi, {
-  headers: conditionalReadHeaders,
+  headers: cacheValidationHeaders,
   success: [OpenApiDocument, NotModified],
-  error: representationReadProblems,
+  error: apiDocumentReadProblems,
 });
 const headOpenApi = HttpApiEndpoint.head("headOpenApi", DiscoveryPaths.openapi, {
-  headers: conditionalReadHeaders,
+  headers: cacheValidationHeaders,
   success: [OpenApiDocument, NotModified],
-  error: representationReadProblems,
+  error: apiDocumentReadProblems,
 });
 const readRequestSchema = HttpApiEndpoint.get(
   "readRequestSchema",
   "/api/schemas/:content_hash/:schema_name",
   {
     params: { content_hash: Schema.String, schema_name: Schema.String },
-    headers: conditionalReadHeaders,
+    headers: cacheValidationHeaders,
     success: [JsonSchemaDocument, NotModified],
     error: requestSchemaReadProblems,
   },
@@ -297,7 +295,7 @@ const headRequestSchema = HttpApiEndpoint.head(
   "/api/schemas/:content_hash/:schema_name",
   {
     params: { content_hash: Schema.String, schema_name: Schema.String },
-    headers: conditionalReadHeaders,
+    headers: cacheValidationHeaders,
     success: [JsonSchemaDocument, NotModified],
     error: requestSchemaReadProblems,
   },
@@ -318,13 +316,13 @@ const workspaceListQuery = Schema.Struct({
 );
 
 const listWorkspaces = HttpApiEndpoint.get("listWorkspaces", DiscoveryPaths.workspaces, {
-  headers: conditionalReadHeaders,
+  headers: cacheValidationHeaders,
   query: workspaceListQuery,
   success: [WorkspaceCollection, NotModified],
   error: workspaceListProblems,
 });
 const headWorkspaces = HttpApiEndpoint.head("headWorkspaces", DiscoveryPaths.workspaces, {
-  headers: conditionalReadHeaders,
+  headers: cacheValidationHeaders,
   query: workspaceListQuery,
   success: [WorkspaceCollection, NotModified],
   error: workspaceListProblems,
@@ -337,21 +335,21 @@ const createWorkspace = HttpApiEndpoint.post("createWorkspace", DiscoveryPaths.w
 });
 const readWorkspace = HttpApiEndpoint.get("readWorkspace", "/api/workspaces/:workspace_id", {
   params: workspacePath,
-  headers: conditionalReadHeaders,
-  success: [WorkspaceRepresentation, NotModified],
+  headers: cacheValidationHeaders,
+  success: [WorkspaceResponse, NotModified],
   error: workspaceReadProblems,
 });
 const headWorkspace = HttpApiEndpoint.head("headWorkspace", "/api/workspaces/:workspace_id", {
   params: workspacePath,
-  headers: conditionalReadHeaders,
-  success: [WorkspaceRepresentation, NotModified],
+  headers: cacheValidationHeaders,
+  success: [WorkspaceResponse, NotModified],
   error: workspaceReadProblems,
 });
 const renameWorkspace = HttpApiEndpoint.patch("renameWorkspace", "/api/workspaces/:workspace_id", {
   params: workspacePath,
   headers: workspaceMutationHeaders,
   payload: WorkspaceNameRequest,
-  success: WorkspaceRepresentation,
+  success: WorkspaceResponse,
   error: workspaceRenameProblems,
 });
 
@@ -370,15 +368,15 @@ const projectListQuery = Schema.Struct({
 );
 const projectPath = { project_id: ProjectId };
 const workspaceProjectsPath = { workspace_id: WorkspaceId };
-const projectCreated = ProjectRepresentation.pipe(HttpApiSchema.status(201));
+const projectCreated = ProjectResponse.pipe(HttpApiSchema.status(201));
 const listProjects = HttpApiEndpoint.get("listProjects", DiscoveryPaths.projects, {
-  headers: conditionalReadHeaders,
+  headers: cacheValidationHeaders,
   query: projectListQuery,
   success: [ProjectCollection, NotModified],
   error: projectListProblems,
 });
 const headProjects = HttpApiEndpoint.head("headProjects", DiscoveryPaths.projects, {
-  headers: conditionalReadHeaders,
+  headers: cacheValidationHeaders,
   query: projectListQuery,
   success: [ProjectCollection, NotModified],
   error: projectListProblems,
@@ -388,7 +386,7 @@ const listWorkspaceProjects = HttpApiEndpoint.get(
   "/api/workspaces/:workspace_id/projects",
   {
     params: workspaceProjectsPath,
-    headers: conditionalReadHeaders,
+    headers: cacheValidationHeaders,
     query: projectListQuery,
     success: [ProjectCollection, NotModified],
     error: projectListProblems,
@@ -399,7 +397,7 @@ const headWorkspaceProjects = HttpApiEndpoint.head(
   "/api/workspaces/:workspace_id/projects",
   {
     params: workspaceProjectsPath,
-    headers: conditionalReadHeaders,
+    headers: cacheValidationHeaders,
     query: projectListQuery,
     success: [ProjectCollection, NotModified],
     error: projectListProblems,
@@ -418,21 +416,21 @@ const createProject = HttpApiEndpoint.post(
 );
 const readProject = HttpApiEndpoint.get("readProject", "/api/projects/:project_id", {
   params: projectPath,
-  headers: conditionalReadHeaders,
-  success: [ProjectRepresentation, NotModified],
+  headers: cacheValidationHeaders,
+  success: [ProjectResponse, NotModified],
   error: projectReadProblems,
 });
 const headProject = HttpApiEndpoint.head("headProject", "/api/projects/:project_id", {
   params: projectPath,
-  headers: conditionalReadHeaders,
-  success: [ProjectRepresentation, NotModified],
+  headers: cacheValidationHeaders,
+  success: [ProjectResponse, NotModified],
   error: projectReadProblems,
 });
 const renameProject = HttpApiEndpoint.patch("renameProject", "/api/projects/:project_id", {
   params: projectPath,
   headers: workspaceMutationHeaders,
   payload: ProjectNameRequest,
-  success: ProjectRepresentation,
+  success: ProjectResponse,
   error: projectRenameProblems,
 });
 

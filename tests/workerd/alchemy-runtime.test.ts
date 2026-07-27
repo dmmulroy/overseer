@@ -12,7 +12,7 @@ import {
 import {
   ProjectCollection,
   WorkspaceCollection,
-  WorkspaceRepresentation,
+  WorkspaceResponse,
 } from "../../src/contract/http-api.ts";
 import { WorkspaceId } from "../../src/domain/entity-id.ts";
 import { WorkspacePageLimit } from "../../src/domain/pagination.ts";
@@ -353,9 +353,7 @@ describe("production Alchemy runtime", () => {
       "Reconstructed Project Workspace",
       "reconstructed-project-workspace",
     );
-    const workspace = Schema.decodeUnknownSync(WorkspaceRepresentation)(
-      await workspaceResponse.json(),
-    );
+    const workspace = Schema.decodeUnknownSync(WorkspaceResponse)(await workspaceResponse.json());
     expect(
       (await createProject(gateway, workspace.id, "Reconstructed Project", "reconstructed-project"))
         .status,

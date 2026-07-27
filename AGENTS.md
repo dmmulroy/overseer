@@ -4,7 +4,7 @@
 
 Favor a small set of simple, generic primitives that compose cleanly over opinionated, workflow-specific features. Build the building blocks first (issues, labels, parent/child, blocking, assignee, timeline, structured filters); let higher-level workflows, abstractions, and patterns emerge as conventions and compositions on top. Grow opinionation only when real use proves a primitive is missing — not by baking one workflow into the product model.
 
-Reserve “Project” for Overseer's domain abstraction. Do not use “project” or “projection” to mean mapping data into another type, representation, or view; name the target representation or transformation instead.
+Reserve “Project” for Overseer's domain abstraction. When mapping data into an API response, database row, UI model, or other output, name the output or transformation directly.
 
 ### Effect service modules
 

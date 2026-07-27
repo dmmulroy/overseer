@@ -31,7 +31,7 @@ Defines eight operation-specific Alchemy schemaless RPC methods:
 
 Each method has a plain structured-clone-safe input, success result, and precise typed error channel. There is no generic read/command dispatcher and no cross-operation outcome union. Expected failures cross as safe tagged records. Because schemaless RPC strips prototypes, callers use `_tag` and `Effect.catchTag`, never `instanceof`.
 
-The file also owns `WORKSPACE_REGISTRY_SINGLETON_NAME`, the sole name used to resolve the singleton object, and `WorkspaceRegistryRpcCallFailed`, the Gateway's explicit representation of Alchemy `RpcCallError`.
+The file also owns `WORKSPACE_REGISTRY_SINGLETON_NAME`, the sole name used to resolve the singleton object, and `WorkspaceRegistryRpcCallFailed`, the Gateway's explicit typed form of Alchemy `RpcCallError`.
 
 ## Ownership
 

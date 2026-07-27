@@ -69,10 +69,13 @@ _Avoid_: Note, reply
 An immutable snapshot in the ordered text history of an Issue title, Issue body, or Comment. A Revision is a value of its owner rather than an independently identified entity.
 
 **Timeline event**:
-An immutable, independently identified record of a meaningful Issue change. One event may be projected onto every Issue it affects.
+An immutable, independently identified record of a meaningful Issue change. One event may appear in every Issue Timeline it affects.
+
+**Timeline entry**:
+The placement of a Comment or Timeline event in one Issue's Timeline. Each Timeline entry has a permanent Issue-local position.
 
 **Timeline**:
-The ordered projection of an Issue's Comments and Timeline events. Each projected item has a permanent Issue-local position.
+The ordered sequence of an Issue's Timeline entries.
 _Avoid_: Activity log, audit log
 
 **Mention**:

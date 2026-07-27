@@ -7,7 +7,7 @@
 - [`domain/`](domain/README.md) defines Overseer values and invariants with Effect Schema.
 - [`application/`](application/README.md) owns operation policy, effect ordering, ports, and typed success/error channels.
 - [`adapters/`](adapters/README.md) translates browser, HTTP, RPC, SQLite, and provider behavior at system boundaries.
-- [`contract/`](contract/README.md) is the shared public HTTP contract and representation source.
+- [`contract/`](contract/README.md) is the shared public HTTP contract and response-schema source.
 - [`infra/`](infra/README.md) contains the Alchemy v2 composition roots for deployed Workers and Durable Objects.
 - [`browser/`](browser/README.md) boots React, owns URL navigation, and renders the application shell.
 - [`ui/`](ui/README.md) contains reusable presentation concerns that do not own application policy.
@@ -33,6 +33,6 @@ The browser consumes the same HTTP contract through generated Effect clients and
 - Put operation policy and sequencing in `application/`.
 - Put protocol, framework, database, and provider mechanics in `adapters/`.
 - Put resource construction and layer wiring in `infra/`.
-- Put wire schemas and public representations in `contract/`.
+- Put wire schemas and public API response types in `contract/`.
 
 Do not bypass these boundaries by passing raw requests, database rows, Cloudflare bindings, or provider failures into application or domain code.

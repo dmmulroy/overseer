@@ -178,7 +178,7 @@ describe("authenticated API discovery", () => {
     await expect(admittedAgent.json()).resolves.toMatchObject({ code: "method_not_allowed" });
   });
 
-  it("supports HEAD and conditional validation of an exact representation", async () => {
+  it("supports HEAD and ETag validation of an exact response body", async () => {
     const assertion = await humanAssertion();
     const first = await gateway.dispatchFetch("https://overseer.test/api", {
       headers: { "cf-access-jwt-assertion": assertion },
@@ -232,7 +232,7 @@ describe("authenticated API discovery", () => {
     expect(unacceptable.status).toBe(406);
     expect(unacceptable.headers.get("content-type")).toBe("application/problem+json");
     await expect(unacceptable.json()).resolves.toMatchObject({
-      code: "representation_not_acceptable",
+      code: "response_type_not_acceptable",
       status: 406,
       retryable: false,
     });

@@ -17,7 +17,7 @@ import {
   type Link,
   OverseerApi,
   WorkspaceCollection,
-  WorkspaceRepresentation,
+  WorkspaceResponse,
   WorkspaceSchemaPaths,
 } from "../../contract/http-api.ts";
 import type { WorkspaceId } from "../../domain/entity-id.ts";
@@ -27,9 +27,9 @@ import type { Workspace, WorkspaceName } from "../../domain/workspace.ts";
 import { GatewayRequestContext } from "./gateway-request-context.ts";
 import { ProblemResponse, type ProblemInput } from "./problem-response.ts";
 
-function workspaceRepresentation(workspace: Workspace): WorkspaceRepresentation {
+function workspaceResponse(workspace: Workspace): WorkspaceResponse {
   const self = `/api/workspaces/${workspace.id}`;
-  return WorkspaceRepresentation.make({
+  return WorkspaceResponse.make({
     id: workspace.id,
     name: workspace.name,
     lifecycle: workspace.lifecycle,
@@ -69,7 +69,7 @@ function workspaceCollection(
     };
   }
   return WorkspaceCollection.make({
-    items: workspaces.map(workspaceRepresentation),
+    items: workspaces.map(workspaceResponse),
     links,
   });
 }
@@ -161,7 +161,7 @@ const readWorkspaceResponse = Effect.fn("Gateway.readWorkspace")(function* (
   const result = yield* Effect.result(workspaceRegistry.readWorkspace(workspaceId));
   return Result.isFailure(result)
     ? yield* workspaceFailure(result.failure)
-    : json(workspaceRepresentation(result.success));
+    : json(workspaceResponse(result.success));
 });
 
 const createWorkspaceResponse = Effect.fn("Gateway.createWorkspace")(function* (input: {
@@ -178,7 +178,7 @@ const createWorkspaceResponse = Effect.fn("Gateway.createWorkspace")(function* (
   if (Result.isFailure(result)) {
     return yield* workspaceFailure(result.failure);
   }
-  return json(workspaceRepresentation(result.success.workspace), 201, {
+  return json(workspaceResponse(result.success.workspace), 201, {
     location: `/api/workspaces/${result.success.workspace.id}`,
     ...(result.success.replayed ? { "idempotency-replayed": "true" } : {}),
   });
@@ -192,7 +192,7 @@ const renameWorkspaceResponse = Effect.fn("Gateway.renameWorkspace")(function* (
   const result = yield* Effect.result(workspaceRegistry.renameWorkspace(workspaceId, name));
   return Result.isFailure(result)
     ? yield* workspaceFailure(result.failure)
-    : json(workspaceRepresentation(result.success));
+    : json(workspaceResponse(result.success));
 });
 
 /** Workspace HTTP handlers backed by yielded application services. */
