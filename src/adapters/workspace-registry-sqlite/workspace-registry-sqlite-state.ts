@@ -47,6 +47,9 @@ type RecordedCreationRow = {
   readonly created_workspace_id: unknown;
   readonly created_project_id: unknown;
 };
+type RecordedProjectMoveRow = {
+  readonly project_snapshot_json: unknown;
+};
 
 const WorkspaceCursorState = Schema.Struct({ name: WorkspaceName, workspaceId: WorkspaceId });
 const ProjectCursorState = Schema.Struct({
@@ -117,6 +120,7 @@ const ProjectRowSchema = Schema.Struct({
 );
 const WorkspaceCursorJson = Schema.fromJsonString(WorkspaceCursorState);
 const ProjectCursorJson = Schema.fromJsonString(ProjectCursorState);
+const ProjectJson = Schema.fromJsonString(Project);
 type WorkspaceCursorState = typeof WorkspaceCursorState.Type;
 type ProjectCursorState = typeof ProjectCursorState.Type;
 
@@ -257,13 +261,30 @@ export const make = Effect.gen(function* () {
       },
       Effect.catchTag("SqlError", unavailable("listProjects")),
     ),
-    findRecordedCreation: Effect.fn("WorkspaceRegistrySqliteState.findRecordedCreation")(
+    findRecordedRegistryResult: Effect.fn(
+      "WorkspaceRegistrySqliteState.findRecordedRegistryResult",
+    )(
       function* (key) {
-        const row =
+        const creation =
           (yield* sql<RecordedCreationRow>`SELECT created_workspace_id, created_project_id FROM idempotency_keys WHERE idempotency_key = ${key}`)[0];
-        if (row === undefined) return Option.none();
-        const hasWorkspace = row.created_workspace_id !== null;
-        const hasProject = row.created_project_id !== null;
+        const move =
+          (yield* sql<RecordedProjectMoveRow>`SELECT project_snapshot_json FROM project_move_keys WHERE idempotency_key = ${key}`)[0];
+        if (creation !== undefined && move !== undefined)
+          return yield* new WorkspaceRegistryStoredRecordCorrupt({
+            recordType: "idempotency",
+            cause: "An idempotency key identifies more than one Workspace Registry result",
+          });
+        if (move !== undefined) {
+          const project = yield* parseStored(
+            ProjectJson,
+            move.project_snapshot_json,
+            "idempotency",
+          );
+          return Option.some({ _tag: "ProjectMove" as const, project });
+        }
+        if (creation === undefined) return Option.none();
+        const hasWorkspace = creation.created_workspace_id !== null;
+        const hasProject = creation.created_project_id !== null;
         if (hasWorkspace === hasProject)
           return yield* new WorkspaceRegistryStoredRecordCorrupt({
             recordType: "idempotency",
@@ -272,7 +293,7 @@ export const make = Effect.gen(function* () {
         if (hasWorkspace) {
           const workspaceId = yield* parseStored(
             WorkspaceId,
-            row.created_workspace_id,
+            creation.created_workspace_id,
             "idempotency",
           );
           const workspace = yield* findWorkspace(workspaceId);
@@ -283,7 +304,7 @@ export const make = Effect.gen(function* () {
             });
           return Option.some({ _tag: "WorkspaceCreation" as const, workspace: workspace.value });
         }
-        const projectId = yield* parseStored(ProjectId, row.created_project_id, "idempotency");
+        const projectId = yield* parseStored(ProjectId, creation.created_project_id, "idempotency");
         const project = yield* findProject(projectId);
         if (Option.isNone(project))
           return yield* new WorkspaceRegistryStoredRecordCorrupt({
@@ -292,7 +313,7 @@ export const make = Effect.gen(function* () {
           });
         return Option.some({ _tag: "ProjectCreation" as const, project: project.value });
       },
-      Effect.catchTag("SqlError", unavailable("findRecordedCreation")),
+      Effect.catchTag("SqlError", unavailable("findRecordedRegistryResult")),
     ),
     insertWorkspaceCreation: Effect.fn("WorkspaceRegistrySqliteState.insertWorkspaceCreation")(
       function* (workspace, key) {
@@ -322,6 +343,13 @@ export const make = Effect.gen(function* () {
         Effect.asVoid,
         Effect.catchTag("SqlError", unavailable("updateProjectName")),
       ),
+    ),
+    moveProject: Effect.fn("WorkspaceRegistrySqliteState.moveProject")(
+      function* (project, key) {
+        yield* sql`UPDATE projects SET workspace_id = ${project.workspaceId}, updated_at = ${project.updatedAt} WHERE id = ${project.id}`;
+        yield* sql`INSERT INTO project_move_keys (idempotency_key, project_snapshot_json) VALUES (${key}, ${Schema.encodeSync(ProjectJson)(project)})`;
+      },
+      Effect.catchTag("SqlError", unavailable("moveProject")),
     ),
   });
 });

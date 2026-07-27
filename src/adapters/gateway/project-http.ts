@@ -6,6 +6,7 @@ import * as HttpApiBuilder from "effect/unstable/httpapi/HttpApiBuilder";
 import { WorkspaceRegistryService } from "../../application/workspace-registry/workspace-registry.ts";
 import type {
   IdempotencyKeyReused,
+  ProjectMoveNotApplicable,
   ProjectNotFound,
   WorkspaceNotFound,
   WorkspaceRegistryCursorInvalid,
@@ -42,6 +43,7 @@ function projectResponse(project: Project): ProjectResponse {
       self: { href: self },
       workspace: { href: `/api/workspaces/${project.workspaceId}` },
       rename: { href: self, method: "PATCH", schema: ProjectSchemaPaths.rename },
+      move: { href: `${self}/move`, method: "POST", schema: ProjectSchemaPaths.move },
     },
   });
 }
@@ -86,6 +88,7 @@ type ProjectFailure =
   | WorkspaceRegistryCursorInvalid
   | WorkspaceNotFound
   | ProjectNotFound
+  | ProjectMoveNotApplicable
   | IdempotencyKeyReused
   | WorkspaceRegistryRecordCorrupt
   | WorkspaceRegistryStateUnavailable
@@ -107,10 +110,20 @@ const projectFailure = Effect.fn("Gateway.projectFailure")(function* (failure: P
         code: "resource_not_found",
         detail: "The requested Project does not exist.",
       });
+    case "ProjectMoveNotApplicable":
+      return yield* requestProblem({
+        code: "action_not_applicable",
+        detail: "The Project already belongs to the requested Workspace.",
+        details: { current_project: projectResponse(failure.project) },
+        links: {
+          project: { href: `/api/projects/${failure.project.id}` },
+          workspace: { href: `/api/workspaces/${failure.project.workspaceId}` },
+        },
+      });
     case "IdempotencyKeyReused":
       return yield* requestProblem({
         code: "idempotency_key_reused",
-        detail: "This Idempotency-Key already identifies a Workspace creation.",
+        detail: "This Idempotency-Key already identifies another Workspace Registry operation.",
       });
     case "WorkspaceRegistryRecordCorrupt":
     case "WorkspaceRegistryStateUnavailable":
@@ -185,6 +198,31 @@ const renameProjectResponse = Effect.fn("Gateway.renameProject")(function* (
     ? yield* projectFailure(result.failure)
     : json(projectResponse(result.success));
 });
+const moveProjectResponse = Effect.fn("Gateway.moveProject")(function* (
+  projectId: ProjectId,
+  workspaceId: WorkspaceId,
+  idempotencyKey: IdempotencyKey,
+) {
+  const registry = yield* WorkspaceRegistryService;
+  const result = yield* Effect.result(
+    registry.moveProject({ projectId, workspaceId, idempotencyKey }),
+  );
+  if (Result.isFailure(result)) {
+    if (result.failure._tag === "WorkspaceNotFound") {
+      return yield* requestProblem({
+        code: "resource_not_found",
+        detail: "The target Workspace does not exist.",
+        links: { project: { href: `/api/projects/${projectId}` } },
+      });
+    }
+    return yield* projectFailure(result.failure);
+  }
+  return json(
+    projectResponse(result.success.project),
+    200,
+    result.success.replayed ? { "idempotency-replayed": "true" } : {},
+  );
+});
 
 /** Project HTTP handlers backed by yielded Workspace Registry operations. */
 export const layer = HttpApiBuilder.group(OverseerApi, "projects", (handlers) =>
@@ -204,5 +242,8 @@ export const layer = HttpApiBuilder.group(OverseerApi, "projects", (handlers) =>
     .handle("headProject", ({ params }) => readProjectResponse(params.project_id))
     .handle("renameProject", ({ params, payload }) =>
       renameProjectResponse(params.project_id, payload.name),
+    )
+    .handle("moveProject", ({ params, headers, payload }) =>
+      moveProjectResponse(params.project_id, payload.workspace_id, headers["idempotency-key"]),
     ),
 );

@@ -22,6 +22,8 @@ import {
   IdempotencyKeyReused,
   type ListProjectsRpcInput,
   type ListWorkspacesRpcInput,
+  type MoveProjectRpcInput,
+  ProjectMoveNotApplicable,
   ProjectNotFound,
   type RenameProjectRpcInput,
   type RenameWorkspaceRpcInput,
@@ -46,6 +48,7 @@ type LocalExpectedError =
   | WorkspaceRegistryCursorInvalid
   | WorkspaceNotFound
   | ProjectNotFound
+  | ProjectMoveNotApplicable
   | IdempotencyKeyReused;
 
 function exposeRemotePersistenceFailure<A>(
@@ -79,6 +82,24 @@ function exposeRemotePersistenceFailure<A>(
   >,
 ): Effect.Effect<A, WorkspaceNotFound | IdempotencyKeyReused | RemotePersistenceError>;
 function exposeRemotePersistenceFailure<A>(
+  operation: "moveProject",
+  effect: Effect.Effect<
+    A,
+    | WorkspaceNotFound
+    | ProjectNotFound
+    | ProjectMoveNotApplicable
+    | IdempotencyKeyReused
+    | WorkspaceRegistryPersistenceError
+  >,
+): Effect.Effect<
+  A,
+  | WorkspaceNotFound
+  | ProjectNotFound
+  | ProjectMoveNotApplicable
+  | IdempotencyKeyReused
+  | RemotePersistenceError
+>;
+function exposeRemotePersistenceFailure<A>(
   operation:
     | "listWorkspaces"
     | "readWorkspace"
@@ -87,7 +108,8 @@ function exposeRemotePersistenceFailure<A>(
     | "listProjects"
     | "readProject"
     | "createProject"
-    | "renameProject",
+    | "renameProject"
+    | "moveProject",
   effect: Effect.Effect<A, LocalExpectedError | WorkspaceRegistryPersistenceError>,
 ): Effect.Effect<A, LocalExpectedError | RemotePersistenceError> {
   const recordCorrupt = (error: WorkspaceRegistryStoredRecordCorrupt) =>
@@ -195,6 +217,8 @@ const WorkspaceRegistryObjectLive = WorkspaceRegistryObject.make<never>(
             "renameProject",
             workspaceRegistry.renameProject(input.projectId, input.name),
           ),
+        moveProject: (input: MoveProjectRpcInput) =>
+          exposeRemotePersistenceFailure("moveProject", workspaceRegistry.moveProject(input)),
       };
     });
   }),

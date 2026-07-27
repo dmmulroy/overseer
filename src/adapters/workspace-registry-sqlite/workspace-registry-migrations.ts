@@ -62,6 +62,13 @@ const migrations = SqliteMigrator.fromRecord({
       yield* sql.unsafe(statement);
     }
   }),
+  "2_add_project_move_keys": Effect.gen(function* () {
+    const sql = yield* SqlClient.SqlClient;
+    yield* sql`CREATE TABLE IF NOT EXISTS project_move_keys (
+      idempotency_key TEXT PRIMARY KEY NOT NULL,
+      project_snapshot_json TEXT NOT NULL
+    )`;
+  }),
 });
 
 const migrateWorkspaceRegistry: Effect.Effect<

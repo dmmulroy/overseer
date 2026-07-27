@@ -17,7 +17,7 @@ import {
 } from "../domain/pagination.ts";
 import { ProjectName, ProjectTimestamp } from "../domain/project.ts";
 import { WorkspaceName, WorkspaceTimestamp } from "../domain/workspace.ts";
-import { ProjectNameRequest, WorkspaceNameRequest } from "./request-schemas.ts";
+import { MoveProjectRequest, ProjectNameRequest, WorkspaceNameRequest } from "./request-schemas.ts";
 
 /** Stable paths owned by the discovery contract. */
 export const DiscoveryPaths = {
@@ -75,6 +75,7 @@ export interface SchemaIndex extends Schema.Schema.Type<typeof SchemaIndex> {}
 export const ProblemCode = Schema.Literals([
   "agent_session_invalid",
   "agent_session_required",
+  "action_not_applicable",
   "authentication_required",
   "authentication_unavailable",
   "gateway_unavailable",
@@ -179,6 +180,7 @@ const projectListProblems = errorsAtStatuses([400, 404, 406, 500, 503]);
 const projectCreateProblems = errorsAtStatuses([400, 403, 404, 409, 413, 415, 422, 500, 503]);
 const projectReadProblems = errorsAtStatuses([400, 404, 406, 500, 503]);
 const projectRenameProblems = errorsAtStatuses([400, 403, 404, 413, 415, 422, 500, 503]);
+const projectMoveProblems = errorsAtStatuses([400, 403, 404, 409, 413, 415, 422, 500, 503]);
 const cacheValidationHeaders = {
   accept: Schema.optionalKey(Schema.String),
   "if-none-match": Schema.optionalKey(Schema.String),
@@ -191,7 +193,7 @@ const JsonSchemaDocument = Schema.Unknown.pipe(
   HttpApiSchema.asJson({ contentType: DiscoveryMediaTypes.schema }),
 );
 
-export { ProjectNameRequest, WorkspaceNameRequest } from "./request-schemas.ts";
+export { MoveProjectRequest, ProjectNameRequest, WorkspaceNameRequest } from "./request-schemas.ts";
 
 /** Full Workspace API response body. */
 export const WorkspaceResponse = Schema.Struct({
@@ -241,12 +243,12 @@ export const ProjectCollection = Schema.Struct({
 export interface ProjectCollection extends Schema.Schema.Type<typeof ProjectCollection> {}
 
 const workspacePath = { workspace_id: WorkspaceId };
-const workspaceMutationHeaders = {
+const mutationHeaders = {
   accept: Schema.optionalKey(Schema.String),
   "content-type": Schema.optionalKey(Schema.String),
 };
-const workspaceCreateHeaders = {
-  ...workspaceMutationHeaders,
+const idempotentMutationHeaders = {
+  ...mutationHeaders,
   "idempotency-key": IdempotencyKey,
 };
 const workspaceCreated = WorkspaceResponse.pipe(HttpApiSchema.status(201));
@@ -328,7 +330,7 @@ const headWorkspaces = HttpApiEndpoint.head("headWorkspaces", DiscoveryPaths.wor
   error: workspaceListProblems,
 });
 const createWorkspace = HttpApiEndpoint.post("createWorkspace", DiscoveryPaths.workspaces, {
-  headers: workspaceCreateHeaders,
+  headers: idempotentMutationHeaders,
   payload: WorkspaceNameRequest,
   success: workspaceCreated,
   error: workspaceCreateProblems,
@@ -347,7 +349,7 @@ const headWorkspace = HttpApiEndpoint.head("headWorkspace", "/api/workspaces/:wo
 });
 const renameWorkspace = HttpApiEndpoint.patch("renameWorkspace", "/api/workspaces/:workspace_id", {
   params: workspacePath,
-  headers: workspaceMutationHeaders,
+  headers: mutationHeaders,
   payload: WorkspaceNameRequest,
   success: WorkspaceResponse,
   error: workspaceRenameProblems,
@@ -408,7 +410,7 @@ const createProject = HttpApiEndpoint.post(
   "/api/workspaces/:workspace_id/projects",
   {
     params: workspaceProjectsPath,
-    headers: workspaceCreateHeaders,
+    headers: idempotentMutationHeaders,
     payload: ProjectNameRequest,
     success: projectCreated,
     error: projectCreateProblems,
@@ -428,10 +430,17 @@ const headProject = HttpApiEndpoint.head("headProject", "/api/projects/:project_
 });
 const renameProject = HttpApiEndpoint.patch("renameProject", "/api/projects/:project_id", {
   params: projectPath,
-  headers: workspaceMutationHeaders,
+  headers: mutationHeaders,
   payload: ProjectNameRequest,
   success: ProjectResponse,
   error: projectRenameProblems,
+});
+const moveProject = HttpApiEndpoint.post("moveProject", "/api/projects/:project_id/move", {
+  params: projectPath,
+  headers: idempotentMutationHeaders,
+  payload: MoveProjectRequest,
+  success: ProjectResponse,
+  error: projectMoveProblems,
 });
 
 /** Discovery endpoints in the public Overseer API. */
@@ -463,7 +472,8 @@ export class ProjectGroup extends HttpApiGroup.make("projects")
   .add(createProject)
   .add(readProject)
   .add(headProject)
-  .add(renameProject) {}
+  .add(renameProject)
+  .add(moveProject) {}
 
 /** Cloudflare Access assertion scheme published in generated OpenAPI. */
 export class CloudflareAccess extends HttpApiMiddleware.Service<CloudflareAccess>()(

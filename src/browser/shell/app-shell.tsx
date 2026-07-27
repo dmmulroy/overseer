@@ -552,12 +552,7 @@ export function AppShell(): React.JSX.Element {
   const requestedWorkspaceId = Option.fromNullishOr(search.workspace_id);
   const projectId = Option.fromNullishOr(search.project_id);
   const selectedProject = Option.fromNullishOr(
-    projects.find(
-      (project) =>
-        Option.contains(projectId, project.id) &&
-        (Option.isNone(requestedWorkspaceId) ||
-          project.workspace_id === requestedWorkspaceId.value),
-    ),
+    projects.find((project) => Option.contains(projectId, project.id)),
   );
   const effectiveWorkspaceId = Option.match(selectedProject, {
     onNone: () => requestedWorkspaceId,
@@ -570,6 +565,26 @@ export function AppShell(): React.JSX.Element {
     onNone: () => projects,
     onSome: (workspaceId) => projects.filter((project) => project.workspace_id === workspaceId),
   });
+  const currentProjectWorkspaceId = Option.getOrUndefined(
+    Option.map(selectedProject, (project) => project.workspace_id),
+  );
+  useEffect(() => {
+    if (
+      currentProjectWorkspaceId === undefined ||
+      search.project_id === undefined ||
+      search.workspace_id === currentProjectWorkspaceId
+    ) {
+      return;
+    }
+    void navigate({
+      replace: true,
+      search: (previous) => ({
+        ...previous,
+        workspace_id: currentProjectWorkspaceId,
+        project_id: search.project_id,
+      }),
+    });
+  }, [currentProjectWorkspaceId, navigate, search.project_id, search.workspace_id]);
   const selectWorkspace = useCallback(
     (workspaceId: WorkspaceId) => {
       void navigate({

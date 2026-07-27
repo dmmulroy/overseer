@@ -7,6 +7,8 @@ type MigrationControlAction =
   | "corrupt-workspace"
   | "fail-creation-key-write"
   | "allow-creation-key-write"
+  | "fail-project-move-key-write"
+  | "allow-project-move-key-write"
   | "corrupt-creation-key"
   | "break-migration-body"
   | "repair-migration-body";
@@ -35,6 +37,17 @@ export class WorkspaceRegistryObject extends DurableObject {
         return;
       case "allow-creation-key-write":
         this.ctx.storage.sql.exec("DROP TRIGGER fail_creation_key_write");
+        return;
+      case "fail-project-move-key-write":
+        this.ctx.storage.sql.exec(`CREATE TRIGGER fail_project_move_key_write
+          BEFORE INSERT ON project_move_keys
+          WHEN NEW.idempotency_key = 'rollback-project-move-key'
+          BEGIN
+            SELECT RAISE(ABORT, 'injected Project move key write failure');
+          END`);
+        return;
+      case "allow-project-move-key-write":
+        this.ctx.storage.sql.exec("DROP TRIGGER fail_project_move_key_write");
         return;
       case "corrupt-creation-key":
         this.ctx.storage.sql.exec("PRAGMA foreign_keys = OFF");
@@ -71,13 +84,17 @@ export default {
             ? "fail-creation-key-write"
             : pathname === "/allow-creation-key-write"
               ? "allow-creation-key-write"
-              : pathname === "/corrupt-creation-key"
-                ? "corrupt-creation-key"
-                : pathname === "/break-migration-body"
-                  ? "break-migration-body"
-                  : pathname === "/repair-migration-body"
-                    ? "repair-migration-body"
-                    : "corrupt-workspace";
+              : pathname === "/fail-project-move-key-write"
+                ? "fail-project-move-key-write"
+                : pathname === "/allow-project-move-key-write"
+                  ? "allow-project-move-key-write"
+                  : pathname === "/corrupt-creation-key"
+                    ? "corrupt-creation-key"
+                    : pathname === "/break-migration-body"
+                      ? "break-migration-body"
+                      : pathname === "/repair-migration-body"
+                        ? "repair-migration-body"
+                        : "corrupt-workspace";
     await env.WorkspaceRegistryObject.getByName(WORKSPACE_REGISTRY_SINGLETON_NAME).execute(action);
     return new Response("ok");
   },

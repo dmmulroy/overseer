@@ -40,6 +40,9 @@ import {
   IdempotencyKeyReused,
   type ListProjectsRpcInput,
   type ListWorkspacesRpcInput,
+  type MoveProjectRpcInput,
+  type MoveProjectRpcResult,
+  ProjectMoveNotApplicable,
   ProjectNotFound,
   WorkspaceNotFound,
   WorkspaceRegistryCursorInvalid,
@@ -93,14 +96,18 @@ export class WorkspaceRegistryPersistenceUnavailable extends Schema.TaggedErrorC
 export type WorkspaceRegistryPersistenceError =
   | WorkspaceRegistryStoredRecordCorrupt
   | WorkspaceRegistryPersistenceUnavailable;
-/** Current entity resolved from the first successful use of an object-local idempotency key. */
-export type RecordedCreation =
+/** Workspace Registry result type identified by an object-local idempotency key. */
+export type RecordedRegistryResult =
   | {
       readonly _tag: "WorkspaceCreation";
       readonly workspace: WorkspaceType;
     }
   | {
       readonly _tag: "ProjectCreation";
+      readonly project: ProjectType;
+    }
+  | {
+      readonly _tag: "ProjectMove";
       readonly project: ProjectType;
     };
 
@@ -121,9 +128,9 @@ export type WorkspaceRegistryState = {
     ProjectPage,
     WorkspaceRegistryCursorInvalid | WorkspaceRegistryPersistenceError
   >;
-  readonly findRecordedCreation: (
+  readonly findRecordedRegistryResult: (
     key: IdempotencyKey,
-  ) => Effect.Effect<Option.Option<RecordedCreation>, WorkspaceRegistryPersistenceError>;
+  ) => Effect.Effect<Option.Option<RecordedRegistryResult>, WorkspaceRegistryPersistenceError>;
   readonly insertWorkspaceCreation: (
     workspace: WorkspaceType,
     key: IdempotencyKey,
@@ -143,6 +150,10 @@ export type WorkspaceRegistryState = {
   ) => Effect.Effect<void, WorkspaceRegistryPersistenceError>;
   readonly updateProjectName: (
     project: ProjectType,
+  ) => Effect.Effect<void, WorkspaceRegistryPersistenceError>;
+  readonly moveProject: (
+    project: ProjectType,
+    key: IdempotencyKey,
   ) => Effect.Effect<void, WorkspaceRegistryPersistenceError>;
 };
 /** Effect service for Workspace Registry persistence. */
@@ -191,6 +202,16 @@ export type WorkspaceRegistryLocal = {
     projectId: ProjectId,
     name: ProjectName,
   ) => Effect.Effect<ProjectType, ProjectNotFound | WorkspaceRegistryPersistenceError>;
+  readonly moveProject: (
+    input: MoveProjectRpcInput,
+  ) => Effect.Effect<
+    MoveProjectRpcResult,
+    | WorkspaceNotFound
+    | ProjectNotFound
+    | ProjectMoveNotApplicable
+    | IdempotencyKeyReused
+    | WorkspaceRegistryPersistenceError
+  >;
 };
 /** Effect service for object-local Workspace Registry operations. */
 export class WorkspaceRegistryLocalService extends Context.Service<
@@ -214,9 +235,10 @@ export const make = Effect.gen(function* () {
     createWorkspace: Effect.fn("WorkspaceRegistry.createWorkspace")(function* (input) {
       return yield* state.transaction(
         Effect.gen(function* () {
-          const recorded = yield* state.findRecordedCreation(input.idempotencyKey);
+          const recorded = yield* state.findRecordedRegistryResult(input.idempotencyKey);
           if (Option.isSome(recorded)) {
-            if (recorded.value._tag === "ProjectCreation") return yield* new IdempotencyKeyReused();
+            if (recorded.value._tag !== "WorkspaceCreation")
+              return yield* new IdempotencyKeyReused();
             return { workspace: recorded.value.workspace, replayed: true };
           }
           const timestamp = WorkspaceTimestamp.make(DateTime.formatIso(yield* DateTime.now));
@@ -265,10 +287,9 @@ export const make = Effect.gen(function* () {
     createProject: Effect.fn("WorkspaceRegistry.createProject")(function* (input) {
       return yield* state.transaction(
         Effect.gen(function* () {
-          const recorded = yield* state.findRecordedCreation(input.idempotencyKey);
+          const recorded = yield* state.findRecordedRegistryResult(input.idempotencyKey);
           if (Option.isSome(recorded)) {
-            if (recorded.value._tag === "WorkspaceCreation")
-              return yield* new IdempotencyKeyReused();
+            if (recorded.value._tag !== "ProjectCreation") return yield* new IdempotencyKeyReused();
             return { project: recorded.value.project, replayed: true };
           }
           const workspace = yield* state.findWorkspace(input.workspaceId);
@@ -302,6 +323,36 @@ export const make = Effect.gen(function* () {
           });
           yield* state.updateProjectName(project);
           return project;
+        }),
+      );
+    }),
+    moveProject: Effect.fn("WorkspaceRegistry.moveProject")(function* (input) {
+      return yield* state.transaction(
+        Effect.gen(function* () {
+          const recorded = yield* state.findRecordedRegistryResult(input.idempotencyKey);
+          if (Option.isSome(recorded)) {
+            if (recorded.value._tag !== "ProjectMove") return yield* new IdempotencyKeyReused();
+            return { project: recorded.value.project, replayed: true };
+          }
+          const found = yield* state.findProject(input.projectId);
+          if (Option.isNone(found))
+            return yield* new ProjectNotFound({ projectId: input.projectId });
+          const target = yield* state.findWorkspace(input.workspaceId);
+          if (Option.isNone(target))
+            return yield* new WorkspaceNotFound({ workspaceId: input.workspaceId });
+          if (found.value.workspaceId === input.workspaceId)
+            return yield* new ProjectMoveNotApplicable({
+              project: found.value,
+              targetWorkspaceId: input.workspaceId,
+            });
+          const candidate = ProjectTimestamp.make(DateTime.formatIso(yield* DateTime.now));
+          const project = Project.make({
+            ...found.value,
+            workspaceId: input.workspaceId,
+            updatedAt: advanceProjectTimestamp(found.value.updatedAt, candidate),
+          });
+          yield* state.moveProject(project, input.idempotencyKey);
+          return { project, replayed: false };
         }),
       );
     }),
@@ -369,6 +420,17 @@ export type WorkspaceRegistry = {
   ) => Effect.Effect<
     ProjectType,
     ProjectNotFound | WorkspaceRegistryRemotePersistenceError | WorkspaceRegistryRpcCallFailed
+  >;
+  readonly moveProject: (
+    input: MoveProjectRpcInput,
+  ) => Effect.Effect<
+    MoveProjectRpcResult,
+    | WorkspaceNotFound
+    | ProjectNotFound
+    | ProjectMoveNotApplicable
+    | IdempotencyKeyReused
+    | WorkspaceRegistryRemotePersistenceError
+    | WorkspaceRegistryRpcCallFailed
   >;
 };
 /** Effect service exposing Gateway-facing Workspace Registry operations. */

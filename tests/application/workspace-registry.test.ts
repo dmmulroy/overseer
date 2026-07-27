@@ -7,7 +7,7 @@ import { describe, expect, it } from "vite-plus/test";
 import { UlidGeneratorService } from "../../src/application/ulid-generator.ts";
 import {
   layer as workspaceRegistryLayer,
-  type RecordedCreation,
+  type RecordedRegistryResult,
   WorkspaceRegistryLocalService,
   WorkspaceRegistryStateService,
 } from "../../src/application/workspace-registry/workspace-registry.ts";
@@ -46,11 +46,11 @@ function workspace(name: string): WorkspaceType {
 
 function applicationHarness(
   options: {
-    readonly recordedCreation?: Option.Option<RecordedCreation>;
+    readonly recordedResult?: Option.Option<RecordedRegistryResult>;
     readonly workspace?: Option.Option<WorkspaceType>;
   } = {},
 ) {
-  let recordedCreation = options.recordedCreation ?? Option.none();
+  let recordedResult = options.recordedResult ?? Option.none();
   let storedWorkspace = options.workspace ?? Option.none();
   let updateCount = 0;
   const StateLive = Layer.succeed(
@@ -59,11 +59,11 @@ function applicationHarness(
       transaction: (effect) => effect,
       listWorkspaces: () => Effect.die("not used"),
       listProjects: () => Effect.die("not used"),
-      findRecordedCreation: () => Effect.succeed(recordedCreation),
+      findRecordedRegistryResult: () => Effect.succeed(recordedResult),
       insertWorkspaceCreation: (created) =>
         Effect.sync(() => {
           storedWorkspace = Option.some(created);
-          recordedCreation = Option.some({ _tag: "WorkspaceCreation", workspace: created });
+          recordedResult = Option.some({ _tag: "WorkspaceCreation", workspace: created });
         }),
       findWorkspace: () => Effect.succeed(storedWorkspace),
       findProject: () => Effect.succeed(Option.none()),
@@ -74,6 +74,7 @@ function applicationHarness(
           storedWorkspace = Option.some(updated);
         }),
       updateProjectName: () => Effect.die("not used"),
+      moveProject: () => Effect.die("not used"),
     }),
   );
   return {
@@ -129,7 +130,7 @@ describe("Workspace Registry application", () => {
         Effect.result,
         Effect.provide(
           applicationHarness({
-            recordedCreation: Option.some({ _tag: "ProjectCreation", project }),
+            recordedResult: Option.some({ _tag: "ProjectCreation", project }),
           }).layer,
         ),
       ),

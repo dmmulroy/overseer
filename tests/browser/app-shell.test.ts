@@ -4,7 +4,11 @@ import { chromium, type Browser, type BrowserContext, type Page } from "playwrig
 import axe from "axe-core";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from "vite-plus/test";
 import type { Miniflare } from "miniflare";
-import { ProjectResponse, WorkspaceResponse } from "../../src/contract/http-api.ts";
+import {
+  ProjectCollection,
+  ProjectResponse,
+  WorkspaceResponse,
+} from "../../src/contract/http-api.ts";
 import { startGateway } from "../fixtures/gateway.ts";
 
 declare global {
@@ -357,6 +361,73 @@ describe("authenticated application shell", () => {
     await page.getByRole("heading", { name: "Other Project" }).waitFor();
     expect(new URL(page.url()).searchParams.get("workspace_id")).toBe(otherWorkspaceId);
     expect(new URL(page.url()).searchParams.get("project_id")).toBe(otherProjectId);
+    expect(
+      await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth),
+    ).toBe(true);
+    await expectNoAccessibilityViolations(page);
+  });
+
+  it("redirects a moved Project to its current Workspace on desktop and mobile", async () => {
+    const sourceWorkspaceId = await seedWorkspace(
+      "Browser move source",
+      "browser-move-source-workspace",
+    );
+    const targetWorkspaceId = await seedWorkspace(
+      "Browser move target",
+      "browser-move-target-workspace",
+    );
+    const projectId = await seedProject(
+      sourceWorkspaceId,
+      "Browser moved Project",
+      "browser-move-project",
+    );
+
+    let projectMoved = false;
+    let loadedProjects: ProjectCollection | undefined;
+    await page.route("**/api/projects", async (route) => {
+      if (!projectMoved) {
+        const response = await route.fetch();
+        loadedProjects = Schema.decodeUnknownSync(ProjectCollection)(await response.json());
+        return route.fulfill({ response, body: JSON.stringify(loadedProjects) });
+      }
+      if (loadedProjects === undefined) throw new Error("Project collection was not loaded");
+      return route.fulfill({
+        body: JSON.stringify({
+          ...loadedProjects,
+          items: loadedProjects.items.map((project) =>
+            project.id === projectId ? { ...project, workspace_id: targetWorkspaceId } : project,
+          ),
+        }),
+        contentType: "application/json",
+        headers: { etag: '"browser-project-moved"' },
+        status: 200,
+      });
+    });
+
+    await page.goto(
+      new URL(`/?workspace_id=${sourceWorkspaceId}&project_id=${projectId}`, gatewayUrl).href,
+    );
+    await page.getByRole("heading", { name: "Browser moved Project" }).waitFor();
+
+    projectMoved = true;
+    await page.getByRole("button", { name: "Refresh Projects" }).click();
+    await expect
+      .poll(() => new URL(page.url()).searchParams.get("workspace_id"))
+      .toBe(targetWorkspaceId);
+    expect(new URL(page.url()).searchParams.get("project_id")).toBe(projectId);
+    expect(await page.getByRole("heading", { name: "Browser moved Project" }).isVisible()).toBe(
+      true,
+    );
+
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.goto(
+      new URL(`/?workspace_id=${sourceWorkspaceId}&project_id=${projectId}`, gatewayUrl).href,
+    );
+    await expect
+      .poll(() => new URL(page.url()).searchParams.get("workspace_id"))
+      .toBe(targetWorkspaceId);
+    const projectSelector = page.getByRole("combobox", { name: "Project" });
+    await expect.poll(() => projectSelector.inputValue()).toBe(projectId);
     expect(
       await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth),
     ).toBe(true);

@@ -6,6 +6,7 @@ import { WorkspaceRegistryService } from "../../application/workspace-registry/w
 import {
   CreateProjectRpcInput,
   CreateWorkspaceRpcInput,
+  MoveProjectRpcInput,
   RenameProjectRpcInput,
   RenameWorkspaceRpcInput,
   WORKSPACE_REGISTRY_SINGLETON_NAME,
@@ -117,6 +118,9 @@ export const make = Effect.gen(function* () {
         stub().renameProject(RenameProjectRpcInput.make({ projectId, name })),
         "renameProject",
       ),
+    ),
+    moveProject: Effect.fn("WorkspaceRegistryRpc.moveProject")((input) =>
+      rpcCall(stub().moveProject(MoveProjectRpcInput.make(input)), "moveProject"),
     ),
   });
 });

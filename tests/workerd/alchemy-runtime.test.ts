@@ -11,6 +11,7 @@ import {
 } from "../../src/application/workspace-registry/workspace-registry-rpc.ts";
 import {
   ProjectCollection,
+  ProjectResponse,
   WorkspaceCollection,
   WorkspaceResponse,
 } from "../../src/contract/http-api.ts";
@@ -106,6 +107,19 @@ async function createProject(runtime: Miniflare, workspaceId: string, name: stri
   });
 }
 
+async function moveProject(
+  runtime: Miniflare,
+  projectId: string,
+  workspaceId: string,
+  key: string,
+) {
+  return api(runtime, `/api/projects/${projectId}/move`, {
+    method: "POST",
+    headers: { "content-type": "application/json", "idempotency-key": key },
+    body: JSON.stringify({ workspace_id: workspaceId }),
+  });
+}
+
 async function workspaceRegistryStub(runtime: Miniflare) {
   const namespace = await runtime.getDurableObjectNamespace("WorkspaceRegistryObject");
   // SAFETY: Miniflare exposes only the base stub type. The bundled production Alchemy class registers these operation-specific methods on this named object.
@@ -193,6 +207,207 @@ describe("production Alchemy runtime", () => {
     expect(missing).toMatchObject({
       _tag: "~alchemy/rpc/error",
       error: { _tag: "WorkspaceNotFound", workspaceId: missingId },
+    });
+  });
+
+  it("atomically moves a Project and replays the original response through Alchemy RPC", async () => {
+    const sourceResponse = await createWorkspace(gateway, "Move source", "alchemy-move-source");
+    const targetResponse = await createWorkspace(gateway, "Move target", "alchemy-move-target");
+    const source = Schema.decodeUnknownSync(WorkspaceResponse)(await sourceResponse.json());
+    const target = Schema.decodeUnknownSync(WorkspaceResponse)(await targetResponse.json());
+    const createdResponse = await createProject(
+      gateway,
+      source.id,
+      "Movable Project",
+      "alchemy-move-create",
+    );
+    const created = Schema.decodeUnknownSync(ProjectResponse)(await createdResponse.json());
+    const collectionPaths = [
+      "/api/projects",
+      `/api/workspaces/${source.id}/projects`,
+      `/api/workspaces/${target.id}/projects`,
+    ];
+    const originalEtags = new Map<string, string>();
+    for (const path of collectionPaths) {
+      const response = await api(gateway, path);
+      originalEtags.set(path, response.headers.get("etag") ?? "");
+    }
+
+    const movedResponse = await moveProject(gateway, created.id, target.id, "alchemy-move-key");
+    expect(movedResponse.status).toBe(200);
+    const moved = Schema.decodeUnknownSync(ProjectResponse)(await movedResponse.json());
+    expect(moved).toMatchObject({
+      id: created.id,
+      workspace_id: target.id,
+      name: created.name,
+      created_at: created.created_at,
+      links: {
+        self: { href: `/api/projects/${created.id}` },
+        workspace: { href: `/api/workspaces/${target.id}` },
+        move: { href: `/api/projects/${created.id}/move`, method: "POST" },
+      },
+    });
+    expect(moved.updated_at).not.toBe(created.updated_at);
+
+    for (const path of collectionPaths) {
+      const refreshed = await api(gateway, path, {
+        headers: { "if-none-match": originalEtags.get(path) ?? "" },
+      });
+      expect(refreshed.status).toBe(200);
+      expect(refreshed.headers.get("etag")).not.toBe(originalEtags.get(path));
+      const collection = Schema.decodeUnknownSync(ProjectCollection)(await refreshed.json());
+      if (path.includes(source.id)) {
+        expect(collection.items.some((project) => project.id === created.id)).toBe(false);
+      } else {
+        expect(collection.items).toEqual(
+          expect.arrayContaining([
+            expect.objectContaining({ id: created.id, workspace_id: target.id }),
+          ]),
+        );
+      }
+    }
+
+    expect(
+      (
+        await api(gateway, `/api/projects/${created.id}`, {
+          method: "PATCH",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ name: "Renamed after move" }),
+        })
+      ).status,
+    ).toBe(200);
+    const replay = await moveProject(gateway, created.id, source.id, "alchemy-move-key");
+    expect(replay.status).toBe(200);
+    expect(replay.headers.get("idempotency-replayed")).toBe("true");
+    await expect(replay.json()).resolves.toEqual(moved);
+    await expect((await api(gateway, `/api/projects/${created.id}`)).json()).resolves.toMatchObject(
+      {
+        id: created.id,
+        workspace_id: target.id,
+        name: "Renamed after move",
+      },
+    );
+  });
+
+  it("rolls back Project membership when the move result cannot be recorded", async () => {
+    const persist = await mkdtemp(join(tmpdir(), "overseer-alchemy-move-rollback-"));
+    let runtime: Miniflare | undefined;
+    try {
+      runtime = await startGatewayAt(persist);
+      const source = Schema.decodeUnknownSync(WorkspaceResponse)(
+        await (
+          await createWorkspace(runtime, "Move rollback source", "move-rollback-source")
+        ).json(),
+      );
+      const target = Schema.decodeUnknownSync(WorkspaceResponse)(
+        await (
+          await createWorkspace(runtime, "Move rollback target", "move-rollback-target")
+        ).json(),
+      );
+      const project = Schema.decodeUnknownSync(ProjectResponse)(
+        await (
+          await createProject(runtime, source.id, "Move rollback Project", "move-rollback-project")
+        ).json(),
+      );
+      await runtime.dispose();
+
+      runtime = await startWorkspaceRegistryMigrationControl(persist);
+      expect(
+        (
+          await runtime.dispatchFetch("https://migration.test/fail-project-move-key-write", {
+            method: "POST",
+          })
+        ).status,
+      ).toBe(200);
+      await runtime.dispose();
+
+      runtime = await startGatewayAt(persist);
+      const failed = await moveProject(runtime, project.id, target.id, "rollback-project-move-key");
+      expect(failed.status).toBe(503);
+      await expect(
+        (await api(runtime, `/api/projects/${project.id}`)).json(),
+      ).resolves.toMatchObject({ workspace_id: source.id });
+      await runtime.dispose();
+
+      runtime = await startWorkspaceRegistryMigrationControl(persist);
+      expect(
+        (
+          await runtime.dispatchFetch("https://migration.test/allow-project-move-key-write", {
+            method: "POST",
+          })
+        ).status,
+      ).toBe(200);
+      await runtime.dispose();
+
+      runtime = await startGatewayAt(persist);
+      const retried = await moveProject(
+        runtime,
+        project.id,
+        target.id,
+        "rollback-project-move-key",
+      );
+      expect(retried.status).toBe(200);
+      expect(retried.headers.get("idempotency-replayed")).toBeNull();
+      await expect(retried.json()).resolves.toMatchObject({ workspace_id: target.id });
+    } finally {
+      await runtime?.dispose();
+      await rm(persist, { force: true, recursive: true });
+    }
+  });
+
+  it("returns actionable problems for invalid and inapplicable Project moves", async () => {
+    const workspaceResponse = await createWorkspace(
+      gateway,
+      "Move failures",
+      "alchemy-move-failures-workspace",
+    );
+    const workspace = Schema.decodeUnknownSync(WorkspaceResponse)(await workspaceResponse.json());
+    const createdResponse = await createProject(
+      gateway,
+      workspace.id,
+      "Stationary Project",
+      "alchemy-move-failures-create",
+    );
+    const project = Schema.decodeUnknownSync(ProjectResponse)(await createdResponse.json());
+
+    const invalidTarget = await moveProject(
+      gateway,
+      project.id,
+      "workspace_01J00000000000000000000000",
+      "alchemy-move-invalid-target",
+    );
+    expect(invalidTarget.status).toBe(404);
+    await expect(invalidTarget.json()).resolves.toMatchObject({
+      code: "resource_not_found",
+      links: { project: { href: `/api/projects/${project.id}` } },
+    });
+
+    const inapplicable = await moveProject(
+      gateway,
+      project.id,
+      workspace.id,
+      "alchemy-move-inapplicable",
+    );
+    expect(inapplicable.status).toBe(409);
+    await expect(inapplicable.json()).resolves.toMatchObject({
+      code: "action_not_applicable",
+      details: { current_project: { id: project.id, workspace_id: workspace.id } },
+      links: {
+        project: { href: `/api/projects/${project.id}` },
+        workspace: { href: `/api/workspaces/${workspace.id}` },
+      },
+    });
+
+    const reusedKey = await moveProject(
+      gateway,
+      project.id,
+      workspace.id,
+      "alchemy-move-failures-create",
+    );
+    expect(reusedKey.status).toBe(409);
+    await expect(reusedKey.json()).resolves.toMatchObject({
+      code: "idempotency_key_reused",
+      detail: "This Idempotency-Key already identifies another Workspace Registry operation.",
     });
   });
 

@@ -29,6 +29,9 @@ import {
   type ListProjectsRpcResult,
   type ListWorkspacesRpcInput,
   type ListWorkspacesRpcResult,
+  type MoveProjectRpcInput,
+  type MoveProjectRpcResult,
+  type ProjectMoveNotApplicable,
   type ProjectNotFound,
   type RenameProjectRpcInput,
   type RenameWorkspaceRpcInput,
@@ -46,6 +49,7 @@ type LocalExpectedError =
   | WorkspaceRegistryCursorInvalid
   | WorkspaceNotFound
   | ProjectNotFound
+  | ProjectMoveNotApplicable
   | IdempotencyKeyReused;
 
 function exposeRemotePersistenceFailure<A>(
@@ -85,6 +89,24 @@ function exposeRemotePersistenceFailure<A>(
   WorkspaceNotFound | IdempotencyKeyReused | WorkspaceRegistryRemotePersistenceError
 >;
 function exposeRemotePersistenceFailure<A>(
+  operation: "moveProject",
+  effect: Effect.Effect<
+    A,
+    | WorkspaceNotFound
+    | ProjectNotFound
+    | ProjectMoveNotApplicable
+    | IdempotencyKeyReused
+    | WorkspaceRegistryPersistenceError
+  >,
+): Effect.Effect<
+  A,
+  | WorkspaceNotFound
+  | ProjectNotFound
+  | ProjectMoveNotApplicable
+  | IdempotencyKeyReused
+  | WorkspaceRegistryRemotePersistenceError
+>;
+function exposeRemotePersistenceFailure<A>(
   _operation:
     | "listWorkspaces"
     | "readWorkspace"
@@ -93,7 +115,8 @@ function exposeRemotePersistenceFailure<A>(
     | "listProjects"
     | "readProject"
     | "createProject"
-    | "renameProject",
+    | "renameProject"
+    | "moveProject",
   effect: Effect.Effect<A, LocalExpectedError | WorkspaceRegistryPersistenceError>,
 ): Effect.Effect<A, LocalExpectedError | WorkspaceRegistryRemotePersistenceError> {
   const corrupt = (_error: WorkspaceRegistryStoredRecordCorrupt) =>
@@ -212,5 +235,11 @@ export class TestWorkspaceRegistry extends DurableObject<Readonly<Record<never, 
         registry.renameProject(input.projectId, input.name),
       ),
     );
+  }
+
+  /** Move one Project through the operation-specific seam. */
+  async moveProject(input: MoveProjectRpcInput): Promise<MoveProjectRpcResult> {
+    const registry = await this.#ready;
+    return this.#run(exposeRemotePersistenceFailure("moveProject", registry.moveProject(input)));
   }
 }

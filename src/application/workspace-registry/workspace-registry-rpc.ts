@@ -102,6 +102,20 @@ export const RenameProjectRpcInput = Schema.Struct({ projectId: ProjectId, name:
 /** Plain input for a Project rename over private RPC. */
 export interface RenameProjectRpcInput extends Schema.Schema.Type<typeof RenameProjectRpcInput> {}
 
+/** Plain input for an idempotent Project move over private RPC. */
+export const MoveProjectRpcInput = Schema.Struct({
+  projectId: ProjectId,
+  workspaceId: WorkspaceId,
+  idempotencyKey: IdempotencyKey,
+});
+/** Plain input for an idempotent Project move over private RPC. */
+export interface MoveProjectRpcInput extends Schema.Schema.Type<typeof MoveProjectRpcInput> {}
+
+/** Plain successful Project move returned over private RPC. */
+export const MoveProjectRpcResult = Schema.Struct({ project: Project, replayed: Schema.Boolean });
+/** Plain successful Project move returned over private RPC. */
+export interface MoveProjectRpcResult extends Schema.Schema.Type<typeof MoveProjectRpcResult> {}
+
 /** A collection page cursor could not be decoded. */
 export class WorkspaceRegistryCursorInvalid extends Schema.TaggedErrorClass<WorkspaceRegistryCursorInvalid>()(
   "WorkspaceRegistryCursorInvalid",
@@ -125,13 +139,21 @@ export class ProjectNotFound extends Schema.TaggedErrorClass<ProjectNotFound>()(
   /** Stable safe diagnostic message. */
   override readonly message = "The requested Project does not exist";
 }
-/** An idempotency key already identifies another creation result type. */
+/** An idempotency key already identifies another Workspace Registry operation. */
 export class IdempotencyKeyReused extends Schema.TaggedErrorClass<IdempotencyKeyReused>()(
   "IdempotencyKeyReused",
   {},
 ) {
   /** Stable safe diagnostic message. */
-  override readonly message = "The idempotency key identifies another creation result type";
+  override readonly message = "The idempotency key identifies another Workspace Registry operation";
+}
+/** A Project move already has the requested membership. */
+export class ProjectMoveNotApplicable extends Schema.TaggedErrorClass<ProjectMoveNotApplicable>()(
+  "ProjectMoveNotApplicable",
+  { project: Project, targetWorkspaceId: WorkspaceId },
+) {
+  /** Stable safe diagnostic message. */
+  override readonly message = "The Project already belongs to the requested Workspace";
 }
 /** A persisted Workspace Registry record is corrupt. */
 export class WorkspaceRegistryRecordCorrupt extends Schema.TaggedErrorClass<WorkspaceRegistryRecordCorrupt>()(
@@ -162,6 +184,7 @@ export class WorkspaceRegistryRpcCallFailed extends Schema.TaggedErrorClass<Work
       "readProject",
       "createProject",
       "renameProject",
+      "moveProject",
     ]),
     cause: Schema.Defect(),
   },
@@ -213,4 +236,14 @@ export type WorkspaceRegistryRpc = {
   readonly renameProject: (
     input: RenameProjectRpcInput,
   ) => Effect.Effect<Project, ProjectNotFound | WorkspaceRegistryRemotePersistenceError>;
+  readonly moveProject: (
+    input: MoveProjectRpcInput,
+  ) => Effect.Effect<
+    MoveProjectRpcResult,
+    | WorkspaceNotFound
+    | ProjectNotFound
+    | ProjectMoveNotApplicable
+    | IdempotencyKeyReused
+    | WorkspaceRegistryRemotePersistenceError
+  >;
 };

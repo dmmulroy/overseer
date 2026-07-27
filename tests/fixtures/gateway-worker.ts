@@ -32,6 +32,8 @@ import {
   CreateProjectRpcInput,
   CreateWorkspaceRpcInput,
   IdempotencyKeyReused,
+  MoveProjectRpcInput,
+  ProjectMoveNotApplicable,
   ProjectNotFound,
   RenameProjectRpcInput,
   RenameWorkspaceRpcInput,
@@ -83,6 +85,14 @@ const ReadProjectFailure = Schema.Union([
 ]);
 const CreateProjectFailure = Schema.Union([
   WorkspaceNotFound,
+  IdempotencyKeyReused,
+  WorkspaceRegistryRecordCorrupt,
+  WorkspaceRegistryStateUnavailable,
+]);
+const MoveProjectFailure = Schema.Union([
+  WorkspaceNotFound,
+  ProjectNotFound,
+  ProjectMoveNotApplicable,
   IdempotencyKeyReused,
   WorkspaceRegistryRecordCorrupt,
   WorkspaceRegistryStateUnavailable,
@@ -235,6 +245,15 @@ function makeHandler(
               return Result.isSuccess(decoded)
                 ? decoded.success
                 : callFailed("renameProject", cause);
+            },
+          }),
+        ),
+        moveProject: Effect.fn("TestWorkspaceRegistryRpc.moveProject")((input) =>
+          Effect.tryPromise({
+            try: () => stub().moveProject(MoveProjectRpcInput.make(input)),
+            catch: (cause) => {
+              const decoded = Schema.decodeUnknownResult(MoveProjectFailure)(cause);
+              return Result.isSuccess(decoded) ? decoded.success : callFailed("moveProject", cause);
             },
           }),
         ),

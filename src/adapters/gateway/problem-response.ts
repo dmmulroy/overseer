@@ -19,6 +19,7 @@ type ProblemPolicy = {
 };
 
 const problemPolicies: Readonly<Record<ProblemCode, ProblemPolicy>> = {
+  action_not_applicable: { retryable: false, status: 409, title: "Action not applicable" },
   agent_session_invalid: { retryable: false, status: 400, title: "Agent session invalid" },
   agent_session_required: { retryable: false, status: 400, title: "Agent session required" },
   authentication_required: { retryable: false, status: 401, title: "Authentication required" },

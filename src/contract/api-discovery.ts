@@ -27,6 +27,7 @@ export function schemaIndex(): SchemaIndex {
       { href: WorkspaceSchemaPaths.rename },
       { href: ProjectSchemaPaths.create },
       { href: ProjectSchemaPaths.rename },
+      { href: ProjectSchemaPaths.move },
     ],
     links: {
       self: { href: DiscoveryPaths.schemas },

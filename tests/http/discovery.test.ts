@@ -348,6 +348,7 @@ describe("authenticated API discovery", () => {
         { href: expect.stringMatching(/^\/api\/schemas\/sha256-[0-9a-f]{64}\/rename_workspace$/) },
         { href: expect.stringMatching(/^\/api\/schemas\/sha256-[0-9a-f]{64}\/create_project$/) },
         { href: expect.stringMatching(/^\/api\/schemas\/sha256-[0-9a-f]{64}\/rename_project$/) },
+        { href: expect.stringMatching(/^\/api\/schemas\/sha256-[0-9a-f]{64}\/move_project$/) },
       ],
       links: {
         self: { href: "/api/schemas" },
@@ -409,6 +410,17 @@ describe("authenticated API discovery", () => {
     const renameContentHash = requestSchemaContentHash(renameDocument);
     expect(schemaIndex.items[1]?.href).toContain(`/sha256-${renameContentHash}/`);
 
+    const moveSchema = await gateway.dispatchFetch(
+      `https://overseer.test${schemaIndex.items[4]?.href ?? ""}`,
+      { headers: { "cf-access-jwt-assertion": assertion } },
+    );
+    expect(await moveSchema.json()).toMatchObject({
+      properties: {
+        headers: { properties: { "idempotency-key": { type: "string" } } },
+        body: { properties: { workspace_id: { type: "string" } } },
+      },
+    });
+
     const openapi = await gateway.dispatchFetch("https://overseer.test/api/openapi.json", {
       headers: {
         accept: "application/vnd.oai.openapi+json;version=3.1",
@@ -428,6 +440,7 @@ describe("authenticated API discovery", () => {
         "/api/schemas": { get: {}, head: {} },
         "/api/projects": { get: {}, head: {} },
         "/api/projects/{project_id}": { get: {}, head: {}, patch: {} },
+        "/api/projects/{project_id}/move": { post: {} },
         "/api/workspaces/{workspace_id}/projects": { get: {}, head: {}, post: {} },
         "/api/openapi.json": {
           get: {
@@ -498,6 +511,25 @@ describe("authenticated API discovery", () => {
         },
       },
     });
+
+    const projectMoveOperations = Schema.decodeUnknownSync(
+      Schema.Struct({
+        post: Schema.Struct({ responses: Schema.Record(Schema.String, Schema.Unknown) }),
+      }),
+    )(openApiPaths["/api/projects/{project_id}/move"]);
+    expect(Object.keys(projectMoveOperations.post.responses).sort()).toEqual([
+      "200",
+      "400",
+      "401",
+      "403",
+      "404",
+      "409",
+      "413",
+      "415",
+      "422",
+      "500",
+      "503",
+    ]);
 
     const workspaceItemOperations = Schema.decodeUnknownSync(
       Schema.Struct({

@@ -115,7 +115,7 @@ const workspaceFailure = Effect.fn("Gateway.workspaceFailure")(function* (
     case "IdempotencyKeyReused":
       return yield* requestProblem({
         code: "idempotency_key_reused",
-        detail: "This Idempotency-Key already identifies a Project creation.",
+        detail: "This Idempotency-Key already identifies another Workspace Registry operation.",
       });
     case "WorkspaceRegistryRecordCorrupt":
     case "WorkspaceRegistryStateUnavailable":
