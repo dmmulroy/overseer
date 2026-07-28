@@ -7,6 +7,7 @@ import * as Schema from "effect/Schema";
 import {
   makeProjectId,
   makeWorkspaceId,
+  type IssueId,
   type ProjectId,
   WorkspaceId,
 } from "../../domain/entity-id.ts";
@@ -38,11 +39,13 @@ import {
   type CreateWorkspaceRpcInput,
   type CreateWorkspaceRpcResult,
   IdempotencyKeyReused,
+  IssueOwnerNotFound,
   type ListProjectsRpcInput,
   type ListWorkspacesRpcInput,
   type MoveProjectRpcInput,
   type MoveProjectRpcResult,
   ProjectMoveNotApplicable,
+  type RegisterIssueOwnerRpcInput,
   ProjectNotFound,
   WorkspaceNotFound,
   WorkspaceRegistryCursorInvalid,
@@ -79,7 +82,10 @@ export type ProjectPage = {
 /** A stored record failed parsing inside the owning persistence adapter. */
 export class WorkspaceRegistryStoredRecordCorrupt extends Schema.TaggedErrorClass<WorkspaceRegistryStoredRecordCorrupt>()(
   "WorkspaceRegistryStoredRecordCorrupt",
-  { recordType: Schema.Literals(["workspace", "project", "idempotency"]), cause: Schema.Defect() },
+  {
+    recordType: Schema.Literals(["workspace", "project", "idempotency", "issue_owner"]),
+    cause: Schema.Defect(),
+  },
 ) {
   /** Stable safe diagnostic message. */
   override readonly message = "A stored Workspace Registry record could not be decoded";
@@ -155,6 +161,13 @@ export type WorkspaceRegistryState = {
     project: ProjectType,
     key: IdempotencyKey,
   ) => Effect.Effect<void, WorkspaceRegistryPersistenceError>;
+  readonly findIssueOwner: (
+    issueId: IssueId,
+  ) => Effect.Effect<Option.Option<ProjectId>, WorkspaceRegistryPersistenceError>;
+  readonly insertIssueOwner: (
+    issueId: IssueId,
+    projectId: ProjectId,
+  ) => Effect.Effect<void, WorkspaceRegistryPersistenceError>;
 };
 /** Effect service for Workspace Registry persistence. */
 export class WorkspaceRegistryStateService extends Context.Service<
@@ -212,6 +225,12 @@ export type WorkspaceRegistryLocal = {
     | IdempotencyKeyReused
     | WorkspaceRegistryPersistenceError
   >;
+  readonly registerIssueOwner: (
+    input: RegisterIssueOwnerRpcInput,
+  ) => Effect.Effect<void, WorkspaceRegistryPersistenceError>;
+  readonly readIssueOwner: (
+    issueId: IssueId,
+  ) => Effect.Effect<ProjectId, IssueOwnerNotFound | WorkspaceRegistryPersistenceError>;
 };
 /** Effect service for object-local Workspace Registry operations. */
 export class WorkspaceRegistryLocalService extends Context.Service<
@@ -326,6 +345,27 @@ export const make = Effect.gen(function* () {
         }),
       );
     }),
+    registerIssueOwner: Effect.fn("WorkspaceRegistry.registerIssueOwner")(function* (input) {
+      return yield* state.transaction(
+        Effect.gen(function* () {
+          const current = yield* state.findIssueOwner(input.issueId);
+          if (Option.isSome(current)) {
+            if (current.value !== input.projectId)
+              return yield* new WorkspaceRegistryStoredRecordCorrupt({
+                recordType: "issue_owner",
+                cause: "An Issue locator cannot change Project ownership",
+              });
+            return;
+          }
+          yield* state.insertIssueOwner(input.issueId, input.projectId);
+        }),
+      );
+    }),
+    readIssueOwner: Effect.fn("WorkspaceRegistry.readIssueOwner")(function* (issueId) {
+      const owner = yield* state.findIssueOwner(issueId);
+      if (Option.isNone(owner)) return yield* new IssueOwnerNotFound({ issueId });
+      return owner.value;
+    }),
     moveProject: Effect.fn("WorkspaceRegistry.moveProject")(function* (input) {
       return yield* state.transaction(
         Effect.gen(function* () {
@@ -431,6 +471,18 @@ export type WorkspaceRegistry = {
     | IdempotencyKeyReused
     | WorkspaceRegistryRemotePersistenceError
     | WorkspaceRegistryRpcCallFailed
+  >;
+  readonly registerIssueOwner: (
+    input: RegisterIssueOwnerRpcInput,
+  ) => Effect.Effect<
+    void,
+    WorkspaceRegistryRemotePersistenceError | WorkspaceRegistryRpcCallFailed
+  >;
+  readonly readIssueOwner: (
+    issueId: IssueId,
+  ) => Effect.Effect<
+    ProjectId,
+    IssueOwnerNotFound | WorkspaceRegistryRemotePersistenceError | WorkspaceRegistryRpcCallFailed
   >;
 };
 /** Effect service exposing Gateway-facing Workspace Registry operations. */

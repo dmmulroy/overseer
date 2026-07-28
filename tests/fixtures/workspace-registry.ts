@@ -25,6 +25,7 @@ import {
   type CreateWorkspaceRpcInput,
   type CreateWorkspaceRpcResult,
   type IdempotencyKeyReused,
+  type IssueOwnerNotFound,
   type ListProjectsRpcInput,
   type ListProjectsRpcResult,
   type ListWorkspacesRpcInput,
@@ -33,6 +34,7 @@ import {
   type MoveProjectRpcResult,
   type ProjectMoveNotApplicable,
   type ProjectNotFound,
+  type RegisterIssueOwnerRpcInput,
   type RenameProjectRpcInput,
   type RenameWorkspaceRpcInput,
   type WorkspaceNotFound,
@@ -41,7 +43,7 @@ import {
   type WorkspaceRegistryRemotePersistenceError,
   WorkspaceRegistryStateUnavailable,
 } from "../../src/application/workspace-registry/workspace-registry-rpc.ts";
-import type { ProjectId, WorkspaceId } from "../../src/domain/entity-id.ts";
+import type { IssueId, ProjectId, WorkspaceId } from "../../src/domain/entity-id.ts";
 import type { Project } from "../../src/domain/project.ts";
 import type { Workspace } from "../../src/domain/workspace.ts";
 
@@ -50,6 +52,7 @@ type LocalExpectedError =
   | WorkspaceNotFound
   | ProjectNotFound
   | ProjectMoveNotApplicable
+  | IssueOwnerNotFound
   | IdempotencyKeyReused;
 
 function exposeRemotePersistenceFailure<A>(
@@ -89,6 +92,14 @@ function exposeRemotePersistenceFailure<A>(
   WorkspaceNotFound | IdempotencyKeyReused | WorkspaceRegistryRemotePersistenceError
 >;
 function exposeRemotePersistenceFailure<A>(
+  operation: "registerIssueOwner",
+  effect: Effect.Effect<A, WorkspaceRegistryPersistenceError>,
+): Effect.Effect<A, WorkspaceRegistryRemotePersistenceError>;
+function exposeRemotePersistenceFailure<A>(
+  operation: "readIssueOwner",
+  effect: Effect.Effect<A, IssueOwnerNotFound | WorkspaceRegistryPersistenceError>,
+): Effect.Effect<A, IssueOwnerNotFound | WorkspaceRegistryRemotePersistenceError>;
+function exposeRemotePersistenceFailure<A>(
   operation: "moveProject",
   effect: Effect.Effect<
     A,
@@ -116,7 +127,9 @@ function exposeRemotePersistenceFailure<A>(
     | "readProject"
     | "createProject"
     | "renameProject"
-    | "moveProject",
+    | "moveProject"
+    | "registerIssueOwner"
+    | "readIssueOwner",
   effect: Effect.Effect<A, LocalExpectedError | WorkspaceRegistryPersistenceError>,
 ): Effect.Effect<A, LocalExpectedError | WorkspaceRegistryRemotePersistenceError> {
   const corrupt = (_error: WorkspaceRegistryStoredRecordCorrupt) =>
@@ -241,5 +254,21 @@ export class TestWorkspaceRegistry extends DurableObject<Readonly<Record<never, 
   async moveProject(input: MoveProjectRpcInput): Promise<MoveProjectRpcResult> {
     const registry = await this.#ready;
     return this.#run(exposeRemotePersistenceFailure("moveProject", registry.moveProject(input)));
+  }
+
+  /** Publish one immutable canonical Issue owner locator. */
+  async registerIssueOwner(input: RegisterIssueOwnerRpcInput): Promise<void> {
+    const registry = await this.#ready;
+    return this.#run(
+      exposeRemotePersistenceFailure("registerIssueOwner", registry.registerIssueOwner(input)),
+    );
+  }
+
+  /** Resolve the owning Project for one canonical Issue identity. */
+  async readIssueOwner(issueId: IssueId): Promise<ProjectId> {
+    const registry = await this.#ready;
+    return this.#run(
+      exposeRemotePersistenceFailure("readIssueOwner", registry.readIssueOwner(issueId)),
+    );
   }
 }

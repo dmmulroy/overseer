@@ -41,7 +41,7 @@ async function seedWorkspace(name: string, key: string): Promise<string> {
       "cf-access-jwt-assertion": assertion,
       "content-type": "application/json",
       "idempotency-key": key,
-      origin: "http://localhost",
+      origin: "http://localhost:8787",
     },
     body: JSON.stringify({ name }),
   });
@@ -59,7 +59,7 @@ async function seedProject(workspaceId: string, name: string, key: string): Prom
         "cf-access-jwt-assertion": assertion,
         "content-type": "application/json",
         "idempotency-key": key,
-        origin: "http://localhost",
+        origin: "http://localhost:8787",
       },
       body: JSON.stringify({ name }),
     },
@@ -83,13 +83,18 @@ beforeAll(async () => {
     accessAudience: audience,
     accessIssuer: issuer,
     accessJwks: JSON.stringify({ keys: [{ ...publicJwk, alg: "RS256", kid: "browser" }] }),
-    allowedOrigin: "http://localhost",
+    allowedOrigin: "http://localhost:8787",
     assetsDirectory: "dist",
+    port: 8787,
   });
-  gatewayUrl = await gateway.ready;
+  gatewayUrl = new URL((await gateway.ready).href);
+  gatewayUrl.hostname = "localhost";
   browser = await chromium.launch();
   context = await browser.newContext({
-    extraHTTPHeaders: { "cf-access-jwt-assertion": assertion },
+    extraHTTPHeaders: {
+      "cf-access-jwt-assertion": assertion,
+      origin: "http://localhost:8787",
+    },
     viewport: { width: 1280, height: 800 },
   });
 });
@@ -365,6 +370,34 @@ describe("authenticated application shell", () => {
       await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth),
     ).toBe(true);
     await expectNoAccessibilityViolations(page);
+  });
+
+  it("creates an Issue and opens its canonical focused route", async () => {
+    const workspaceId = await seedWorkspace("Issue creation", "browser-issue-workspace");
+    const projectId = await seedProject(
+      workspaceId,
+      "Issue creation Project",
+      "browser-issue-project",
+    );
+
+    await page.goto(
+      new URL(`/?workspace_id=${workspaceId}&project_id=${projectId}`, gatewayUrl).href,
+    );
+    await page.getByRole("heading", { name: "Issue creation Project" }).waitFor();
+    await page.getByRole("textbox", { name: "Title" }).fill("Browser-created Issue");
+    await page
+      .getByRole("textbox", { name: "Body (Markdown, optional)" })
+      .fill("Created through the authenticated Gateway.");
+    await page.getByRole("button", { name: "Create Issue" }).click();
+
+    await page.getByRole("heading", { name: "Browser-created Issue" }).waitFor();
+    expect(new URL(page.url()).pathname).toMatch(/^\/issues\/issue_[0-9A-HJKMNP-TV-Z]{26}$/);
+    expect(await page.getByText("Created through the authenticated Gateway.").isVisible()).toBe(
+      true,
+    );
+    expect(await page.getByText("Issue #1").isVisible()).toBe(true);
+    await expectNoAccessibilityViolations(page);
+    expect(consoleErrors).toEqual([]);
   });
 
   it("redirects a moved Project to its current Workspace on desktop and mobile", async () => {

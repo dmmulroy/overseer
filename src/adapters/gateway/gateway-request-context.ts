@@ -1,9 +1,11 @@
 import * as Context from "effect/Context";
-import type { RequestId } from "../../domain/actor.ts";
+import type { Actor, AgentSession, RequestId } from "../../domain/actor.ts";
 
-/** Authenticated context established for one Gateway request. */
+/** Authenticated and attributed context established for one Gateway request. */
 export type GatewayRequest = {
   readonly requestId: RequestId;
+  readonly actor: Actor;
+  readonly agentSession: AgentSession | null;
 };
 
 /** Required fiber-local context for one authenticated Gateway request. */

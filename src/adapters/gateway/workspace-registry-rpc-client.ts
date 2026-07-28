@@ -7,6 +7,7 @@ import {
   CreateProjectRpcInput,
   CreateWorkspaceRpcInput,
   MoveProjectRpcInput,
+  RegisterIssueOwnerRpcInput,
   RenameProjectRpcInput,
   RenameWorkspaceRpcInput,
   WORKSPACE_REGISTRY_SINGLETON_NAME,
@@ -121,6 +122,15 @@ export const make = Effect.gen(function* () {
     ),
     moveProject: Effect.fn("WorkspaceRegistryRpc.moveProject")((input) =>
       rpcCall(stub().moveProject(MoveProjectRpcInput.make(input)), "moveProject"),
+    ),
+    registerIssueOwner: Effect.fn("WorkspaceRegistryRpc.registerIssueOwner")((input) =>
+      rpcCall(
+        stub().registerIssueOwner(RegisterIssueOwnerRpcInput.make(input)),
+        "registerIssueOwner",
+      ),
+    ),
+    readIssueOwner: Effect.fn("WorkspaceRegistryRpc.readIssueOwner")((issueId) =>
+      rpcCall(stub().readIssueOwner(issueId), "readIssueOwner"),
     ),
   });
 });

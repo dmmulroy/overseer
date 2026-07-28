@@ -19,6 +19,7 @@ import {
   type Link,
   OverseerApi,
   ProjectCollection,
+  IssueSchemaPaths,
   ProjectResponse,
   ProjectSchemaPaths,
 } from "../../contract/http-api.ts";
@@ -44,6 +45,7 @@ function projectResponse(project: Project): ProjectResponse {
       workspace: { href: `/api/workspaces/${project.workspaceId}` },
       rename: { href: self, method: "PATCH", schema: ProjectSchemaPaths.rename },
       move: { href: `${self}/move`, method: "POST", schema: ProjectSchemaPaths.move },
+      create_issue: { href: `${self}/issues`, method: "POST", schema: IssueSchemaPaths.create },
     },
   });
 }

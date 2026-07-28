@@ -36,13 +36,11 @@ A change to public routes, domain behavior, authentication, storage ownership, c
 
 ### Focused contradictions
 
-[#51](https://github.com/dmmulroy/overseer/issues/51) records one genuine contradiction exposed by this architecture. The settled mention behavior asks a qualified Issue mention in Project A to create a reciprocal backlink and one event projected onto the source and target Issues. If the target is in Project B, that requires one logical mutation across two authoritative Project Durable Objects. The settled topology forbids cross-object transactions and pseudo-transactions, and no failure/reconciliation contract exists.
-
-This artifact does not silently choose new behavior. Same-Project Issue references remain atomic inside one Project object; Project mentions and external URLs remain source-side derived values. The cross-Project Issue case awaits #51's backlink, Timeline, and failure semantics. This does not block same-Project references or Attachment work.
+[#51](https://github.com/dmmulroy/overseer/issues/51) is resolved without a cross-object write. Unqualified Issue-number mentions and qualified mentions naming the source Project reconcile reciprocal references and shared Timeline events atomically inside that Project object. A qualified Issue mention naming another Project remains literal unresolved Markdown in the MVP: it creates no incoming reference or Timeline event, and saving the source never depends on another Project object. Project mentions and external URLs remain source-side derived values.
 
 [#52](https://github.com/dmmulroy/overseer/issues/52) is resolved by authoritative-object-local key ownership. The object that commits a create records the caller's key and created entity in the same local transaction. The same key may identify a different result in another Durable Object; there is no cross-object reservation or conflict detection. Workspace and Project creation currently share one namespace because the singleton Workspace Registry owns both operations.
 
-[#53](https://github.com/dmmulroy/overseer/issues/53) records a third contradiction. Canonical project-local Entity URLs contain only a global Entity ID, but that prefixed ULID does not identify the owning Project Durable Object. Workspace Registry has no settled Entity-to-Project locator, namespace enumeration is unavailable for discovery, and publishing such a locator would need cross-object interruption/repair semantics. Slice 2's first canonical Issue URL and later canonical Label, Comment, Event, and Attachment URLs await #53.
+[#53](https://github.com/dmmulroy/overseer/issues/53) is resolved with a Workspace Registry Entity-owner locator. The authoritative Project commits entity creation and its object-local idempotency result first; the Gateway then idempotently publishes the immutable Entity-ID-to-Project-ID locator before returning success. If publication is interrupted, the canonical route may temporarily return not found, while replaying the same creation key reads the committed entity and retries publication. A locator cannot change owner and is never removed, so tombstones remain routable. Project moves and restoration do not affect it. A conflicting publication is classified as Registry corruption rather than silently rerouting an Entity.
 
 ## Topology
 
@@ -139,7 +137,7 @@ sequenceDiagram
     CDO->>CDO: read Workspace Registry SQLite
     CDO-->>G: plain success or typed tagged failure
   else project-local read
-    G->>G: resolve owning Project using the issue 53 mechanism
+    G->>CDO: resolve immutable Entity owner locator
     G->>CDO: admit/read Project registry entry
     CDO-->>G: Project admission
     G->>PDO: operation-specific Project RPC
@@ -150,7 +148,7 @@ sequenceDiagram
   G-->>C: 200 JSON or typed problem
 ```
 
-The Gateway may construct a Project stub directly from a parsed Project ID only after Workspace Registry confirms the immutable registry entry and current archive context. A canonical URL containing only a project-local Entity ID must first use the routing mechanism selected by #53. Namespace enumeration is never discovery, and this artifact does not assume a hidden locator.
+The Gateway may construct a Project stub directly from a parsed Project ID only after Workspace Registry confirms the immutable registry entry and current archive context. A canonical URL containing only a project-local Entity ID first resolves the Workspace Registry's immutable owner locator. Namespace enumeration is never discovery.
 
 ### Project-local mutation and Timeline entries
 

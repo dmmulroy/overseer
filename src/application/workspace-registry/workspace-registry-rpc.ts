@@ -1,6 +1,6 @@
 import * as Effect from "effect/Effect";
 import * as Schema from "effect/Schema";
-import { ProjectId, WorkspaceId } from "../../domain/entity-id.ts";
+import { IssueId, ProjectId, WorkspaceId } from "../../domain/entity-id.ts";
 import { IdempotencyKey } from "../../domain/idempotency.ts";
 import {
   ProjectCursor,
@@ -116,6 +116,13 @@ export const MoveProjectRpcResult = Schema.Struct({ project: Project, replayed: 
 /** Plain successful Project move returned over private RPC. */
 export interface MoveProjectRpcResult extends Schema.Schema.Type<typeof MoveProjectRpcResult> {}
 
+/** Plain immutable Issue-owner locator publication over private RPC. */
+export const RegisterIssueOwnerRpcInput = Schema.Struct({ issueId: IssueId, projectId: ProjectId });
+/** Plain immutable Issue-owner locator publication over private RPC. */
+export interface RegisterIssueOwnerRpcInput extends Schema.Schema.Type<
+  typeof RegisterIssueOwnerRpcInput
+> {}
+
 /** A collection page cursor could not be decoded. */
 export class WorkspaceRegistryCursorInvalid extends Schema.TaggedErrorClass<WorkspaceRegistryCursorInvalid>()(
   "WorkspaceRegistryCursorInvalid",
@@ -138,6 +145,14 @@ export class ProjectNotFound extends Schema.TaggedErrorClass<ProjectNotFound>()(
 }) {
   /** Stable safe diagnostic message. */
   override readonly message = "The requested Project does not exist";
+}
+/** The requested canonical Issue has no published Project owner. */
+export class IssueOwnerNotFound extends Schema.TaggedErrorClass<IssueOwnerNotFound>()(
+  "IssueOwnerNotFound",
+  { issueId: IssueId },
+) {
+  /** Stable safe diagnostic message. */
+  override readonly message = "The requested Issue owner is not registered";
 }
 /** An idempotency key already identifies another Workspace Registry operation. */
 export class IdempotencyKeyReused extends Schema.TaggedErrorClass<IdempotencyKeyReused>()(
@@ -185,6 +200,8 @@ export class WorkspaceRegistryRpcCallFailed extends Schema.TaggedErrorClass<Work
       "createProject",
       "renameProject",
       "moveProject",
+      "registerIssueOwner",
+      "readIssueOwner",
     ]),
     cause: Schema.Defect(),
   },
@@ -246,4 +263,10 @@ export type WorkspaceRegistryRpc = {
     | IdempotencyKeyReused
     | WorkspaceRegistryRemotePersistenceError
   >;
+  readonly registerIssueOwner: (
+    input: RegisterIssueOwnerRpcInput,
+  ) => Effect.Effect<void, WorkspaceRegistryRemotePersistenceError>;
+  readonly readIssueOwner: (
+    issueId: IssueId,
+  ) => Effect.Effect<ProjectId, IssueOwnerNotFound | WorkspaceRegistryRemotePersistenceError>;
 };

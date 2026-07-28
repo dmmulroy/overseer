@@ -4,6 +4,7 @@ import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
 import { WorkspaceId } from "../domain/entity-id.ts";
 import { IdempotencyKey } from "../domain/idempotency.ts";
+import { IssueBody, IssueTitle } from "../domain/issue.ts";
 import { ProjectName } from "../domain/project.ts";
 import { WorkspaceName } from "../domain/workspace.ts";
 
@@ -49,6 +50,26 @@ export const MoveProjectRequest = Schema.Struct({ workspace_id: WorkspaceId }).p
 /** Body accepted when moving a Project to another Workspace. */
 export interface MoveProjectRequest extends Schema.Schema.Type<typeof MoveProjectRequest> {}
 
+/** Body accepted when creating an Issue with optional Markdown. */
+export const CreateIssueRequest = Schema.Struct({
+  title: IssueTitle,
+  body: Schema.optionalKey(Schema.NullOr(IssueBody)),
+}).pipe(
+  Schema.flip,
+  Schema.check(
+    Schema.makeFilter(
+      (body) => Object.keys(body).every((key) => key === "title" || key === "body"),
+      {
+        expected: "an object containing only title and optional body fields",
+      },
+    ),
+  ),
+  Schema.flip,
+);
+
+/** Body accepted when creating an Issue with optional Markdown. */
+export interface CreateIssueRequest extends Schema.Schema.Type<typeof CreateIssueRequest> {}
+
 const createWorkspaceRequestSchema = Schema.toJsonSchemaDocument(
   Schema.Struct({
     headers: Schema.Struct({ "idempotency-key": IdempotencyKey }),
@@ -71,6 +92,12 @@ const moveProjectRequestSchema = Schema.toJsonSchemaDocument(
   Schema.Struct({
     headers: Schema.Struct({ "idempotency-key": IdempotencyKey }),
     body: MoveProjectRequest,
+  }),
+).schema;
+const createIssueRequestSchema = Schema.toJsonSchemaDocument(
+  Schema.Struct({
+    headers: Schema.Struct({ "idempotency-key": IdempotencyKey }),
+    body: CreateIssueRequest,
   }),
 ).schema;
 const JsonString = Schema.fromJsonString(Schema.Json);
@@ -110,18 +137,25 @@ const renameWorkspace = requestSchema("rename_workspace", renameWorkspaceRequest
 const createProject = requestSchema("create_project", createProjectRequestSchema);
 const renameProject = requestSchema("rename_project", renameProjectRequestSchema);
 const moveProject = requestSchema("move_project", moveProjectRequestSchema);
+const createIssue = requestSchema("create_issue", createIssueRequestSchema);
 const requestSchemas = [
   createWorkspace,
   renameWorkspace,
   createProject,
   renameProject,
   moveProject,
+  createIssue,
 ] as const;
 
 /** Content-addressed request-schema paths derived from their schema documents. */
 export const WorkspaceSchemaPaths = {
   create: createWorkspace.path,
   rename: renameWorkspace.path,
+} as const;
+
+/** Content-addressed Issue request-schema paths. */
+export const IssueSchemaPaths = {
+  create: createIssue.path,
 } as const;
 
 /** Content-addressed Project request-schema paths. */

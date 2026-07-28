@@ -20,11 +20,13 @@ import {
   type CreateProjectRpcInput,
   type CreateWorkspaceRpcInput,
   IdempotencyKeyReused,
+  IssueOwnerNotFound,
   type ListProjectsRpcInput,
   type ListWorkspacesRpcInput,
   type MoveProjectRpcInput,
   ProjectMoveNotApplicable,
   ProjectNotFound,
+  type RegisterIssueOwnerRpcInput,
   type RenameProjectRpcInput,
   type RenameWorkspaceRpcInput,
   WorkspaceNotFound,
@@ -32,7 +34,7 @@ import {
   WorkspaceRegistryRecordCorrupt,
   WorkspaceRegistryStateUnavailable,
 } from "../application/workspace-registry/workspace-registry-rpc.ts";
-import type { ProjectId, WorkspaceId } from "../domain/entity-id.ts";
+import type { IssueId, ProjectId, WorkspaceId } from "../domain/entity-id.ts";
 import { WorkspaceRegistryObject } from "./workspace-registry-resource.ts";
 
 function persistenceCauseType(cause: unknown): string {
@@ -49,6 +51,7 @@ type LocalExpectedError =
   | WorkspaceNotFound
   | ProjectNotFound
   | ProjectMoveNotApplicable
+  | IssueOwnerNotFound
   | IdempotencyKeyReused;
 
 function exposeRemotePersistenceFailure<A>(
@@ -82,6 +85,14 @@ function exposeRemotePersistenceFailure<A>(
   >,
 ): Effect.Effect<A, WorkspaceNotFound | IdempotencyKeyReused | RemotePersistenceError>;
 function exposeRemotePersistenceFailure<A>(
+  operation: "registerIssueOwner",
+  effect: Effect.Effect<A, WorkspaceRegistryPersistenceError>,
+): Effect.Effect<A, RemotePersistenceError>;
+function exposeRemotePersistenceFailure<A>(
+  operation: "readIssueOwner",
+  effect: Effect.Effect<A, IssueOwnerNotFound | WorkspaceRegistryPersistenceError>,
+): Effect.Effect<A, IssueOwnerNotFound | RemotePersistenceError>;
+function exposeRemotePersistenceFailure<A>(
   operation: "moveProject",
   effect: Effect.Effect<
     A,
@@ -109,7 +120,9 @@ function exposeRemotePersistenceFailure<A>(
     | "readProject"
     | "createProject"
     | "renameProject"
-    | "moveProject",
+    | "moveProject"
+    | "registerIssueOwner"
+    | "readIssueOwner",
   effect: Effect.Effect<A, LocalExpectedError | WorkspaceRegistryPersistenceError>,
 ): Effect.Effect<A, LocalExpectedError | RemotePersistenceError> {
   const recordCorrupt = (error: WorkspaceRegistryStoredRecordCorrupt) =>
@@ -219,6 +232,16 @@ const WorkspaceRegistryObjectLive = WorkspaceRegistryObject.make<never>(
           ),
         moveProject: (input: MoveProjectRpcInput) =>
           exposeRemotePersistenceFailure("moveProject", workspaceRegistry.moveProject(input)),
+        registerIssueOwner: (input: RegisterIssueOwnerRpcInput) =>
+          exposeRemotePersistenceFailure(
+            "registerIssueOwner",
+            workspaceRegistry.registerIssueOwner(input),
+          ),
+        readIssueOwner: (issueId: IssueId) =>
+          exposeRemotePersistenceFailure(
+            "readIssueOwner",
+            workspaceRegistry.readIssueOwner(issueId),
+          ),
       };
     });
   }),

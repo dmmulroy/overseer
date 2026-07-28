@@ -4,6 +4,7 @@ import * as Schema from "effect/Schema";
 import type { HttpServerRequest } from "effect/unstable/http/HttpServerRequest";
 import type * as HttpServerResponse from "effect/unstable/http/HttpServerResponse";
 import {
+  AgentSession,
   AgentSessionId,
   AuthenticatedPrincipal,
   HarnessName,
@@ -15,7 +16,7 @@ const admitHumanMutationRequest = Effect.fn("Gateway.admitHumanMutationRequest")
   request: HttpServerRequest,
   allowedOrigin: URL,
   requestId: RequestId,
-): Effect.fn.Return<void | HttpServerResponse.HttpServerResponse, never, ProblemResponse> {
+): Effect.fn.Return<null | HttpServerResponse.HttpServerResponse, never, ProblemResponse> {
   if (request.headers.origin !== allowedOrigin.origin) {
     const problems = yield* ProblemResponse;
     return problems.render({
@@ -24,12 +25,13 @@ const admitHumanMutationRequest = Effect.fn("Gateway.admitHumanMutationRequest")
       requestId,
     });
   }
+  return null;
 });
 
 const admitAgentMutationRequest = Effect.fn("Gateway.admitAgentMutationRequest")(function* (
   request: HttpServerRequest,
   requestId: RequestId,
-): Effect.fn.Return<void | HttpServerResponse.HttpServerResponse, never, ProblemResponse> {
+): Effect.fn.Return<AgentSession | HttpServerResponse.HttpServerResponse, never, ProblemResponse> {
   const problems = yield* ProblemResponse;
   const sessionId = request.headers["overseer-session-id"];
 
@@ -55,17 +57,27 @@ const admitAgentMutationRequest = Effect.fn("Gateway.admitAgentMutationRequest")
       requestId,
     });
   }
+  return AgentSession.make({
+    sessionId: parsedSessionId.value,
+    harness: Option.getOrNull(parsedHarness),
+  });
 });
 
-/** Admit an unsafe request after enforcing human Origin or Agent-session headers. */
+/** Parsed Agent session attribution for an admitted unsafe request, or null for a human. */
+export type MutationSession = AgentSession | null;
+
+/** Admit an unsafe request and return its parsed Agent session attribution when present. */
 export const admitMutationRequest = Effect.fn("Gateway.admitMutationRequest")(function* (
   request: HttpServerRequest,
   principal: AuthenticatedPrincipal,
   allowedOrigin: URL,
   requestId: RequestId,
-): Effect.fn.Return<void | HttpServerResponse.HttpServerResponse, never, ProblemResponse> {
-  return yield* AuthenticatedPrincipal.match(principal, {
-    HumanPrincipal: () => admitHumanMutationRequest(request, allowedOrigin, requestId),
-    AgentDeploymentPrincipal: () => admitAgentMutationRequest(request, requestId),
-  });
+): Effect.fn.Return<
+  MutationSession | HttpServerResponse.HttpServerResponse,
+  never,
+  ProblemResponse
+> {
+  return principal._tag === "HumanPrincipal"
+    ? yield* admitHumanMutationRequest(request, allowedOrigin, requestId)
+    : yield* admitAgentMutationRequest(request, requestId);
 });

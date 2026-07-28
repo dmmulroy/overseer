@@ -50,6 +50,9 @@ type RecordedCreationRow = {
 type RecordedProjectMoveRow = {
   readonly project_snapshot_json: unknown;
 };
+type IssueOwnerRow = {
+  readonly project_id: unknown;
+};
 
 const WorkspaceCursorState = Schema.Struct({ name: WorkspaceName, workspaceId: WorkspaceId });
 const ProjectCursorState = Schema.Struct({
@@ -127,7 +130,7 @@ type ProjectCursorState = typeof ProjectCursorState.Type;
 function parseStored<A>(
   schema: Schema.Decoder<A>,
   input: unknown,
-  recordType: "workspace" | "project" | "idempotency",
+  recordType: "workspace" | "project" | "idempotency" | "issue_owner",
 ): Effect.Effect<A, WorkspaceRegistryStoredRecordCorrupt> {
   return Schema.decodeUnknownEffect(schema)(input).pipe(
     Effect.mapError((cause) => new WorkspaceRegistryStoredRecordCorrupt({ recordType, cause })),
@@ -350,6 +353,23 @@ export const make = Effect.gen(function* () {
         yield* sql`INSERT INTO project_move_keys (idempotency_key, project_snapshot_json) VALUES (${key}, ${Schema.encodeSync(ProjectJson)(project)})`;
       },
       Effect.catchTag("SqlError", unavailable("moveProject")),
+    ),
+    findIssueOwner: Effect.fn("WorkspaceRegistrySqliteState.findIssueOwner")(
+      function* (issueId) {
+        const row =
+          (yield* sql<IssueOwnerRow>`SELECT project_id FROM issue_owners WHERE issue_id = ${issueId}`)[0];
+        return row === undefined
+          ? Option.none()
+          : Option.some(yield* parseStored(ProjectId, row.project_id, "issue_owner"));
+      },
+      Effect.catchTag("SqlError", unavailable("findIssueOwner")),
+    ),
+    insertIssueOwner: Effect.fn("WorkspaceRegistrySqliteState.insertIssueOwner")(
+      (issueId, projectId) =>
+        sql`INSERT INTO issue_owners (issue_id, project_id) VALUES (${issueId}, ${projectId})`.pipe(
+          Effect.asVoid,
+          Effect.catchTag("SqlError", unavailable("insertIssueOwner")),
+        ),
     ),
   });
 });

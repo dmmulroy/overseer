@@ -1,6 +1,7 @@
 import {
   DiscoveryDocument,
   DiscoveryPaths,
+  IssueSchemaPaths,
   ProjectSchemaPaths,
   SchemaIndex,
   WorkspaceSchemaPaths,
@@ -28,6 +29,7 @@ export function schemaIndex(): SchemaIndex {
       { href: ProjectSchemaPaths.create },
       { href: ProjectSchemaPaths.rename },
       { href: ProjectSchemaPaths.move },
+      { href: IssueSchemaPaths.create },
     ],
     links: {
       self: { href: DiscoveryPaths.schemas },

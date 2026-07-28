@@ -19,6 +19,7 @@ import {
   layer as gatewayApplicationLayer,
 } from "../../src/adapters/gateway/gateway-application.ts";
 import { layer as gatewayApiLayer } from "../../src/adapters/gateway/gateway-http.ts";
+import { layer as projectOperationsLayer } from "../../src/application/gateway/project-operations.ts";
 import {
   layer as problemResponseLayer,
   renderGatewayConfigurationUnavailable,
@@ -32,9 +33,11 @@ import {
   CreateProjectRpcInput,
   CreateWorkspaceRpcInput,
   IdempotencyKeyReused,
+  IssueOwnerNotFound,
   MoveProjectRpcInput,
   ProjectMoveNotApplicable,
   ProjectNotFound,
+  RegisterIssueOwnerRpcInput,
   RenameProjectRpcInput,
   RenameWorkspaceRpcInput,
   WORKSPACE_REGISTRY_SINGLETON_NAME,
@@ -45,10 +48,23 @@ import {
   WorkspaceRegistryStateUnavailable,
   type WorkspaceRegistryRpc,
 } from "../../src/application/workspace-registry/workspace-registry-rpc.ts";
+import {
+  CreateIssueRpcInput,
+  ProjectClientService,
+  ProjectRecordCorrupt,
+  ProjectRpcCallFailed,
+  ProjectStateUnavailable,
+  type ProjectRpc,
+} from "../../src/application/project/project-rpc.ts";
+import {
+  IssueNotFound,
+  ProjectIdempotencyKeyReused,
+} from "../../src/application/issues/issue-discovery.ts";
 import { makeRequestId } from "../../src/domain/actor.ts";
+import { TestProject } from "./project.ts";
 import { TestWorkspaceRegistry } from "./workspace-registry.ts";
 
-export { TestWorkspaceRegistry };
+export { TestProject, TestWorkspaceRegistry };
 
 const TestGatewayConfiguration = Schema.Struct({
   accessAudience: AccessAudience,
@@ -97,6 +113,21 @@ const MoveProjectFailure = Schema.Union([
   WorkspaceRegistryRecordCorrupt,
   WorkspaceRegistryStateUnavailable,
 ]);
+const ReadIssueOwnerFailure = Schema.Union([
+  IssueOwnerNotFound,
+  WorkspaceRegistryRecordCorrupt,
+  WorkspaceRegistryStateUnavailable,
+]);
+const CreateProjectIssueFailure = Schema.Union([
+  ProjectIdempotencyKeyReused,
+  ProjectRecordCorrupt,
+  ProjectStateUnavailable,
+]);
+const ReadProjectIssueFailure = Schema.Union([
+  IssueNotFound,
+  ProjectRecordCorrupt,
+  ProjectStateUnavailable,
+]);
 
 type EffectSuccess<T> = T extends Effect.Effect<infer A, infer _E, infer _R> ? A : never;
 
@@ -109,10 +140,19 @@ type NativeWorkspaceRegistryStub = {
 type WorkspaceRegistryNamespace = {
   readonly getByName: (name: string) => NativeWorkspaceRegistryStub;
 };
+type NativeProjectStub = {
+  readonly [K in keyof ProjectRpc]: (
+    ...args: Parameters<ProjectRpc[K]>
+  ) => Promise<EffectSuccess<ReturnType<ProjectRpc[K]>>>;
+};
+type ProjectNamespace = {
+  readonly getByName: (name: string) => NativeProjectStub;
+};
 
 type GatewayEnvironment = {
   readonly ASSETS?: { readonly fetch: (request: Request) => Promise<Response> };
   readonly WORKSPACE_REGISTRY: WorkspaceRegistryNamespace;
+  readonly PROJECTS: ProjectNamespace;
   readonly ACCESS_AUDIENCE: string;
   readonly ACCESS_ISSUER: string;
   readonly ALLOWED_ORIGIN: string;
@@ -127,6 +167,7 @@ function callFailed(operation: WorkspaceRegistryRpcCallFailed["operation"], caus
 function makeHandler(
   configuration: typeof TestGatewayConfiguration.Type,
   workspaceRegistryNamespace: WorkspaceRegistryNamespace,
+  projectNamespace: ProjectNamespace,
 ): Promise<(request: Request) => Promise<Response>> {
   const WorkspaceRegistryLive = Layer.effect(
     WorkspaceRegistryService,
@@ -257,8 +298,109 @@ function makeHandler(
             },
           }),
         ),
+        registerIssueOwner: Effect.fn("TestWorkspaceRegistryRpc.registerIssueOwner")((input) =>
+          Effect.tryPromise({
+            try: () => stub().registerIssueOwner(RegisterIssueOwnerRpcInput.make(input)),
+            catch: (cause) => {
+              const decoded = Schema.decodeUnknownResult(
+                Schema.Union([WorkspaceRegistryRecordCorrupt, WorkspaceRegistryStateUnavailable]),
+              )(cause);
+              return Result.isSuccess(decoded)
+                ? decoded.success
+                : callFailed("registerIssueOwner", cause);
+            },
+          }),
+        ),
+        readIssueOwner: Effect.fn("TestWorkspaceRegistryRpc.readIssueOwner")((issueId) =>
+          Effect.tryPromise({
+            try: () => stub().readIssueOwner(issueId),
+            catch: (cause) => {
+              const decoded = Schema.decodeUnknownResult(ReadIssueOwnerFailure)(cause);
+              return Result.isSuccess(decoded)
+                ? decoded.success
+                : callFailed("readIssueOwner", cause);
+            },
+          }),
+        ),
       });
     }),
+  );
+  const ProjectLive = Layer.succeed(
+    ProjectClientService,
+    ProjectClientService.of({
+      createIssue: Effect.fn("TestProjectRpc.createIssue")((input) =>
+        Effect.tryPromise({
+          try: () =>
+            projectNamespace
+              .getByName(input.projectId)
+              .createIssue(CreateIssueRpcInput.make(input)),
+          catch: (cause) => {
+            const decoded = Schema.decodeUnknownResult(CreateProjectIssueFailure)(cause);
+            return Result.isSuccess(decoded)
+              ? decoded.success
+              : new ProjectRpcCallFailed({ operation: "createIssue", cause });
+          },
+        }),
+      ),
+      readIssue: Effect.fn("TestProjectRpc.readIssue")((projectId, issueId) =>
+        Effect.tryPromise({
+          try: () => projectNamespace.getByName(projectId).readIssue(issueId),
+          catch: (cause) => {
+            const decoded = Schema.decodeUnknownResult(ReadProjectIssueFailure)(cause);
+            return Result.isSuccess(decoded)
+              ? decoded.success
+              : new ProjectRpcCallFailed({ operation: "readIssue", cause });
+          },
+        }),
+      ),
+      readIssueByNumber: Effect.fn("TestProjectRpc.readIssueByNumber")((projectId, number) =>
+        Effect.tryPromise({
+          try: () => projectNamespace.getByName(projectId).readIssueByNumber(number),
+          catch: (cause) => {
+            const decoded = Schema.decodeUnknownResult(ReadProjectIssueFailure)(cause);
+            return Result.isSuccess(decoded)
+              ? decoded.success
+              : new ProjectRpcCallFailed({ operation: "readIssueByNumber", cause });
+          },
+        }),
+      ),
+      readIssueRevisions: Effect.fn("TestProjectRpc.readIssueRevisions")((projectId, issueId) =>
+        Effect.tryPromise({
+          try: () => projectNamespace.getByName(projectId).readIssueRevisions(issueId),
+          catch: (cause) => {
+            const decoded = Schema.decodeUnknownResult(ReadProjectIssueFailure)(cause);
+            return Result.isSuccess(decoded)
+              ? decoded.success
+              : new ProjectRpcCallFailed({ operation: "readIssueRevisions", cause });
+          },
+        }),
+      ),
+      readIssueTimeline: Effect.fn("TestProjectRpc.readIssueTimeline")((projectId, issueId) =>
+        Effect.tryPromise({
+          try: () => projectNamespace.getByName(projectId).readIssueTimeline(issueId),
+          catch: (cause) => {
+            const decoded = Schema.decodeUnknownResult(ReadProjectIssueFailure)(cause);
+            return Result.isSuccess(decoded)
+              ? decoded.success
+              : new ProjectRpcCallFailed({ operation: "readIssueTimeline", cause });
+          },
+        }),
+      ),
+      readIssueReferences: Effect.fn("TestProjectRpc.readIssueReferences")((projectId, issueId) =>
+        Effect.tryPromise({
+          try: () => projectNamespace.getByName(projectId).readIssueReferences(issueId),
+          catch: (cause) => {
+            const decoded = Schema.decodeUnknownResult(ReadProjectIssueFailure)(cause);
+            return Result.isSuccess(decoded)
+              ? decoded.success
+              : new ProjectRpcCallFailed({ operation: "readIssueReferences", cause });
+          },
+        }),
+      ),
+    }),
+  );
+  const ProjectOperationsLive = projectOperationsLayer.pipe(
+    Layer.provide([WorkspaceRegistryLive, ProjectLive]),
   );
   const GatewayConfigurationLive = Layer.succeed(
     GatewayConfiguration,
@@ -271,7 +413,7 @@ function makeHandler(
   );
   const ProblemResponseLive = problemResponseLayer.pipe(Layer.provide(GatewayConfigurationLive));
   const GatewayApiLive = gatewayApiLayer.pipe(
-    Layer.provide([ProblemResponseLive, WorkspaceRegistryLive]),
+    Layer.provide([ProblemResponseLive, WorkspaceRegistryLive, ProjectOperationsLive]),
   );
   const AccessVerifierLive = accessAssertionVerifierLayer.pipe(
     Layer.provide(GatewayConfigurationLive),
@@ -324,7 +466,7 @@ export default {
       return unavailableResponse();
     }
 
-    application ??= makeHandler(decoded.success, env.WORKSPACE_REGISTRY);
+    application ??= makeHandler(decoded.success, env.WORKSPACE_REGISTRY, env.PROJECTS);
     return (await application)(request);
   },
 };

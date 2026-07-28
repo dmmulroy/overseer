@@ -6,8 +6,15 @@ import * as HttpApiMiddleware from "effect/unstable/httpapi/HttpApiMiddleware";
 import * as HttpApiSchema from "effect/unstable/httpapi/HttpApiSchema";
 import * as HttpApiSecurity from "effect/unstable/httpapi/HttpApiSecurity";
 import * as OpenApi from "effect/unstable/httpapi/OpenApi";
-import { RequestId } from "../domain/actor.ts";
-import { ProjectId, WorkspaceId } from "../domain/entity-id.ts";
+import {
+  AgentDeploymentId,
+  AgentSessionId,
+  EmailAddress,
+  HarnessName,
+  HumanPrincipalId,
+  RequestId,
+} from "../domain/actor.ts";
+import { IssueId, ProjectId, TimelineEventId, WorkspaceId } from "../domain/entity-id.ts";
 import { IdempotencyKey } from "../domain/idempotency.ts";
 import {
   ProjectCursor,
@@ -15,9 +22,23 @@ import {
   WorkspaceCursor,
   WorkspacePageLimitFromString,
 } from "../domain/pagination.ts";
+import {
+  IssueBody,
+  IssueNumber,
+  IssueNumberFromString,
+  IssueTimestamp,
+  IssueTitle,
+  RevisionNumber,
+  TimelinePosition,
+} from "../domain/issue.ts";
 import { ProjectName, ProjectTimestamp } from "../domain/project.ts";
 import { WorkspaceName, WorkspaceTimestamp } from "../domain/workspace.ts";
-import { MoveProjectRequest, ProjectNameRequest, WorkspaceNameRequest } from "./request-schemas.ts";
+import {
+  CreateIssueRequest,
+  MoveProjectRequest,
+  ProjectNameRequest,
+  WorkspaceNameRequest,
+} from "./request-schemas.ts";
 
 /** Stable paths owned by the discovery contract. */
 export const DiscoveryPaths = {
@@ -36,7 +57,7 @@ export const DiscoveryMediaTypes = {
   schema: "application/schema+json",
 } as const;
 
-export { ProjectSchemaPaths, WorkspaceSchemaPaths } from "./request-schemas.ts";
+export { IssueSchemaPaths, ProjectSchemaPaths, WorkspaceSchemaPaths } from "./request-schemas.ts";
 
 const LinkMethod = Schema.Literals(["GET", "POST", "PATCH"]);
 const RequestSchemaReference = Schema.String.check(
@@ -181,6 +202,8 @@ const projectCreateProblems = errorsAtStatuses([400, 403, 404, 409, 413, 415, 42
 const projectReadProblems = errorsAtStatuses([400, 404, 406, 500, 503]);
 const projectRenameProblems = errorsAtStatuses([400, 403, 404, 413, 415, 422, 500, 503]);
 const projectMoveProblems = errorsAtStatuses([400, 403, 404, 409, 413, 415, 422, 500, 503]);
+const issueCreateProblems = errorsAtStatuses([400, 403, 404, 409, 413, 415, 422, 500, 503]);
+const issueReadProblems = errorsAtStatuses([400, 404, 406, 500, 503]);
 const cacheValidationHeaders = {
   accept: Schema.optionalKey(Schema.String),
   "if-none-match": Schema.optionalKey(Schema.String),
@@ -193,7 +216,12 @@ const JsonSchemaDocument = Schema.Unknown.pipe(
   HttpApiSchema.asJson({ contentType: DiscoveryMediaTypes.schema }),
 );
 
-export { MoveProjectRequest, ProjectNameRequest, WorkspaceNameRequest } from "./request-schemas.ts";
+export {
+  CreateIssueRequest,
+  MoveProjectRequest,
+  ProjectNameRequest,
+  WorkspaceNameRequest,
+} from "./request-schemas.ts";
 
 /** Full Workspace API response body. */
 export const WorkspaceResponse = Schema.Struct({
@@ -241,6 +269,103 @@ export const ProjectCollection = Schema.Struct({
 
 /** Exact active Project collection page. */
 export interface ProjectCollection extends Schema.Schema.Type<typeof ProjectCollection> {}
+
+const ApiActor = Schema.Union([
+  Schema.Struct({ kind: Schema.Literal("human"), subject: HumanPrincipalId, email: EmailAddress }),
+  Schema.Struct({ kind: Schema.Literal("agent_deployment"), deployment_id: AgentDeploymentId }),
+]);
+const ApiAgentSession = Schema.Struct({
+  session_id: AgentSessionId,
+  harness: Schema.NullOr(HarnessName),
+});
+
+/** Full canonical Issue API response body. */
+export const IssueResponse = Schema.Struct({
+  id: IssueId,
+  project_id: ProjectId,
+  number: IssueNumber,
+  title: IssueTitle,
+  body: Schema.NullOr(IssueBody),
+  state: Schema.Literal("open"),
+  lifecycle: Schema.Literal("active"),
+  created_at: IssueTimestamp,
+  updated_at: IssueTimestamp,
+  links: Schema.Record(Schema.String, Link),
+}).annotate({ identifier: "Issue" });
+
+/** Full canonical Issue API response body. */
+export interface IssueResponse extends Schema.Schema.Type<typeof IssueResponse> {}
+
+/** Immutable Issue title/body Revision returned by the API. */
+export const IssueRevisionResponse = Schema.Struct({
+  field: Schema.Literals(["title", "body"]),
+  number: RevisionNumber,
+  value: Schema.NullOr(Schema.String),
+  actor: ApiActor,
+  agent_session: Schema.NullOr(ApiAgentSession),
+  created_at: IssueTimestamp,
+}).annotate({ identifier: "IssueRevision" });
+
+/** Immutable Issue title/body Revision returned by the API. */
+export interface IssueRevisionResponse extends Schema.Schema.Type<typeof IssueRevisionResponse> {}
+
+/** Complete initial Revision history for one Issue. */
+export const IssueRevisionCollection = Schema.Struct({
+  items: Schema.Array(IssueRevisionResponse),
+  links: Schema.Record(Schema.String, Link),
+}).annotate({ identifier: "IssueRevisionCollection" });
+
+/** Complete initial Revision history for one Issue. */
+export interface IssueRevisionCollection extends Schema.Schema.Type<
+  typeof IssueRevisionCollection
+> {}
+
+/** Structured Timeline event projected at one Issue-local position. */
+export const IssueTimelineEntryResponse = Schema.Struct({
+  position: TimelinePosition,
+  event: Schema.Struct({
+    id: TimelineEventId,
+    kind: Schema.Literals(["issue_created", "internal_reference_added"]),
+    source_issue_id: IssueId,
+    target_issue_id: Schema.NullOr(IssueId),
+    actor: ApiActor,
+    agent_session: Schema.NullOr(ApiAgentSession),
+    created_at: IssueTimestamp,
+  }),
+}).annotate({ identifier: "IssueTimelineEntry" });
+
+/** Structured Timeline event projected at one Issue-local position. */
+export interface IssueTimelineEntryResponse extends Schema.Schema.Type<
+  typeof IssueTimelineEntryResponse
+> {}
+
+/** Complete structured Timeline introduced for one Issue. */
+export const IssueTimelineCollection = Schema.Struct({
+  items: Schema.Array(IssueTimelineEntryResponse),
+  links: Schema.Record(Schema.String, Link),
+}).annotate({ identifier: "IssueTimelineCollection" });
+
+/** Complete structured Timeline introduced for one Issue. */
+export interface IssueTimelineCollection extends Schema.Schema.Type<
+  typeof IssueTimelineCollection
+> {}
+
+const IssueReferenceResponse = Schema.Struct({
+  source_issue_id: IssueId,
+  target_issue_id: IssueId,
+});
+
+/** Current reciprocal same-Project references derived from Issue Markdown. */
+export const IssueReferenceCollection = Schema.Struct({
+  outgoing: Schema.Array(IssueReferenceResponse),
+  incoming: Schema.Array(IssueReferenceResponse),
+  links: Schema.Record(Schema.String, Link),
+}).annotate({ identifier: "IssueReferenceCollection" });
+
+/** Current reciprocal same-Project references derived from Issue Markdown. */
+export interface IssueReferenceCollection extends Schema.Schema.Type<
+  typeof IssueReferenceCollection
+> {}
 
 const workspacePath = { workspace_id: WorkspaceId };
 const mutationHeaders = {
@@ -443,6 +568,79 @@ const moveProject = HttpApiEndpoint.post("moveProject", "/api/projects/:project_
   error: projectMoveProblems,
 });
 
+const issuePath = { issue_id: IssueId };
+const numberedIssuePath = { project_id: ProjectId, issue_number: IssueNumberFromString };
+const issueCreated = IssueResponse.pipe(HttpApiSchema.status(201));
+const createIssue = HttpApiEndpoint.post("createIssue", "/api/projects/:project_id/issues", {
+  params: projectPath,
+  headers: idempotentMutationHeaders,
+  payload: CreateIssueRequest,
+  success: issueCreated,
+  error: issueCreateProblems,
+});
+const readIssue = HttpApiEndpoint.get("readIssue", "/api/issues/:issue_id", {
+  params: issuePath,
+  headers: cacheValidationHeaders,
+  success: [IssueResponse, NotModified],
+  error: issueReadProblems,
+});
+const headIssue = HttpApiEndpoint.head("headIssue", "/api/issues/:issue_id", {
+  params: issuePath,
+  headers: cacheValidationHeaders,
+  success: [IssueResponse, NotModified],
+  error: issueReadProblems,
+});
+const readNumberedIssue = HttpApiEndpoint.get(
+  "readNumberedIssue",
+  "/api/projects/:project_id/issues/:issue_number",
+  {
+    params: numberedIssuePath,
+    headers: cacheValidationHeaders,
+    success: [IssueResponse, NotModified],
+    error: issueReadProblems,
+  },
+);
+const headNumberedIssue = HttpApiEndpoint.head(
+  "headNumberedIssue",
+  "/api/projects/:project_id/issues/:issue_number",
+  {
+    params: numberedIssuePath,
+    headers: cacheValidationHeaders,
+    success: [IssueResponse, NotModified],
+    error: issueReadProblems,
+  },
+);
+const readIssueRevisions = HttpApiEndpoint.get(
+  "readIssueRevisions",
+  "/api/issues/:issue_id/revisions",
+  {
+    params: issuePath,
+    headers: cacheValidationHeaders,
+    success: [IssueRevisionCollection, NotModified],
+    error: issueReadProblems,
+  },
+);
+const readIssueTimeline = HttpApiEndpoint.get(
+  "readIssueTimeline",
+  "/api/issues/:issue_id/timeline",
+  {
+    params: issuePath,
+    headers: cacheValidationHeaders,
+    success: [IssueTimelineCollection, NotModified],
+    error: issueReadProblems,
+  },
+);
+const readIssueReferences = HttpApiEndpoint.get(
+  "readIssueReferences",
+  "/api/issues/:issue_id/references",
+  {
+    params: issuePath,
+    headers: cacheValidationHeaders,
+    success: [IssueReferenceCollection, NotModified],
+    error: issueReadProblems,
+  },
+);
+
 /** Discovery endpoints in the public Overseer API. */
 export class DiscoveryGroup extends HttpApiGroup.make("discovery")
   .add(discover)
@@ -475,6 +673,17 @@ export class ProjectGroup extends HttpApiGroup.make("projects")
   .add(renameProject)
   .add(moveProject) {}
 
+/** Issue discovery endpoints in the public Overseer API. */
+export class IssueGroup extends HttpApiGroup.make("issues")
+  .add(createIssue)
+  .add(readIssue)
+  .add(headIssue)
+  .add(readNumberedIssue)
+  .add(headNumberedIssue)
+  .add(readIssueRevisions)
+  .add(readIssueTimeline)
+  .add(readIssueReferences) {}
+
 /** Cloudflare Access assertion scheme published in generated OpenAPI. */
 export class CloudflareAccess extends HttpApiMiddleware.Service<CloudflareAccess>()(
   "CloudflareAccess",
@@ -499,4 +708,5 @@ export class OverseerApi extends HttpApi.make("overseer")
   .add(DiscoveryGroup)
   .add(WorkspaceGroup)
   .add(ProjectGroup)
+  .add(IssueGroup)
   .middleware(CloudflareAccess) {}

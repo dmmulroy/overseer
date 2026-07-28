@@ -9,6 +9,7 @@ export type GatewayFixtureConfig = {
   readonly accessJwks: string;
   readonly allowedOrigin: string;
   readonly assetsDirectory?: string;
+  readonly port?: number;
 };
 
 /** Start the production Gateway bundle in workerd. */
@@ -32,10 +33,12 @@ export async function startGateway(config: GatewayFixtureConfig): Promise<Minifl
   }
 
   return new Miniflare({
+    ...(config.port === undefined ? {} : { port: config.port }),
     compatibilityDate: "2026-07-19",
     modules: [{ type: "ESModule", path: "gateway.js", contents: output.text }],
     durableObjects: {
       WORKSPACE_REGISTRY: { className: "TestWorkspaceRegistry", useSQLite: true },
+      PROJECTS: { className: "TestProject", useSQLite: true },
     },
     outboundService: (request: Request) => {
       const url = new URL(request.url);

@@ -75,6 +75,8 @@ function applicationHarness(
         }),
       updateProjectName: () => Effect.die("not used"),
       moveProject: () => Effect.die("not used"),
+      findIssueOwner: () => Effect.die("not used"),
+      insertIssueOwner: () => Effect.die("not used"),
     }),
   );
   return {

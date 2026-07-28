@@ -69,6 +69,13 @@ const migrations = SqliteMigrator.fromRecord({
       project_snapshot_json TEXT NOT NULL
     )`;
   }),
+  "3_add_issue_owner_locator": Effect.gen(function* () {
+    const sql = yield* SqlClient.SqlClient;
+    yield* sql`CREATE TABLE IF NOT EXISTS issue_owners (
+      issue_id TEXT PRIMARY KEY NOT NULL,
+      project_id TEXT NOT NULL REFERENCES projects(id)
+    )`;
+  }),
 });
 
 const migrateWorkspaceRegistry: Effect.Effect<

@@ -76,3 +76,36 @@ export const AuthenticatedPrincipal = Schema.TaggedUnion({
 
 /** A principal established by a validated Cloudflare Access assertion. */
 export type AuthenticatedPrincipal = typeof AuthenticatedPrincipal.Type;
+
+/** Immutable principal snapshot attributed to a committed change. */
+export const Actor = Schema.TaggedUnion({
+  HumanActor: {
+    subject: HumanPrincipalId,
+    email: EmailAddress,
+  },
+  AgentDeploymentActor: {
+    deploymentId: AgentDeploymentId,
+  },
+});
+
+/** Immutable principal snapshot attributed to a committed change. */
+export type Actor = typeof Actor.Type;
+
+/** Untrusted Agent session metadata captured separately from authority. */
+export const AgentSession = Schema.Struct({
+  sessionId: AgentSessionId,
+  harness: Schema.NullOr(HarnessName),
+});
+
+/** Untrusted Agent session metadata captured separately from authority. */
+export interface AgentSession extends Schema.Schema.Type<typeof AgentSession> {}
+
+/** Immutable attribution captured with one committed command. */
+export const CommandAttribution = Schema.Struct({
+  actor: Actor,
+  agentSession: Schema.NullOr(AgentSession),
+  requestId: RequestId,
+});
+
+/** Immutable attribution captured with one committed command. */
+export interface CommandAttribution extends Schema.Schema.Type<typeof CommandAttribution> {}

@@ -2,6 +2,7 @@ import * as BrowserCrypto from "@effect/platform-browser/BrowserCrypto";
 import * as Cloudflare from "alchemy/Cloudflare";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
+import { layer as projectOperationsLayer } from "../application/gateway/project-operations.ts";
 import {
   layer as ulidGeneratorLayer,
   UlidGeneratorService,
@@ -20,9 +21,11 @@ import {
   layer as problemResponseLayer,
   renderGatewayConfigurationUnavailable,
 } from "../adapters/gateway/problem-response.ts";
+import { layer as projectClientLayer } from "../adapters/gateway/project-rpc-client.ts";
 import { layer as workspaceRegistryClientLayer } from "../adapters/gateway/workspace-registry-rpc-client.ts";
 import { makeRequestId } from "../domain/actor.ts";
 import { Gateway } from "./gateway-resource.ts";
+import ProjectObjectLive from "./project.ts";
 import WorkspaceRegistryObjectLive from "./workspace-registry.ts";
 
 /** Service token provisioned for authenticated Agent deployments. */
@@ -74,8 +77,12 @@ const AccessVerifierLive = accessAssertionVerifierLayer.pipe(
   Layer.provide(gatewayConfigurationLayer),
 );
 
+const ProjectOperationsLive = projectOperationsLayer.pipe(
+  Layer.provide([workspaceRegistryClientLayer, projectClientLayer]),
+);
+
 const GatewayApiLive = gatewayApiLayer.pipe(
-  Layer.provide([ProblemResponseLive, workspaceRegistryClientLayer]),
+  Layer.provide([ProblemResponseLive, workspaceRegistryClientLayer, ProjectOperationsLive]),
 );
 
 const GatewayApplicationLive = gatewayApplicationLayer.pipe(
@@ -97,6 +104,7 @@ const GatewayLive = Gateway.make(
   }).pipe(
     Effect.provide(GatewayApplicationLive),
     Effect.provide(WorkspaceRegistryObjectLive),
+    Effect.provide(ProjectObjectLive),
     Effect.catchTag("ConfigError", () =>
       Effect.logError("Gateway runtime configuration invalid").pipe(
         Effect.as({

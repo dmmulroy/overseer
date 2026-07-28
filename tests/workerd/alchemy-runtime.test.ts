@@ -10,6 +10,7 @@ import {
   WORKSPACE_REGISTRY_SINGLETON_NAME,
 } from "../../src/application/workspace-registry/workspace-registry-rpc.ts";
 import {
+  IssueResponse,
   ProjectCollection,
   ProjectResponse,
   WorkspaceCollection,
@@ -104,6 +105,14 @@ async function createProject(runtime: Miniflare, workspaceId: string, name: stri
     method: "POST",
     headers: { "content-type": "application/json", "idempotency-key": key },
     body: JSON.stringify({ name }),
+  });
+}
+
+async function createIssue(runtime: Miniflare, projectId: string, title: string, key: string) {
+  return api(runtime, `/api/projects/${projectId}/issues`, {
+    method: "POST",
+    headers: { "content-type": "application/json", "idempotency-key": key },
+    body: JSON.stringify({ title }),
   });
 }
 
@@ -424,6 +433,34 @@ describe("production Alchemy runtime", () => {
         expect.objectContaining({ name: "Alchemy first" }),
         expect.objectContaining({ name: "Alchemy second" }),
       ]),
+    });
+  });
+
+  it("creates and canonically routes an Issue through the production Project bridge", async () => {
+    const workspace = Schema.decodeUnknownSync(WorkspaceResponse)(
+      await (
+        await createWorkspace(gateway, "Alchemy Issue Workspace", "alchemy-issue-workspace")
+      ).json(),
+    );
+    const project = Schema.decodeUnknownSync(ProjectResponse)(
+      await (
+        await createProject(gateway, workspace.id, "Alchemy Issue Project", "alchemy-issue-project")
+      ).json(),
+    );
+    const created = await createIssue(
+      gateway,
+      project.id,
+      "Alchemy bridged Issue",
+      "alchemy-issue-create",
+    );
+    expect(created.status).toBe(201);
+    const issue = Schema.decodeUnknownSync(IssueResponse)(await created.json());
+    const canonical = await api(gateway, `/api/issues/${issue.id}`);
+    expect(canonical.status).toBe(200);
+    await expect(canonical.json()).resolves.toMatchObject({
+      id: issue.id,
+      project_id: project.id,
+      number: 1,
     });
   });
 

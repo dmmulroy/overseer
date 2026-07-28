@@ -28,6 +28,7 @@ import {
   type WorkspacePageLimit,
   WorkspacePageLimitFromString,
 } from "../../domain/pagination.ts";
+import type { IssueId } from "../../domain/entity-id.ts";
 
 /** Generated browser client and Atom runtime for Overseer's HTTP contract. */
 export class OverseerHttpClient extends AtomHttpApi.Service<OverseerHttpClient>()(
@@ -744,6 +745,25 @@ const readProjectCollection = Effect.gen(function* () {
     query = { cursor: navigation.cursor, limit: navigation.limit };
   }
 });
+
+/** Create-Issue command backed by the generated HTTP contract client. */
+export const createIssueMutation = OverseerHttpClient.mutation("issues", "createIssue");
+
+/** Canonical Issue query family with focused-route polling. */
+export const issueQuery = Atom.family((issueId: IssueId) =>
+  OverseerHttpClient.query("issues", "readIssue", {
+    params: { issue_id: issueId },
+    headers: {},
+  }).pipe(
+    Atom.swr({
+      staleTime: "5 seconds",
+      revalidateOnFocus: true,
+      focusSignal: Atom.windowFocusSignal,
+    }),
+    Atom.withRefresh("15 seconds"),
+    Atom.setIdleTTL("5 minutes"),
+  ),
+);
 
 /** Complete Project collection query with per-page ETag cache validation. */
 export const projectQuery = OverseerHttpClient.runtime.atom(readProjectCollection).pipe(

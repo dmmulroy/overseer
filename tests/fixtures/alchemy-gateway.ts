@@ -125,6 +125,9 @@ export async function startAlchemyGateway(config: AlchemyGatewayFixtureConfig): 
             WorkspaceRegistryObject: {
               kind: "durableObject",
             } as DurableObjectExport,
+            ProjectObject: {
+              kind: "durableObject",
+            } as DurableObjectExport,
           },
         },
         stack: {
@@ -161,6 +164,10 @@ export async function startAlchemyGateway(config: AlchemyGatewayFixtureConfig): 
     durableObjects: {
       WorkspaceRegistryObject: {
         className: "WorkspaceRegistryObject",
+        useSQLite: true,
+      },
+      ProjectObject: {
+        className: "ProjectObject",
         useSQLite: true,
       },
     },

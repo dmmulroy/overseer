@@ -349,6 +349,7 @@ describe("authenticated API discovery", () => {
         { href: expect.stringMatching(/^\/api\/schemas\/sha256-[0-9a-f]{64}\/create_project$/) },
         { href: expect.stringMatching(/^\/api\/schemas\/sha256-[0-9a-f]{64}\/rename_project$/) },
         { href: expect.stringMatching(/^\/api\/schemas\/sha256-[0-9a-f]{64}\/move_project$/) },
+        { href: expect.stringMatching(/^\/api\/schemas\/sha256-[0-9a-f]{64}\/create_issue$/) },
       ],
       links: {
         self: { href: "/api/schemas" },

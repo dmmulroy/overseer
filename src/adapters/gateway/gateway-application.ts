@@ -11,7 +11,7 @@ import { HttpApiSchemaError } from "effect/unstable/httpapi/HttpApiError";
 import * as HttpServerRequest from "effect/unstable/http/HttpServerRequest";
 import * as HttpServerResponse from "effect/unstable/http/HttpServerResponse";
 import { UlidGeneratorService } from "../../application/ulid-generator.ts";
-import { makeRequestId, type RequestId } from "../../domain/actor.ts";
+import { Actor, makeRequestId, type RequestId } from "../../domain/actor.ts";
 import { AccessAssertionVerifier } from "./access-principal.ts";
 import { GatewayConfiguration } from "./gateway-configuration.ts";
 import { GatewayApi } from "./gateway-http.ts";
@@ -81,12 +81,12 @@ function schemaFailureResponse(
     checkHook: () => "Invalid value.",
   })(defect.cause.issue).issues;
   const root = defect.kind === "Payload" ? "body" : defect.kind.toLowerCase();
-  const isNameValidation =
+  const isFieldValidation =
     defect.kind === "Payload" && !isStructuralSchemaIssue(defect.cause.issue);
   return problems.render({
-    code: isNameValidation ? "validation_failed" : "malformed_request",
-    detail: isNameValidation
-      ? "The Workspace name is invalid."
+    code: isFieldValidation ? "validation_failed" : "malformed_request",
+    detail: isFieldValidation
+      ? "A request field value is invalid."
       : "The request did not match the declared API contract.",
     requestId,
     errors: formatted.map((issue) => {
@@ -159,7 +159,7 @@ export const make = Effect.gen(function* () {
       const isSafe =
         request.method === "GET" || request.method === "HEAD" || request.method === "OPTIONS";
       const mutationAdmission = isSafe
-        ? undefined
+        ? null
         : yield* admitMutationRequest(
             request,
             authentication.success,
@@ -170,6 +170,15 @@ export const make = Effect.gen(function* () {
       if (HttpServerResponse.isHttpServerResponse(mutationAdmission)) {
         return mutationAdmission;
       }
+      const actor =
+        authentication.success._tag === "HumanPrincipal"
+          ? Actor.cases.HumanActor.make({
+              subject: authentication.success.subject,
+              email: authentication.success.email,
+            })
+          : Actor.cases.AgentDeploymentActor.make({
+              deploymentId: authentication.success.deploymentId,
+            });
 
       if (!isSafe) {
         const bodyStatus = yield* inspectRequestBody(request);
@@ -188,7 +197,10 @@ export const make = Effect.gen(function* () {
       return yield* api
         .handle(requestId)
         .pipe(
-          Effect.provideService(GatewayRequestContext, GatewayRequestContext.of({ requestId })),
+          Effect.provideService(
+            GatewayRequestContext,
+            GatewayRequestContext.of({ requestId, actor, agentSession: mutationAdmission }),
+          ),
         );
     }).pipe(
       Effect.catchCause((cause) => {

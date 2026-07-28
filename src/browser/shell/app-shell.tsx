@@ -1,15 +1,20 @@
-import { useAtomRefresh, useAtomValue } from "@effect/atom-react";
-import { Link, useNavigate, useSearch } from "@tanstack/react-router";
+import { useAtomRefresh, useAtomSet, useAtomValue } from "@effect/atom-react";
+import { Link, useNavigate, useParams, useSearch } from "@tanstack/react-router";
 import * as Option from "effect/Option";
+import * as Schema from "effect/Schema";
 import { AsyncResult } from "effect/unstable/reactivity";
 import { useCallback, useEffect, useState } from "react";
 import {
+  createIssueMutation,
   discoveryQuery,
+  issueQuery,
   projectQuery,
   workspaceQuery,
 } from "../../adapters/web-client/api-resources.ts";
-import type { ProjectResponse, WorkspaceResponse } from "../../contract/http-api.ts";
-import type { ProjectId, WorkspaceId } from "../../domain/entity-id.ts";
+import type { IssueResponse, ProjectResponse, WorkspaceResponse } from "../../contract/http-api.ts";
+import { IssueId, type ProjectId, type WorkspaceId } from "../../domain/entity-id.ts";
+import { IdempotencyKey } from "../../domain/idempotency.ts";
+import { IssueBody, IssueTitle } from "../../domain/issue.ts";
 import { cn } from "../../lib/ui-classnames.ts";
 import { Button } from "../../ui/primitives/button.tsx";
 import { useTheme } from "../../ui/theme-provider.tsx";
@@ -234,6 +239,127 @@ function LoadingCard(props: {
       <span aria-label={props.label} className="sr-only" role="status">
         {props.label}
       </span>
+    </StateCard>
+  );
+}
+
+function CreateIssueForm(props: { readonly projectId: ProjectId }): React.JSX.Element {
+  const command = useAtomValue(createIssueMutation);
+  const createIssue = useAtomSet(createIssueMutation);
+  const navigate = useNavigate();
+  const [title, setTitle] = useState("");
+  const [body, setBody] = useState("");
+  const created = AsyncResult.value(command);
+
+  useEffect(() => {
+    if (Option.isNone(created)) return;
+    void navigate({
+      to: "/issues/$issueId",
+      params: { issueId: created.value.id },
+      search: (previous) => ({
+        workspace_id: previous.workspace_id,
+        project_id: previous.project_id,
+      }),
+    });
+  }, [created, navigate]);
+
+  return (
+    <form
+      className="mt-8 grid gap-3 border-t pt-6"
+      onSubmit={(event) => {
+        event.preventDefault();
+        const parsedTitle = Schema.decodeUnknownOption(IssueTitle)(title);
+        const parsedBody =
+          body.length === 0
+            ? Option.none<IssueBody>()
+            : Schema.decodeUnknownOption(IssueBody)(body);
+        if (Option.isNone(parsedTitle) || (body.length > 0 && Option.isNone(parsedBody))) return;
+        createIssue({
+          params: { project_id: props.projectId },
+          headers: {
+            "content-type": "application/json",
+            "idempotency-key": IdempotencyKey.make(`browser-issue-${crypto.randomUUID()}`),
+          },
+          payload: {
+            title: parsedTitle.value,
+            ...(Option.isSome(parsedBody) ? { body: parsedBody.value } : {}),
+          },
+        });
+      }}
+    >
+      <Eyebrow>Create Issue</Eyebrow>
+      <label className="grid gap-1.5 text-sm">
+        <span>Title</span>
+        <input
+          className="h-8 rounded-md border bg-surface-raised px-2"
+          name="title"
+          onChange={(event) => setTitle(event.currentTarget.value)}
+          required
+          value={title}
+        />
+      </label>
+      <label className="grid gap-1.5 text-sm">
+        <span>Body (Markdown, optional)</span>
+        <textarea
+          className="min-h-24 rounded-md border bg-surface-raised p-2"
+          name="body"
+          onChange={(event) => setBody(event.currentTarget.value)}
+          value={body}
+        />
+      </label>
+      <Button disabled={command.waiting} type="submit">
+        {command.waiting ? "Creating…" : "Create Issue"}
+      </Button>
+      {AsyncResult.isFailure(command) ? (
+        <p className="text-sm text-destructive" role="alert">
+          The Issue could not be created. Review the fields and try again.
+        </p>
+      ) : null}
+    </form>
+  );
+}
+
+function FocusedIssueContent(props: { readonly issueId: IssueId }): React.JSX.Element {
+  const state = useAtomValue(issueQuery(props.issueId));
+  const issue = Option.filter(
+    AsyncResult.value(state),
+    (value): value is IssueResponse => value !== undefined,
+  );
+  if (Option.isNone(issue)) {
+    return state._tag === "Failure" ? (
+      <StateCard>
+        <div role="alert">
+          <Eyebrow>Issue unavailable</Eyebrow>
+          <h1 className="text-3xl font-semibold">Issue unavailable</h1>
+        </div>
+      </StateCard>
+    ) : (
+      <LoadingCard
+        label="Loading Issue"
+        title="Loading Issue"
+        message="Opening the canonical Issue route…"
+      />
+    );
+  }
+  return (
+    <StateCard className="issue-focused">
+      <Eyebrow>Issue #{issue.value.number}</Eyebrow>
+      <h1 className="text-3xl font-semibold tracking-tight sm:text-4xl">{issue.value.title}</h1>
+      {issue.value.body === null ? (
+        <p className="mt-5 text-muted-foreground">No body.</p>
+      ) : (
+        <pre className="mt-5 whitespace-pre-wrap font-sans leading-6">{issue.value.body}</pre>
+      )}
+      <Link
+        className="mt-6 inline-flex text-sm font-medium underline underline-offset-4"
+        to="/"
+        search={(previous) => ({
+          workspace_id: previous.workspace_id,
+          project_id: previous.project_id,
+        })}
+      >
+        Back to Project
+      </Link>
     </StateCard>
   );
 }
@@ -525,6 +651,9 @@ function WorkspaceContent(props: WorkspaceContentProps): React.JSX.Element {
           Refresh Projects
         </Button>
       </div>
+      {Option.isSome(props.selectedProject) ? (
+        <CreateIssueForm projectId={props.selectedProject.value.id} />
+      ) : null}
     </StateCard>
   );
 }
@@ -539,6 +668,8 @@ export function AppShell(): React.JSX.Element {
   const refreshProjects = useAtomRefresh(projectQuery);
   const navigate = useNavigate({ from: "/" });
   const search = useSearch({ from: "__root__" });
+  const params = useParams({ strict: false });
+  const focusedIssueId = Schema.decodeUnknownOption(IssueId)(params.issueId);
   const workspaceResource = AsyncResult.value(workspacesState);
   const projectResource = AsyncResult.value(projectsState);
   const workspaces = Option.match(workspaceResource, {
@@ -643,25 +774,29 @@ export function AppShell(): React.JSX.Element {
         <div className="absolute right-4 top-17 w-28 md:hidden">
           <ThemeControl />
         </div>
-        <WorkspaceContent
-          discoveryInitial={discovery._tag === "Initial"}
-          discoveryUnavailable={discoveryUnavailable}
-          lastValidated={lastValidated}
-          projectInitial={projectsState._tag === "Initial"}
-          projectRequested={Option.isSome(projectId)}
-          projectStale={projectStale}
-          projectUnavailable={projectUnavailable}
-          refreshDiscovery={refreshDiscovery}
-          refreshProjects={refreshProjects}
-          refreshWorkspaces={refreshWorkspaces}
-          selectedProject={selectedProject}
-          selectedWorkspace={selectedWorkspace}
-          waiting={workspacesState.waiting || projectsState.waiting}
-          workspaceInitial={workspacesState._tag === "Initial"}
-          workspaceStale={workspaceStale}
-          workspaceUnavailable={workspaceUnavailable}
-          workspaces={workspaces}
-        />
+        {Option.isSome(focusedIssueId) ? (
+          <FocusedIssueContent issueId={focusedIssueId.value} />
+        ) : (
+          <WorkspaceContent
+            discoveryInitial={discovery._tag === "Initial"}
+            discoveryUnavailable={discoveryUnavailable}
+            lastValidated={lastValidated}
+            projectInitial={projectsState._tag === "Initial"}
+            projectRequested={Option.isSome(projectId)}
+            projectStale={projectStale}
+            projectUnavailable={projectUnavailable}
+            refreshDiscovery={refreshDiscovery}
+            refreshProjects={refreshProjects}
+            refreshWorkspaces={refreshWorkspaces}
+            selectedProject={selectedProject}
+            selectedWorkspace={selectedWorkspace}
+            waiting={workspacesState.waiting || projectsState.waiting}
+            workspaceInitial={workspacesState._tag === "Initial"}
+            workspaceStale={workspaceStale}
+            workspaceUnavailable={workspaceUnavailable}
+            workspaces={workspaces}
+          />
+        )}
       </main>
     </div>
   );

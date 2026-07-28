@@ -14,6 +14,7 @@ import * as HttpRouter from "effect/unstable/http/HttpRouter";
 import * as HttpServerRequest from "effect/unstable/http/HttpServerRequest";
 import * as HttpServerResponse from "effect/unstable/http/HttpServerResponse";
 import * as HttpApiBuilder from "effect/unstable/httpapi/HttpApiBuilder";
+import { ProjectOperationsService } from "../../application/gateway/project-operations.ts";
 import { WorkspaceRegistryService } from "../../application/workspace-registry/workspace-registry.ts";
 import { CloudflareAccess, OverseerApi } from "../../contract/http-api.ts";
 import { openApiDocument } from "../../contract/openapi.ts";
@@ -23,6 +24,7 @@ import type { RequestId } from "../../domain/actor.ts";
 import { GatewayRequestContext } from "./gateway-request-context.ts";
 import { ProblemResponse } from "./problem-response.ts";
 import { finalizeApiResponse } from "./api-response.ts";
+import { layer as issueHttpLayer } from "./issue-http.ts";
 import { layer as projectHttpLayer } from "./project-http.ts";
 import { layer as workspaceHttpLayer } from "./workspace-http.ts";
 
@@ -114,16 +116,19 @@ export const make = Effect.gen(function* () {
   const crypto = yield* Crypto.Crypto;
   const problems = yield* ProblemResponse;
   const workspaceRegistry = yield* WorkspaceRegistryService;
+  const projectOperations = yield* ProjectOperationsService;
   const apiLive = HttpApiBuilder.layer(OverseerApi).pipe(
     Layer.provide(discoveryHttpLayer),
     Layer.provide(workspaceHttpLayer),
     Layer.provide(projectHttpLayer),
+    Layer.provide(issueHttpLayer),
     Layer.provide(authenticatedAccess),
     Layer.provide([Etag.layer, HttpPlatformLive, Path.layer, FileSystem.layerNoop({})]),
   );
   const handleDeclaredApi = (yield* HttpRouter.toHttpEffect(apiLive)).pipe(
     Effect.provideService(ProblemResponse, problems),
     Effect.provideService(WorkspaceRegistryService, workspaceRegistry),
+    Effect.provideService(ProjectOperationsService, projectOperations),
   );
 
   const handle = Effect.fn("Gateway.handleApiRequest")(function* (requestId: RequestId) {
