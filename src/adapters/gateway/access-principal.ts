@@ -6,7 +6,7 @@ import * as Option from "effect/Option";
 import * as Redacted from "effect/Redacted";
 import * as Schema from "effect/Schema";
 import {
-  AgentDeploymentId,
+  AgentId,
   AuthenticatedPrincipal,
   EmailAddress,
   HumanPrincipalId,
@@ -15,14 +15,14 @@ import { GatewayConfiguration } from "./gateway-configuration.ts";
 
 const InvalidAccessIdentityReason = Schema.Literals([
   "unsupported_token_type",
-  "invalid_agent_client_id",
+  "invalid_agent_id",
   "invalid_human_claims",
 ]);
 type InvalidAccessIdentityReason = typeof InvalidAccessIdentityReason.Type;
 
 const invalidIdentityMessages: Readonly<Record<InvalidAccessIdentityReason, string>> = {
   unsupported_token_type: "The assertion is not an application token",
-  invalid_agent_client_id: "The Agent deployment client ID is invalid",
+  invalid_agent_id: "The Agent identity is invalid",
   invalid_human_claims: "The human identity claims are invalid",
 };
 
@@ -46,12 +46,12 @@ function parseAccessIdentity(
   }
 
   if (typeof claims.common_name === "string" && (claims.sub === undefined || claims.sub === "")) {
-    const deploymentId = Schema.decodeUnknownOption(AgentDeploymentId)(claims.common_name);
-    return Option.isSome(deploymentId)
-      ? AuthenticatedPrincipal.cases.AgentDeploymentPrincipal.make({
-          deploymentId: deploymentId.value,
+    const agentId = Schema.decodeUnknownOption(AgentId)(claims.common_name);
+    return Option.isSome(agentId)
+      ? AuthenticatedPrincipal.cases.AgentPrincipal.make({
+          agentId: agentId.value,
         })
-      : new InvalidAccessIdentity("invalid_agent_client_id");
+      : new InvalidAccessIdentity("invalid_agent_id");
   }
 
   const subject = Schema.decodeUnknownOption(HumanPrincipalId)(claims.sub);

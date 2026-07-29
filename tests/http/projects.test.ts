@@ -166,7 +166,7 @@ describe("Project REST interface", () => {
     await expect(noChange.json()).resolves.toMatchObject({ updated_at: renamedProject.updated_at });
   });
 
-  it("allows an authenticated Agent deployment to create and discover a Project", async () => {
+  it("allows an authenticated Agent to create and discover a Project", async () => {
     const workspace = await createWorkspace("Agent Workspace", "project-agent-workspace");
     const created = await agentApi(`/api/workspaces/${workspace.id}/projects`, {
       method: "POST",

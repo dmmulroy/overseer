@@ -25,7 +25,7 @@ import { ProblemResponse } from "./problem-response.ts";
 function apiActor(actor: Actor) {
   return actor._tag === "HumanActor"
     ? { kind: "human" as const, subject: actor.subject, email: actor.email }
-    : { kind: "agent_deployment" as const, deployment_id: actor.deploymentId };
+    : { kind: "agent" as const, agent_id: actor.agentId };
 }
 function apiAgentSession(session: AgentSession | null) {
   return session === null ? null : { session_id: session.sessionId, harness: session.harness };

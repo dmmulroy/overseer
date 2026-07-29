@@ -36,7 +36,7 @@ The internal data schema follows expand/contract when necessary. Forward migrati
 
 - architecture and program design accepted;
 - pinned Effect/Cloudflare compatibility fixture available as a gate;
-- Alchemy stage names, hostname, Access audience/issuer, human test identity, and Agent-deployment test credential configured;
+- Alchemy stage names, hostname, Access audience/issuer, human test identity, and Agent test credential configured;
 - exact Effect `4.0.0-beta.98` and Alchemy `2.0.0-beta.64` pins.
 
 **Vertical scope**
@@ -65,7 +65,7 @@ Archive/restore is deferred to the lifecycle slice so this checkpoint stays focu
 
 **Acceptance demonstration**
 
-1. An Agent client with a test Agent-deployment Access identity requests `/api`, follows `workspaces`, follows its create schema, and creates “Personal” with an idempotency key.
+1. An Agent client with a test Agent Access identity requests `/api`, follows `workspaces`, follows its create schema, and creates “Personal” with an idempotency key.
 2. Replaying that key with a changed body or principal returns the same Workspace's current data with `201` and `Idempotency-Replayed: true`; reusing it for Project creation returns the typed cross-result conflict.
 3. The Agent client creates “Overseer,” follows canonical links, moves it to a second Workspace, and proves its Project URL/ID did not change.
 4. `If-None-Match` on an unchanged Project returns `304`; OpenAPI and schema links resolve with their specified media/cache behavior.
@@ -165,7 +165,7 @@ Filters whose underlying data has not been introduced yet still parse according 
 2. A second stale claim gets `409 action_not_applicable`, the current Issue, and a safe `reassign` recovery link. A deliberate reassign succeeds.
 3. Repeating achieved close/release target states is a no-op: no timestamp advance and no extra Timeline event. Replaying a create key returns the current data for the originally created entity.
 4. Timeline reads show immutable Actor and Agent-session snapshots in true Issue-local order, including reference events produced by Issue bodies created in Slice 2; the owning Issue and visible list converge after each command.
-5. In the browser, keyboard and pointer users steer the Issue, see optimistic rollback on a retryable failure without misleading action links, and observe an external Agent-deployment change through ordinary polling.
+5. In the browser, keyboard and pointer users steer the Issue, see optimistic rollback on a retryable failure without misleading action links, and observe an external Agent change through ordinary polling.
 
 **Runnable state:** Overseer supports the minimum read-and-steer loop for human and Agent-client coordination.
 

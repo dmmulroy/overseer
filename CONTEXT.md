@@ -38,19 +38,19 @@ A directed prerequisite between issues in the same project: one issue is blocked
 _Avoid_: Dependency (when the direction is unspecified)
 
 **Authenticated principal**:
-A verified request identity: either the single human or one independently managed Agent deployment. Every Authenticated principal has equal authority in the MVP; it is not a User account.
+A verified request identity: either the single human or one independently managed Agent. Every Authenticated principal has equal authority in the MVP; it is not a User account.
 _Avoid_: User, account
 
-**Agent deployment**:
-An independently credentialed device, runner, or integration under which many concurrent Agent sessions may operate. Replacing its credential identity creates a new Agent deployment; prior attribution is not migrated.
-_Avoid_: Agent, user
+**Agent**:
+An independently credentialed device, runner, or integration under which many concurrent Agent sessions may operate. Replacing its credential identity creates a new Agent; prior attribution is not migrated.
+_Avoid_: User
 
 **Agent session**:
-One logical agent run or conversation on an Agent deployment, correlated by a caller-provided session ID that remains stable across requests and reconnects. Its optional harness name and session ID are untrusted metadata, never authority.
+One logical agent run or conversation associated with an Agent, correlated by a caller-provided session ID that remains stable across requests and reconnects. Its optional harness name and session ID are untrusted metadata, never authority.
 _Avoid_: Request ID, credential
 
 **Actor**:
-An immutable attribution value captured on a Comment or Timeline event, identifying either the human or an Agent deployment. Agent-session metadata is captured separately, and an Actor is not an independently addressable entity.
+An immutable attribution value captured on a Comment or Timeline event, identifying either the human or an Agent. Agent-session metadata is captured separately, and an Actor is not an independently addressable entity.
 _Avoid_: User, author
 
 **Assignee**:

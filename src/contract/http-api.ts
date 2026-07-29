@@ -7,7 +7,7 @@ import * as HttpApiSchema from "effect/unstable/httpapi/HttpApiSchema";
 import * as HttpApiSecurity from "effect/unstable/httpapi/HttpApiSecurity";
 import * as OpenApi from "effect/unstable/httpapi/OpenApi";
 import {
-  AgentDeploymentId,
+  AgentId,
   AgentSessionId,
   EmailAddress,
   HarnessName,
@@ -272,7 +272,7 @@ export interface ProjectCollection extends Schema.Schema.Type<typeof ProjectColl
 
 const ApiActor = Schema.Union([
   Schema.Struct({ kind: Schema.Literal("human"), subject: HumanPrincipalId, email: EmailAddress }),
-  Schema.Struct({ kind: Schema.Literal("agent_deployment"), deployment_id: AgentDeploymentId }),
+  Schema.Struct({ kind: Schema.Literal("agent"), agent_id: AgentId }),
 ]);
 const ApiAgentSession = Schema.Struct({
   session_id: AgentSessionId,

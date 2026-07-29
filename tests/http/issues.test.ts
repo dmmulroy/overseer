@@ -176,7 +176,7 @@ describe("Issue REST interface", () => {
     expect(next.number).toBe(firstIssue.number + 1);
   });
 
-  it("captures Agent deployment/session attribution immutably", async () => {
+  it("captures Agent/session attribution immutably", async () => {
     const response = await gateway.dispatchFetch(`${origin}/api/projects/${projectId}/issues`, {
       method: "POST",
       headers: {
@@ -194,7 +194,7 @@ describe("Issue REST interface", () => {
     );
     expect(timeline.items[0]).toMatchObject({
       event: {
-        actor: { kind: "agent_deployment", deployment_id: "issue-agent.access" },
+        actor: { kind: "agent", agent_id: "issue-agent.access" },
         agent_session: { session_id: "session-58", harness: "pi" },
       },
     });

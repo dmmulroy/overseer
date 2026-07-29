@@ -176,8 +176,8 @@ export const make = Effect.gen(function* () {
               subject: authentication.success.subject,
               email: authentication.success.email,
             })
-          : Actor.cases.AgentDeploymentActor.make({
-              deploymentId: authentication.success.deploymentId,
+          : Actor.cases.AgentActor.make({
+              agentId: authentication.success.agentId,
             });
 
       if (!isSafe) {

@@ -28,20 +28,20 @@ import { Gateway } from "./gateway-resource.ts";
 import ProjectObjectLive from "./project.ts";
 import WorkspaceRegistryObjectLive from "./workspace-registry.ts";
 
-/** Service token provisioned for authenticated Agent deployments. */
-export const AgentDeploymentToken = Cloudflare.Access.ServiceToken("AgentDeployment", {
+/** Service token provisioned for authenticated Agents. */
+export const AgentToken = Cloudflare.Access.ServiceToken("Agent", {
   duration: "8760h",
 });
 
 const GatewayProps = Effect.gen(function* () {
   const configuration = yield* GatewayDeploymentConfiguration;
-  const agentToken = yield* AgentDeploymentToken;
+  const agentToken = yield* AgentToken;
 
   const humanPolicy = yield* Cloudflare.Access.Policy("Human", {
     decision: "allow",
     include: [{ email: { email: configuration.ownerEmail } }],
   });
-  const agentPolicy = yield* Cloudflare.Access.Policy("AgentDeployment", {
+  const agentPolicy = yield* Cloudflare.Access.Policy("Agent", {
     decision: "non_identity",
     include: [{ serviceToken: { tokenId: agentToken.serviceTokenId } }],
   });

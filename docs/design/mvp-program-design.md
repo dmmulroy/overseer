@@ -164,18 +164,18 @@ CanonicalUrl
 
 AccessSubject
 EmailAddress
-AgentDeploymentClientId
+AgentId
 AgentSessionId
 HarnessName
 RequestId
 
 AuthenticatedPrincipal =
   | { _tag: "HumanPrincipal"; subject: AccessSubject; email: EmailAddress }
-  | { _tag: "AgentDeploymentPrincipal"; clientId: AgentDeploymentClientId }
+  | { _tag: "AgentPrincipal"; agentId: AgentId }
 
 Actor =
   | { kind: "human"; subject: AccessSubject; email: EmailAddress }
-  | { kind: "agent_deployment"; clientId: AgentDeploymentClientId }
+  | { kind: "agent"; agentId: AgentId }
 
 AgentSession = { sessionId: AgentSessionId; harness: HarnessName | null }
 CommandAttribution = { actor; agentSession: AgentSession | null; requestId: RequestId }
@@ -549,15 +549,15 @@ The browser root constructs one generated `AtomHttpApi.Service` over `FetchHttpC
 
 The seams below are the agreed interfaces for implementation slices. Lower tests supplement rather than replace the two primary seams.
 
-| Confidence sought      | Public seam                                                                                                         | Real dependencies                                                                                                              | Observable assertions                                                                                                                                                            |
-| ---------------------- | ------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Agent-client behavior  | Authenticated Gateway HTTP in local Cloudflare/workerd                                                              | Real Gateway, Workspace Registry/Project objects, SQLite, private-R2-compatible adapter, test Agent-deployment Access identity | REST data/errors, links, status/headers, ETag/304, persisted result as observed through later REST, Timeline entries, transfer bytes                                             |
-| Human behavior         | Authenticated browser SPA against that Gateway                                                                      | Built SPA, real generated client/query pipeline, same local runtime                                                            | Role/name-visible UI, URL/search state, keyboard/pointer behavior, focus return, responsive semantics, stale/draft/rollback presentation                                         |
-| Domain invariants      | Exported pure Domain Module interface                                                                               | No I/O                                                                                                                         | Parsed value/error, transition decision, graph/reference/part plan; property checks where stronger than examples                                                                 |
-| SQLite/DO mechanics    | Operation-specific Workspace Registry/Project RPC or owning application interface in representative workerd runtime | Full `ctx.storage`, migrations, transactions, interruption                                                                     | successful RPC, expected remote tag, remote defect/`RpcCallError`, commit/rollback, concurrent initialization, migration failure, reconstruction, cause-free corruption response |
-| R2 mechanics           | Authenticated Attachment HTTP seam; focused adapter check only for provider-specific ranges/multipart               | Private local R2-compatible binding                                                                                            | exact content/range headers and bytes, replacement/idempotency, no provider identifiers                                                                                          |
-| Client query mechanics | Rendered route and generated-client integration                                                                     | Effect Atom registry and controllable real HTTP server/Gateway                                                                 | 200/304, polling, cancellation, stale-readable state, optimism/rollback, targeted convergence                                                                                    |
-| Runtime compatibility  | Pinned Effect/Cloudflare fixture                                                                                    | workerd versions used by production build                                                                                      | JSON error normalization, transaction rollback/interruption, cold start/abort priming                                                                                            |
+| Confidence sought      | Public seam                                                                                                         | Real dependencies                                                                                                   | Observable assertions                                                                                                                                                            |
+| ---------------------- | ------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Agent-client behavior  | Authenticated Gateway HTTP in local Cloudflare/workerd                                                              | Real Gateway, Workspace Registry/Project objects, SQLite, private-R2-compatible adapter, test Agent Access identity | REST data/errors, links, status/headers, ETag/304, persisted result as observed through later REST, Timeline entries, transfer bytes                                             |
+| Human behavior         | Authenticated browser SPA against that Gateway                                                                      | Built SPA, real generated client/query pipeline, same local runtime                                                 | Role/name-visible UI, URL/search state, keyboard/pointer behavior, focus return, responsive semantics, stale/draft/rollback presentation                                         |
+| Domain invariants      | Exported pure Domain Module interface                                                                               | No I/O                                                                                                              | Parsed value/error, transition decision, graph/reference/part plan; property checks where stronger than examples                                                                 |
+| SQLite/DO mechanics    | Operation-specific Workspace Registry/Project RPC or owning application interface in representative workerd runtime | Full `ctx.storage`, migrations, transactions, interruption                                                          | successful RPC, expected remote tag, remote defect/`RpcCallError`, commit/rollback, concurrent initialization, migration failure, reconstruction, cause-free corruption response |
+| R2 mechanics           | Authenticated Attachment HTTP seam; focused adapter check only for provider-specific ranges/multipart               | Private local R2-compatible binding                                                                                 | exact content/range headers and bytes, replacement/idempotency, no provider identifiers                                                                                          |
+| Client query mechanics | Rendered route and generated-client integration                                                                     | Effect Atom registry and controllable real HTTP server/Gateway                                                      | 200/304, polling, cancellation, stale-readable state, optimism/rollback, targeted convergence                                                                                    |
+| Runtime compatibility  | Pinned Effect/Cloudflare fixture                                                                                    | workerd versions used by production build                                                                           | JSON error normalization, transaction rollback/interruption, cold start/abort priming                                                                                            |
 
 No test asserts internal calls, SQL table names, private atom maps, layer construction order through spies, or module layout. Module mocks are forbidden. Tests use ordinary public imports and real/injected ports. Compile-time tests cover public inference where widening would change callers.
 

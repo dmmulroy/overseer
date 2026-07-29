@@ -22,15 +22,15 @@ export const EmailAddress = Schema.String.check(
 /** Identity-provider-verified human email address. */
 export type EmailAddress = typeof EmailAddress.Type;
 
-/** Stable credential identity for one Agent deployment. */
-export const AgentDeploymentId = Schema.String.check(
+/** Stable credential identity for one authenticated Agent. */
+export const AgentId = Schema.String.check(
   Schema.isMinLength(1),
   Schema.isMaxLength(256),
   Schema.isPattern(visibleAscii),
-).pipe(Schema.brand("AgentDeploymentId"));
+).pipe(Schema.brand("AgentId"));
 
-/** Stable credential identity for one Agent deployment. */
-export type AgentDeploymentId = typeof AgentDeploymentId.Type;
+/** Stable credential identity for one authenticated Agent. */
+export type AgentId = typeof AgentId.Type;
 
 /** Caller-provided correlation identity for one Agent session. */
 export const AgentSessionId = Schema.String.check(
@@ -69,8 +69,8 @@ export const AuthenticatedPrincipal = Schema.TaggedUnion({
     subject: HumanPrincipalId,
     email: EmailAddress,
   },
-  AgentDeploymentPrincipal: {
-    deploymentId: AgentDeploymentId,
+  AgentPrincipal: {
+    agentId: AgentId,
   },
 });
 
@@ -83,8 +83,8 @@ export const Actor = Schema.TaggedUnion({
     subject: HumanPrincipalId,
     email: EmailAddress,
   },
-  AgentDeploymentActor: {
-    deploymentId: AgentDeploymentId,
+  AgentActor: {
+    agentId: AgentId,
   },
 });
 
