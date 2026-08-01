@@ -1,4 +1,5 @@
 import * as Schema from "effect/Schema";
+import { createServer } from "node:net";
 import { exportJWK, generateKeyPair, SignJWT } from "jose";
 import { chromium, type Browser, type BrowserContext, type Page } from "playwright";
 import axe from "axe-core";
@@ -24,6 +25,7 @@ let context: BrowserContext;
 let gateway: Miniflare;
 let page: Page;
 let gatewayUrl: URL;
+let gatewayOrigin: string;
 let assertion: string;
 let consoleErrors: Array<string>;
 let pageErrors: Array<string>;
@@ -34,6 +36,22 @@ async function expectNoAccessibilityViolations(target: Page): Promise<void> {
   expect(accessibility.violations).toEqual([]);
 }
 
+function allocateBrowserTestPort(): Promise<number> {
+  return new Promise((resolve, reject) => {
+    const server = createServer();
+    server.once("error", reject);
+    server.listen(0, "127.0.0.1", () => {
+      const address = server.address();
+      if (address === null || typeof address === "string") {
+        server.close();
+        reject(new Error("Browser test port allocation returned no TCP port"));
+        return;
+      }
+      server.close((error) => (error === undefined ? resolve(address.port) : reject(error)));
+    });
+  });
+}
+
 async function seedWorkspace(name: string, key: string): Promise<string> {
   const response = await gateway.dispatchFetch("http://localhost/api/workspaces", {
     method: "POST",
@@ -41,7 +59,7 @@ async function seedWorkspace(name: string, key: string): Promise<string> {
       "cf-access-jwt-assertion": assertion,
       "content-type": "application/json",
       "idempotency-key": key,
-      origin: "http://localhost:8787",
+      origin: gatewayOrigin,
     },
     body: JSON.stringify({ name }),
   });
@@ -59,7 +77,7 @@ async function seedProject(workspaceId: string, name: string, key: string): Prom
         "cf-access-jwt-assertion": assertion,
         "content-type": "application/json",
         "idempotency-key": key,
-        origin: "http://localhost:8787",
+        origin: gatewayOrigin,
       },
       body: JSON.stringify({ name }),
     },
@@ -79,13 +97,15 @@ beforeAll(async () => {
     .setIssuedAt()
     .setExpirationTime("5 minutes")
     .sign(keyPair.privateKey);
+  const port = await allocateBrowserTestPort();
+  gatewayOrigin = `http://localhost:${port}`;
   gateway = await startGateway({
     accessAudience: audience,
     accessIssuer: issuer,
     accessJwks: JSON.stringify({ keys: [{ ...publicJwk, alg: "RS256", kid: "browser" }] }),
-    allowedOrigin: "http://localhost:8787",
+    allowedOrigin: gatewayOrigin,
     assetsDirectory: "dist",
-    port: 8787,
+    port,
   });
   gatewayUrl = new URL((await gateway.ready).href);
   gatewayUrl.hostname = "localhost";
@@ -93,7 +113,7 @@ beforeAll(async () => {
   context = await browser.newContext({
     extraHTTPHeaders: {
       "cf-access-jwt-assertion": assertion,
-      origin: "http://localhost:8787",
+      origin: gatewayOrigin,
     },
     viewport: { width: 1280, height: 800 },
   });
@@ -180,6 +200,22 @@ describe("authenticated application shell", () => {
     await page.getByRole("heading", { name: "No workspaces yet" }).waitFor({ timeout: 7_000 });
 
     expect(discoveryRequests).toBe(2);
+  });
+
+  it("accepts a weak discovery ETag produced by an HTTP intermediary", async () => {
+    await page.route("**/api", async (route) => {
+      const response = await route.fetch();
+      const etag = response.headers().etag;
+      expect(etag).toBeDefined();
+      await route.fulfill({
+        response,
+        headers: { ...response.headers(), etag: `W/${etag}` },
+      });
+    });
+
+    await page.goto(gatewayUrl.href);
+    await page.getByRole("heading", { name: "No workspaces yet" }).waitFor();
+    expect(consoleErrors).toEqual([]);
   });
 
   it("renders an accessible empty shell without console errors or page errors", async () => {

@@ -14,14 +14,19 @@ export default Alchemy.Stack(
   },
   Effect.gen(function* () {
     const gateway = yield* Gateway;
-    const agentToken = yield* AgentToken;
     const configuration = yield* GatewayDeploymentConfiguration;
+    const { dev } = yield* Alchemy.AlchemyContext;
+    const agentToken = dev ? undefined : yield* AgentToken;
 
     return {
       gateway,
       hostname: configuration.stageOrigin.hostname,
-      agentClientId: agentToken.clientId,
-      agentClientSecret: agentToken.clientSecret,
+      ...(agentToken === undefined
+        ? {}
+        : {
+            agentClientId: agentToken.clientId,
+            agentClientSecret: agentToken.clientSecret,
+          }),
     };
   }).pipe(Effect.provide(GatewayLive)),
 );

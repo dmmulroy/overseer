@@ -7,12 +7,13 @@
     "build": "vp build",
     "typecheck": "tsc --noEmit",
     "test": "vp test run",
+    "test:alchemy-local": "bun test ./tests/alchemy-local/gateway-local.bun.ts",
     "test:browser": "vp test run tests/browser",
     "test:workerd": "vp test run tests/http tests/workerd",
-    "check": "vp check && vp run typecheck && vp test run && vp build && vp run check:reminder",
+    "check": "vp check && vp run typecheck && vp test run && vp run test:alchemy-local && vp build && vp run check:reminder",
     "check:reminder": "node scripts/check-reminder.mjs",
     "deploy": "npm run build && alchemy deploy",
-    "dev": "alchemy dev",
+    "dev": "ACCESS_AUDIENCE=local-development OVERSEER_ALLOWED_ORIGIN=http://localhost:1337 OVERSEER_AUTHENTICATION_MODE=local-human alchemy dev",
     "prepare": "vp config"
   },
   "dependencies": {
@@ -35,6 +36,7 @@
   },
   "devDependencies": {
     "@cloudflare/workers-types": "5.20260724.1",
+    "@effect/platform-bun": "4.0.0-beta.101",
     "@effect/platform-node": "4.0.0-beta.101",
     "@tailwindcss/vite": "4.3.3",
     "@types/node": "24.13.3",
@@ -50,7 +52,8 @@
     "tailwindcss": "4.3.3",
     "typescript": "7.0.2",
     "vite": "npm:@voidzero-dev/vite-plus-core@0.2.6",
-    "vite-plus": "0.2.6"
+    "vite-plus": "0.2.6",
+    "workerd": "1.20260729.1"
   },
   "overrides": {
     "@effect/atom-react": "4.0.0-beta.101",
@@ -59,7 +62,8 @@
     "@effect/platform-node-shared": "4.0.0-beta.101",
     "@effect/sql-sqlite-do": "4.0.0-beta.101",
     "effect": "4.0.0-beta.101",
-    "vite": "npm:@voidzero-dev/vite-plus-core@0.2.6"
+    "vite": "npm:@voidzero-dev/vite-plus-core@0.2.6",
+    "workerd": "$workerd"
   },
   "devEngines": {
     "packageManager": {

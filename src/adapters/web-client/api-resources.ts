@@ -223,7 +223,7 @@ function transportFailure(
   });
 }
 
-const StrongEtag = Schema.String.check(Schema.isPattern(/^"[\x21\x23-\x7e\x80-\xff]+"$/));
+const EntityTag = Schema.String.check(Schema.isPattern(/^(?:W\/)?"[\x21\x23-\x7e\x80-\xff]*"$/));
 
 function decodeModified<A>(options: {
   readonly operation: "discovery" | "workspaces" | "projects";
@@ -233,7 +233,7 @@ function decodeModified<A>(options: {
 }): Effect.Effect<CacheEntry<A>, BrowserResourceReadFailed> {
   const etag = options.response.headers.etag;
   return Effect.gen(function* () {
-    const parsedEtag = yield* Schema.decodeUnknownEffect(StrongEtag)(etag).pipe(
+    const parsedEtag = yield* Schema.decodeUnknownEffect(EntityTag)(etag).pipe(
       Effect.mapError((cause) =>
         readFailure({
           operation: options.operation,

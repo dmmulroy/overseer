@@ -188,6 +188,8 @@ export async function startAlchemyGateway(config: AlchemyGatewayFixtureConfig): 
     bindings: {
       ACCESS_AUDIENCE: config.accessAudience,
       CLOUDFLARE_ACCESS_TEAM_DOMAIN: config.accessIssuer,
+      OVERSEER_ALLOWED_ORIGIN: config.allowedOrigin,
+      OVERSEER_AUTHENTICATION_MODE: "cloudflare-access",
       OVERSEER_HOSTNAME: new URL(config.allowedOrigin).hostname,
       OVERSEER_OWNER_EMAIL: "owner@example.com",
     },

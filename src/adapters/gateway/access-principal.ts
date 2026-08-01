@@ -165,3 +165,16 @@ export const make = Effect.gen(function* () {
 
 /** Production Access assertion verifier layer. */
 export const layer = Layer.effect(AccessAssertionVerifier, make);
+
+const localHumanPrincipal = AuthenticatedPrincipal.cases.HumanPrincipal.make({
+  subject: HumanPrincipalId.make("local-human"),
+  email: EmailAddress.make("local@overseer.invalid"),
+});
+
+/** Local development verifier that authenticates every loopback request as one fixed human. */
+export const layerLocalHuman = Layer.succeed(
+  AccessAssertionVerifier,
+  AccessAssertionVerifier.of({
+    verify: () => Effect.succeed(localHumanPrincipal),
+  }),
+);

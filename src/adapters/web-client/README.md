@@ -12,7 +12,7 @@ This directory turns Overseer's public HTTP contract into reactive browser resou
 - `DiscoveryResource` and `WorkspaceResource`, which retain validated API data;
 - `BrowserResourceReadFailed`, the typed browser-boundary failure used by stale and unavailable UI states.
 
-Each exact URL retains its data, strong ETag, and validation time. Refreshes send `If-None-Match`; a `304` advances validation time without replacing the data or ETag. Retryable reads use cancellation-safe 5, 15, 30, then 60 second delays and honor longer `Retry-After` advice.
+Each exact URL retains its data, HTTP ETag, and validation time. Refreshes send `If-None-Match`; a `304` advances validation time without replacing the data or ETag. Retryable reads use cancellation-safe 5, 15, 30, then 60 second delays and honor longer `Retry-After` advice.
 
 `workspaceQuery` validates the origin, path, and query of each `links.next`, rejects repeated cursors, and assembles exact HTTP pages into a distinct browser-owned collection. `Atom.swr` keeps the previous successful value visible while a refresh runs or fails.
 
