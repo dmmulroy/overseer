@@ -178,10 +178,11 @@ const createWorkspaceResponse = Effect.fn("Gateway.createWorkspace")(function* (
   if (Result.isFailure(result)) {
     return yield* workspaceFailure(result.failure);
   }
-  return json(workspaceResponse(result.success.workspace), 201, {
+  const responseHeaders: Record<string, string> = {
     location: `/api/workspaces/${result.success.workspace.id}`,
-    ...(result.success.replayed ? { "idempotency-replayed": "true" } : {}),
-  });
+  };
+  if (result.success.replayed) responseHeaders["idempotency-replayed"] = "true";
+  return json(workspaceResponse(result.success.workspace), 201, responseHeaders);
 });
 
 const renameWorkspaceResponse = Effect.fn("Gateway.renameWorkspace")(function* (

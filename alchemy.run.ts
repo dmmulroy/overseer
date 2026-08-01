@@ -21,12 +21,8 @@ export default Alchemy.Stack(
     return {
       gateway,
       hostname: configuration.stageOrigin.hostname,
-      ...(agentToken === undefined
-        ? {}
-        : {
-            agentClientId: agentToken.clientId,
-            agentClientSecret: agentToken.clientSecret,
-          }),
+      agentClientId: agentToken?.clientId,
+      agentClientSecret: agentToken?.clientSecret,
     };
   }).pipe(Effect.provide(GatewayLive)),
 );

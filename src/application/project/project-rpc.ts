@@ -152,7 +152,7 @@ export type ProjectRpc = {
     input: typeof ListIssuesRpcInput.Encoded,
   ) => Effect.Effect<
     typeof ListIssuesRpcResult.Encoded,
-    IssueCursorInvalid | ProjectRemotePersistenceError
+    IssueCursorInvalid | ProjectRemotePersistenceError | ProjectRpcCallFailed
   >;
   readonly readIssue: (
     issueId: IssueId,

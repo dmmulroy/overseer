@@ -9,6 +9,7 @@ import {
   IssueCursorInvalid,
   IssueDiscoveryStateService,
   ProjectIdempotencyKeyReused,
+  type IssuePage,
   type ListIssuesInput,
   ProjectPersistenceUnavailable,
   ProjectStoredRecordCorrupt,
@@ -211,6 +212,141 @@ function encodeIssueCursor(
   );
 }
 
+type IssueListSort = {
+  readonly column: "issue_number" | "created_at" | "updated_at";
+  readonly cursorValue: (cursor: IssueCursorState) => IssueNumber | IssueTimestamp;
+};
+
+type IssueListSqlQuery = {
+  readonly statement: string;
+  readonly parameters: ReadonlyArray<unknown>;
+  readonly reversePage: boolean;
+};
+
+function parseRequestedIssueCursor(
+  input: ListIssuesInput,
+): Effect.Effect<Option.Option<IssueCursorState>, IssueCursorInvalid> {
+  return Effect.gen(function* () {
+    const requestedCursor = Option.flatMap(input.cursor, decodeIssueCursor);
+    if (Option.isSome(input.cursor) && Option.isNone(requestedCursor)) {
+      return yield* new IssueCursorInvalid({ reason: "malformed" });
+    }
+    if (
+      Option.isSome(requestedCursor) &&
+      !issueCursorBindingEquals(requestedCursor.value.binding, issueCursorBinding(input))
+    ) {
+      return yield* new IssueCursorInvalid({ reason: "rebound" });
+    }
+    return requestedCursor;
+  });
+}
+
+function issueListSort(sort: ListIssuesInput["sort"]): IssueListSort {
+  switch (sort) {
+    case "number":
+      return { column: "issue_number", cursorValue: (cursor) => cursor.number };
+    case "created_at":
+      return { column: "created_at", cursorValue: (cursor) => cursor.createdAt };
+    case "updated_at":
+      return { column: "updated_at", cursorValue: (cursor) => cursor.updatedAt };
+  }
+}
+
+function issueListFilterSql(input: ListIssuesInput): {
+  readonly clauses: Array<string>;
+  readonly parameters: Array<unknown>;
+} {
+  const clauses: Array<string> = [];
+  const parameters: Array<unknown> = [];
+  if (input.state === "closed" || input.lifecycle === "deleted") clauses.push("0 = 1");
+  if (Option.isSome(input.assignee) || input.assigneeStatus === "assigned") clauses.push("0 = 1");
+  if (input.labelIds.length > 0) clauses.push("0 = 1");
+  if (Option.isSome(input.parent) && input.parent.value !== "root") clauses.push("0 = 1");
+  if (input.blockingStatus === "blocked") clauses.push("0 = 1");
+  if (Option.isSome(input.number)) {
+    clauses.push("issue_number = ?");
+    parameters.push(input.number.value);
+  }
+  return { clauses, parameters };
+}
+
+function issueListCursorSql(
+  input: ListIssuesInput,
+  cursor: IssueCursorState,
+  sort: IssueListSort,
+): { readonly clause: string; readonly parameters: ReadonlyArray<unknown> } {
+  const followsDisplayOrder = cursor.mode === "after";
+  const ascendingComparison =
+    (input.direction === "asc" && followsDisplayOrder) ||
+    (input.direction === "desc" && !followsDisplayOrder);
+  const operator = ascendingComparison ? ">" : "<";
+  const sortValue = sort.cursorValue(cursor);
+  return {
+    clause: `(${sort.column} ${operator} ? OR (${sort.column} = ? AND id ${operator} ?))`,
+    parameters: [sortValue, sortValue, cursor.issueId],
+  };
+}
+
+function issueListQueryDirection(input: ListIssuesInput, reversePage: boolean): "ASC" | "DESC" {
+  const ascending = reversePage ? input.direction !== "asc" : input.direction === "asc";
+  return ascending ? "ASC" : "DESC";
+}
+
+function issueListSqlQuery(
+  input: ListIssuesInput,
+  requestedCursor: Option.Option<IssueCursorState>,
+): IssueListSqlQuery {
+  const sort = issueListSort(input.sort);
+  const { clauses, parameters } = issueListFilterSql(input);
+  if (Option.isSome(requestedCursor)) {
+    const cursorSql = issueListCursorSql(input, requestedCursor.value, sort);
+    clauses.push(cursorSql.clause);
+    parameters.push(...cursorSql.parameters);
+  }
+
+  const reversePage = Option.exists(requestedCursor, (cursor) => cursor.mode === "before");
+  const queryDirection = issueListQueryDirection(input, reversePage);
+  parameters.push(input.limit + 1);
+  return {
+    statement: `SELECT id, project_id, issue_number, title, body, state, lifecycle, created_at, updated_at
+                FROM issues
+                ${clauses.length === 0 ? "" : `WHERE ${clauses.join(" AND ")}`}
+                ORDER BY ${sort.column} ${queryDirection}, id ${queryDirection}
+                LIMIT ?`,
+    parameters,
+    reversePage,
+  };
+}
+
+function buildIssuePage(
+  input: ListIssuesInput,
+  requestedCursor: Option.Option<IssueCursorState>,
+  parsedIssues: ReadonlyArray<IssueType>,
+  reversePage: boolean,
+): IssuePage {
+  const bounded = parsedIssues.slice(0, input.limit);
+  const issues = reversePage ? bounded.toReversed() : bounded;
+  const first = issues[0];
+  const last = issues.at(-1);
+  const hasPrevious =
+    Option.exists(requestedCursor, (cursor) => cursor.mode === "after") ||
+    (reversePage && parsedIssues.length > input.limit);
+  const hasNext =
+    Option.exists(requestedCursor, (cursor) => cursor.mode === "before") ||
+    (!reversePage && parsedIssues.length > input.limit);
+  return {
+    issues,
+    previousCursor:
+      hasPrevious && first !== undefined
+        ? Option.some(encodeIssueCursor(input, "before", first))
+        : Option.none(),
+    nextCursor:
+      hasNext && last !== undefined
+        ? Option.some(encodeIssueCursor(input, "after", last))
+        : Option.none(),
+  };
+}
+
 function parseStored<A>(
   schema: Schema.Decoder<A>,
   input: unknown,
@@ -318,103 +454,11 @@ export const make = Effect.gen(function* () {
     findIssue,
     listIssues: Effect.fn("ProjectSqliteState.listIssues")(
       function* (input) {
-        const requestedCursor = Option.flatMap(input.cursor, decodeIssueCursor);
-        if (Option.isSome(input.cursor) && Option.isNone(requestedCursor)) {
-          return yield* new IssueCursorInvalid({ reason: "malformed" });
-        }
-        const binding = issueCursorBinding(input);
-        if (
-          Option.isSome(requestedCursor) &&
-          !issueCursorBindingEquals(requestedCursor.value.binding, binding)
-        ) {
-          return yield* new IssueCursorInvalid({ reason: "rebound" });
-        }
-
-        const clauses: Array<string> = [];
-        const parameters: Array<unknown> = [];
-        if (input.state === "closed" || input.lifecycle === "deleted") clauses.push("0 = 1");
-        if (Option.isSome(input.assignee) || input.assigneeStatus === "assigned") {
-          clauses.push("0 = 1");
-        }
-        if (input.labelIds.length > 0) clauses.push("0 = 1");
-        if (Option.isSome(input.parent) && input.parent.value !== "root") clauses.push("0 = 1");
-        if (input.blockingStatus === "blocked") clauses.push("0 = 1");
-        if (Option.isSome(input.number)) {
-          clauses.push("issue_number = ?");
-          parameters.push(input.number.value);
-        }
-
-        const sort =
-          input.sort === "number"
-            ? {
-                column: "issue_number",
-                cursorValue: (cursor: IssueCursorState) => cursor.number,
-              }
-            : input.sort === "created_at"
-              ? {
-                  column: "created_at",
-                  cursorValue: (cursor: IssueCursorState) => cursor.createdAt,
-                }
-              : {
-                  column: "updated_at",
-                  cursorValue: (cursor: IssueCursorState) => cursor.updatedAt,
-                };
-        if (Option.isSome(requestedCursor)) {
-          const cursor = requestedCursor.value;
-          const followsDisplayOrder = cursor.mode === "after";
-          const ascendingComparison =
-            (input.direction === "asc" && followsDisplayOrder) ||
-            (input.direction === "desc" && !followsDisplayOrder);
-          const operator = ascendingComparison ? ">" : "<";
-          const sortValue = sort.cursorValue(cursor);
-          clauses.push(
-            `(${sort.column} ${operator} ? OR (${sort.column} = ? AND id ${operator} ?))`,
-          );
-          parameters.push(sortValue, sortValue, cursor.issueId);
-        }
-
-        const reversePage =
-          Option.isSome(requestedCursor) && requestedCursor.value.mode === "before";
-        const queryDirection = reversePage
-          ? input.direction === "asc"
-            ? "DESC"
-            : "ASC"
-          : input.direction === "asc"
-            ? "ASC"
-            : "DESC";
-        const size = input.limit + 1;
-        parameters.push(size);
-        const rows = yield* sql.unsafe<IssueRow>(
-          `SELECT id, project_id, issue_number, title, body, state, lifecycle, created_at, updated_at
-           FROM issues
-           ${clauses.length === 0 ? "" : `WHERE ${clauses.join(" AND ")}`}
-           ORDER BY ${sort.column} ${queryDirection}, id ${queryDirection}
-           LIMIT ?`,
-          parameters,
-        );
-        const parsed: Array<IssueType> = [];
-        for (const row of rows) parsed.push(yield* issueFromRow(row));
-        const bounded = parsed.slice(0, input.limit);
-        const issues = reversePage ? bounded.toReversed() : bounded;
-        const first = issues[0];
-        const last = issues.at(-1);
-        const hasPrevious =
-          Option.isSome(requestedCursor) &&
-          (requestedCursor.value.mode === "after" || parsed.length > input.limit);
-        const hasNext =
-          (Option.isSome(requestedCursor) && requestedCursor.value.mode === "before") ||
-          (!reversePage && parsed.length > input.limit);
-        return {
-          issues,
-          previousCursor:
-            hasPrevious && first !== undefined
-              ? Option.some(encodeIssueCursor(input, "before", first))
-              : Option.none(),
-          nextCursor:
-            hasNext && last !== undefined
-              ? Option.some(encodeIssueCursor(input, "after", last))
-              : Option.none(),
-        };
+        const requestedCursor = yield* parseRequestedIssueCursor(input);
+        const query = issueListSqlQuery(input, requestedCursor);
+        const rows = yield* sql.unsafe<IssueRow>(query.statement, query.parameters);
+        const issues = yield* Effect.forEach(rows, issueFromRow);
+        return buildIssuePage(input, requestedCursor, issues, query.reversePage);
       },
       Effect.catchTag("SqlError", unavailable("listIssues")),
     ),

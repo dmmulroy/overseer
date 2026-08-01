@@ -66,8 +66,8 @@ export interface RenameWorkspaceRpcInput extends Schema.Schema.Type<
 
 /** Plain input for listing one bounded Project page over private RPC. */
 export const ListProjectsRpcInput = Schema.Struct({
-  workspaceId: Schema.optionalKey(WorkspaceId),
-  cursor: Schema.optionalKey(ProjectCursor),
+  workspaceId: Schema.optional(WorkspaceId),
+  cursor: Schema.optional(ProjectCursor),
   limit: ProjectPageLimit,
 });
 /** Plain input for listing one bounded Project page over private RPC. */

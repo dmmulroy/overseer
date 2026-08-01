@@ -61,16 +61,12 @@ async function api(
     readonly body?: string;
   } = {},
 ) {
-  return gateway.dispatchFetch(`${origin}${path}`, {
-    ...init,
-    headers: {
-      ...init.headers,
-      "cf-access-jwt-assertion": await assertion(),
-      ...(init.method === undefined || init.method === "GET" || init.method === "HEAD"
-        ? {}
-        : { origin }),
-    },
-  });
+  const headers: Record<string, string> = { ...init.headers };
+  headers["cf-access-jwt-assertion"] = await assertion();
+  if (init.method !== undefined && init.method !== "GET" && init.method !== "HEAD") {
+    headers.origin = origin;
+  }
+  return gateway.dispatchFetch(`${origin}${path}`, { ...init, headers });
 }
 
 async function agentApi(
@@ -81,16 +77,12 @@ async function agentApi(
     readonly body?: string;
   } = {},
 ) {
-  return gateway.dispatchFetch(`${origin}${path}`, {
-    ...init,
-    headers: {
-      ...init.headers,
-      "cf-access-jwt-assertion": await agentAssertion(),
-      ...(init.method === undefined || init.method === "GET" || init.method === "HEAD"
-        ? {}
-        : { "overseer-session-id": "project-agent-session" }),
-    },
-  });
+  const headers: Record<string, string> = { ...init.headers };
+  headers["cf-access-jwt-assertion"] = await agentAssertion();
+  if (init.method !== undefined && init.method !== "GET" && init.method !== "HEAD") {
+    headers["overseer-session-id"] = "project-agent-session";
+  }
+  return gateway.dispatchFetch(`${origin}${path}`, { ...init, headers });
 }
 
 async function createWorkspace(name: string, key: string) {

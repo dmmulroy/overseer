@@ -80,16 +80,12 @@ async function agentApi(
     readonly body?: string;
   } = {},
 ) {
-  return gateway.dispatchFetch(`https://overseer.test${path}`, {
-    ...init,
-    headers: {
-      ...init.headers,
-      "cf-access-jwt-assertion": await agentAssertion(),
-      ...(init.method === undefined || init.method === "GET" || init.method === "HEAD"
-        ? {}
-        : { "overseer-session-id": "workspace-agent-session" }),
-    },
-  });
+  const headers: Record<string, string> = { ...init.headers };
+  headers["cf-access-jwt-assertion"] = await agentAssertion();
+  if (init.method !== undefined && init.method !== "GET" && init.method !== "HEAD") {
+    headers["overseer-session-id"] = "workspace-agent-session";
+  }
+  return gateway.dispatchFetch(`https://overseer.test${path}`, { ...init, headers });
 }
 
 async function workspaceJson(response: Awaited<ReturnType<typeof api>>) {

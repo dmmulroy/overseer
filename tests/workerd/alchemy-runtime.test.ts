@@ -77,16 +77,12 @@ async function api(
     readonly body?: string;
   } = {},
 ) {
-  return runtime.dispatchFetch(`${origin}${path}`, {
-    ...init,
-    headers: {
-      ...init.headers,
-      "cf-access-jwt-assertion": await humanAssertion(),
-      ...(init.method === undefined || init.method === "GET" || init.method === "HEAD"
-        ? {}
-        : { origin }),
-    },
-  });
+  const headers: Record<string, string> = { ...init.headers };
+  headers["cf-access-jwt-assertion"] = await humanAssertion();
+  if (init.method !== undefined && init.method !== "GET" && init.method !== "HEAD") {
+    headers.origin = origin;
+  }
+  return runtime.dispatchFetch(`${origin}${path}`, { ...init, headers });
 }
 
 async function createWorkspace(runtime: Miniflare, name: string, key: string) {

@@ -778,25 +778,39 @@ export type BrowserIssueListQuery = {
   readonly limit?: IssuePageLimit;
 };
 
-function issueListExactUrl(projectId: ProjectId, query: BrowserIssueListQuery): string {
+function issueListSearchParameters(query: BrowserIssueListQuery): URLSearchParams {
+  const singletonParameters: ReadonlyArray<readonly [string, string | number | undefined]> = [
+    ["state", query.state],
+    ["lifecycle", query.lifecycle],
+    ["assignee", query.assignee],
+    ["assignee_status", query.assignee_status],
+    ["label_match", query.label_match],
+    ["parent", query.parent],
+    ["blocking_status", query.blocking_status],
+    ["number", query.number],
+    ["sort", query.sort],
+    ["direction", query.direction],
+    ["cursor", query.cursor],
+    ["limit", query.limit],
+  ];
   const parameters = new URLSearchParams();
-  if (query.state !== undefined) parameters.set("state", query.state);
-  if (query.lifecycle !== undefined) parameters.set("lifecycle", query.lifecycle);
-  if (query.assignee !== undefined) parameters.set("assignee", query.assignee);
-  if (query.assignee_status !== undefined) parameters.set("assignee_status", query.assignee_status);
-  if (typeof query.label_id === "string") parameters.append("label_id", query.label_id);
-  else if (query.label_id !== undefined)
-    for (const labelId of query.label_id) parameters.append("label_id", labelId);
-  if (query.label_match !== undefined) parameters.set("label_match", query.label_match);
-  if (query.parent !== undefined) parameters.set("parent", query.parent);
-  if (query.blocking_status !== undefined) parameters.set("blocking_status", query.blocking_status);
-  if (query.number !== undefined) parameters.set("number", String(query.number));
-  if (query.sort !== undefined) parameters.set("sort", query.sort);
-  if (query.direction !== undefined) parameters.set("direction", query.direction);
-  if (query.cursor !== undefined) parameters.set("cursor", query.cursor);
-  if (query.limit !== undefined) parameters.set("limit", String(query.limit));
+  for (const [name, value] of singletonParameters) {
+    if (value !== undefined) parameters.set(name, String(value));
+  }
+
+  const labelIds =
+    typeof query.label_id === "string"
+      ? [query.label_id]
+      : query.label_id === undefined
+        ? []
+        : query.label_id;
+  for (const labelId of labelIds) parameters.append("label_id", labelId);
+  return parameters;
+}
+
+function issueListExactUrl(projectId: ProjectId, query: BrowserIssueListQuery): string {
   const url = new URL(`/api/projects/${projectId}/issues`, browserOrigin());
-  url.search = parameters.toString();
+  url.search = issueListSearchParameters(query).toString();
   return url.href;
 }
 

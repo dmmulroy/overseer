@@ -185,10 +185,11 @@ const createProjectResponse = Effect.fn("Gateway.createProject")(function* (
     }),
   );
   if (Result.isFailure(result)) return yield* projectFailure(result.failure);
-  return json(projectResponse(result.success.project), 201, {
+  const responseHeaders: Record<string, string> = {
     location: `/api/projects/${result.success.project.id}`,
-    ...(result.success.replayed ? { "idempotency-replayed": "true" } : {}),
-  });
+  };
+  if (result.success.replayed) responseHeaders["idempotency-replayed"] = "true";
+  return json(projectResponse(result.success.project), 201, responseHeaders);
 });
 const renameProjectResponse = Effect.fn("Gateway.renameProject")(function* (
   projectId: ProjectId,

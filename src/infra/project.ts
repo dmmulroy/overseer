@@ -28,6 +28,7 @@ import {
   ListIssuesRpcResult,
   IssueTimelineRpcResult,
   ProjectRecordCorrupt,
+  ProjectRpcCallFailed,
   ProjectStateUnavailable,
 } from "../application/project/project-rpc.ts";
 import type { IssueId } from "../domain/entity-id.ts";
@@ -116,12 +117,18 @@ const ProjectObjectLive = ProjectObject.make<never>(
           ),
         listIssues: (input) =>
           Schema.decodeUnknownEffect(ListIssuesRpcInput)(input).pipe(
-            Effect.orDie,
+            Effect.mapError(
+              (cause) => new ProjectRpcCallFailed({ operation: "listIssues", cause }),
+            ),
             Effect.flatMap((decoded) =>
               exposeProjectPersistenceFailure("listIssues", issues.listIssues(decoded)),
             ),
             Effect.flatMap((page) =>
-              Schema.encodeEffect(ListIssuesRpcResult)(page).pipe(Effect.orDie),
+              Schema.encodeEffect(ListIssuesRpcResult)(page).pipe(
+                Effect.mapError(
+                  (cause) => new ProjectRpcCallFailed({ operation: "listIssues", cause }),
+                ),
+              ),
             ),
           ),
         readIssue: (issueId: IssueId) =>

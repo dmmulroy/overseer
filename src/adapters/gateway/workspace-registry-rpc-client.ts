@@ -93,8 +93,8 @@ export const make = Effect.gen(function* () {
     listProjects: Effect.fn("WorkspaceRegistryRpc.listProjects")((input) =>
       rpcCall(
         stub().listProjects({
-          ...(Option.isSome(input.workspaceId) ? { workspaceId: input.workspaceId.value } : {}),
-          ...(Option.isSome(input.cursor) ? { cursor: input.cursor.value } : {}),
+          workspaceId: Option.getOrUndefined(input.workspaceId),
+          cursor: Option.getOrUndefined(input.cursor),
           limit: input.limit,
         }),
         "listProjects",

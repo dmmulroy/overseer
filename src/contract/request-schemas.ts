@@ -53,7 +53,7 @@ export interface MoveProjectRequest extends Schema.Schema.Type<typeof MoveProjec
 /** Body accepted when creating an Issue with optional Markdown. */
 export const CreateIssueRequest = Schema.Struct({
   title: IssueTitle,
-  body: Schema.optionalKey(Schema.NullOr(IssueBody)),
+  body: Schema.optional(Schema.NullOr(IssueBody)),
 }).pipe(
   Schema.flip,
   Schema.check(

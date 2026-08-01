@@ -9,8 +9,14 @@ export default defineConfig({
   },
   fmt: {},
   lint: {
-    jsPlugins: [{ name: "vite-plus", specifier: "vite-plus/oxlint-plugin" }],
-    rules: { "vite-plus/prefer-vite-plus-imports": "error" },
+    jsPlugins: [
+      { name: "overseer", specifier: "./tooling/oxlint/overseer-plugin.ts" },
+      { name: "vite-plus", specifier: "vite-plus/oxlint-plugin" },
+    ],
+    rules: {
+      "overseer/prefer-direct-object-properties": "error",
+      "vite-plus/prefer-vite-plus-imports": "error",
+    },
     options: { typeAware: true, typeCheck: true },
   },
   test: {

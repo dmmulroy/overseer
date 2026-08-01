@@ -68,7 +68,7 @@ export const make = Effect.gen(function* () {
     ),
     listIssues: Effect.fn("ProjectRpc.listIssues")((input) =>
       Schema.encodeEffect(ListIssuesRpcInput)(input).pipe(
-        Effect.orDie,
+        Effect.mapError((cause) => new ProjectRpcCallFailed({ operation: "listIssues", cause })),
         Effect.flatMap((encoded) =>
           rpcCall(stub(input.projectId).listIssues(encoded), "listIssues"),
         ),

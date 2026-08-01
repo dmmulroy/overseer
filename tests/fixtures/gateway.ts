@@ -33,7 +33,7 @@ export async function startGateway(config: GatewayFixtureConfig): Promise<Minifl
   }
 
   return new Miniflare({
-    ...(config.port === undefined ? {} : { port: config.port }),
+    port: config.port,
     compatibilityDate: "2026-07-19",
     modules: [{ type: "ESModule", path: "gateway.js", contents: output.text }],
     durableObjects: {
@@ -53,10 +53,10 @@ export async function startGateway(config: GatewayFixtureConfig): Promise<Minifl
       }
       return new Response("Not found", { status: 404 });
     },
-    ...(config.assetsDirectory === undefined
-      ? {}
-      : {
-          assets: {
+    assets:
+      config.assetsDirectory === undefined
+        ? undefined
+        : {
             directory: config.assetsDirectory,
             binding: "ASSETS",
             routerConfig: {
@@ -65,7 +65,6 @@ export async function startGateway(config: GatewayFixtureConfig): Promise<Minifl
             },
             assetConfig: { not_found_handling: "single-page-application" as const },
           },
-        }),
     bindings: {
       ACCESS_AUDIENCE: config.accessAudience,
       ACCESS_ISSUER: config.accessIssuer,
