@@ -14,7 +14,6 @@ import {
   WorkspaceRegistryRpcCallFailed,
   type WorkspaceRegistryRpc,
 } from "../../application/workspace-registry/workspace-registry-rpc.ts";
-import { Gateway } from "../../infra/gateway-resource.ts";
 import { WorkspaceRegistryObject } from "../../infra/workspace-registry-resource.ts";
 
 type RpcOperation = keyof WorkspaceRegistryRpc;
@@ -57,7 +56,7 @@ function rpcCall<A, E>(
 
 /** Construct the Gateway Workspace Registry client from the hosted Alchemy namespace. */
 export const make = Effect.gen(function* () {
-  const workspaceRegistries = yield* WorkspaceRegistryObject.from(Gateway);
+  const workspaceRegistries = yield* WorkspaceRegistryObject;
   const stub = () => workspaceRegistries.getByName(WORKSPACE_REGISTRY_SINGLETON_NAME);
 
   return WorkspaceRegistryService.of({

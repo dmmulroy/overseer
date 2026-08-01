@@ -1,8 +1,9 @@
+import * as Data from "effect/Data";
 import * as Effect from "effect/Effect";
 import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
 import type { HttpServerRequest } from "effect/unstable/http/HttpServerRequest";
-import type * as HttpServerResponse from "effect/unstable/http/HttpServerResponse";
+import * as HttpServerResponse from "effect/unstable/http/HttpServerResponse";
 import {
   AgentSession,
   AgentSessionId,
@@ -16,7 +17,11 @@ const admitHumanMutationRequest = Effect.fn("Gateway.admitHumanMutationRequest")
   request: HttpServerRequest,
   allowedOrigin: URL,
   requestId: RequestId,
-): Effect.fn.Return<null | HttpServerResponse.HttpServerResponse, never, ProblemResponse> {
+): Effect.fn.Return<
+  MutationAdmission | HttpServerResponse.HttpServerResponse,
+  never,
+  ProblemResponse
+> {
   if (request.headers.origin !== allowedOrigin.origin) {
     const problems = yield* ProblemResponse;
     return problems.render({
@@ -25,7 +30,7 @@ const admitHumanMutationRequest = Effect.fn("Gateway.admitHumanMutationRequest")
       requestId,
     });
   }
-  return null;
+  return MutationAdmission.HumanMutation();
 });
 
 const admitAgentMutationRequest = Effect.fn("Gateway.admitAgentMutationRequest")(function* (
@@ -59,12 +64,18 @@ const admitAgentMutationRequest = Effect.fn("Gateway.admitAgentMutationRequest")
   }
   return AgentSession.make({
     sessionId: parsedSessionId.value,
-    harness: Option.getOrNull(parsedHarness),
+    harness: parsedHarness,
   });
 });
 
-/** Parsed Agent session attribution for an admitted unsafe request, or null for a human. */
-export type MutationSession = AgentSession | null;
+/** Successful admission of a human or Agent mutation request. */
+export type MutationAdmission = Data.TaggedEnum<{
+  HumanMutation: Record<never, never>;
+  AgentMutation: { readonly agentSession: AgentSession };
+}>;
+
+/** Construct and exhaustively match successful mutation admission results. */
+export const MutationAdmission = Data.taggedEnum<MutationAdmission>();
 
 /** Admit an unsafe request and return its parsed Agent session attribution when present. */
 export const admitMutationRequest = Effect.fn("Gateway.admitMutationRequest")(function* (
@@ -73,11 +84,15 @@ export const admitMutationRequest = Effect.fn("Gateway.admitMutationRequest")(fu
   allowedOrigin: URL,
   requestId: RequestId,
 ): Effect.fn.Return<
-  MutationSession | HttpServerResponse.HttpServerResponse,
+  MutationAdmission | HttpServerResponse.HttpServerResponse,
   never,
   ProblemResponse
 > {
-  return principal._tag === "HumanPrincipal"
-    ? yield* admitHumanMutationRequest(request, allowedOrigin, requestId)
-    : yield* admitAgentMutationRequest(request, requestId);
+  if (principal._tag === "HumanPrincipal") {
+    return yield* admitHumanMutationRequest(request, allowedOrigin, requestId);
+  }
+  const admitted = yield* admitAgentMutationRequest(request, requestId);
+  return HttpServerResponse.isHttpServerResponse(admitted)
+    ? admitted
+    : MutationAdmission.AgentMutation({ agentSession: admitted });
 });

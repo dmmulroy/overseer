@@ -4,6 +4,7 @@ import * as Cloudflare from "alchemy/Cloudflare";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Reactivity from "effect/unstable/reactivity/Reactivity";
+import * as Schema from "effect/Schema";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
 import { layer as migrationLayer } from "../adapters/project-sqlite/project-migrations.ts";
 import { layer as sqliteStateLayer } from "../adapters/project-sqlite/project-sqlite-state.ts";
@@ -18,12 +19,16 @@ import {
   type ProjectPersistenceError,
 } from "../application/issues/issue-discovery.ts";
 import {
-  type CreateIssueRpcInput,
+  CreateIssueRpcInput,
+  CreateIssueRpcResult,
+  IssueReferencesRpcResult,
+  IssueRevisionsRpcResult,
+  IssueTimelineRpcResult,
   ProjectRecordCorrupt,
   ProjectStateUnavailable,
 } from "../application/project/project-rpc.ts";
 import type { IssueId } from "../domain/entity-id.ts";
-import type { IssueNumber } from "../domain/issue.ts";
+import { Issue, type IssueNumber } from "../domain/issue.ts";
 import { ProjectObject } from "./project-resource.ts";
 
 function exposeProjectPersistenceFailure<A>(
@@ -85,20 +90,51 @@ const ProjectObjectLive = ProjectObject.make<never>(
         ),
       );
       return {
-        createIssue: (input: CreateIssueRpcInput) =>
-          exposeProjectPersistenceFailure("createIssue", issues.createIssue(input)),
+        createIssue: (input) =>
+          Schema.decodeUnknownEffect(CreateIssueRpcInput)(input).pipe(
+            Effect.orDie,
+            Effect.flatMap((decoded) =>
+              exposeProjectPersistenceFailure("createIssue", issues.createIssue(decoded)),
+            ),
+            Effect.flatMap((result) =>
+              Schema.encodeEffect(CreateIssueRpcResult)(result).pipe(Effect.orDie),
+            ),
+          ),
         readIssue: (issueId: IssueId) =>
-          exposeProjectPersistenceFailure("readIssue", issues.readIssue(issueId)),
+          exposeProjectPersistenceFailure("readIssue", issues.readIssue(issueId)).pipe(
+            Effect.flatMap((issue) => Schema.encodeEffect(Issue)(issue).pipe(Effect.orDie)),
+          ),
         readIssueByNumber: (number: IssueNumber) =>
-          exposeProjectPersistenceFailure("readIssueByNumber", issues.readIssueByNumber(number)),
+          exposeProjectPersistenceFailure(
+            "readIssueByNumber",
+            issues.readIssueByNumber(number),
+          ).pipe(Effect.flatMap((issue) => Schema.encodeEffect(Issue)(issue).pipe(Effect.orDie))),
         readIssueRevisions: (issueId: IssueId) =>
-          exposeProjectPersistenceFailure("readIssueRevisions", issues.readIssueRevisions(issueId)),
+          exposeProjectPersistenceFailure(
+            "readIssueRevisions",
+            issues.readIssueRevisions(issueId),
+          ).pipe(
+            Effect.flatMap((revisions) =>
+              Schema.encodeEffect(IssueRevisionsRpcResult)(revisions).pipe(Effect.orDie),
+            ),
+          ),
         readIssueTimeline: (issueId: IssueId) =>
-          exposeProjectPersistenceFailure("readIssueTimeline", issues.readIssueTimeline(issueId)),
+          exposeProjectPersistenceFailure(
+            "readIssueTimeline",
+            issues.readIssueTimeline(issueId),
+          ).pipe(
+            Effect.flatMap((timeline) =>
+              Schema.encodeEffect(IssueTimelineRpcResult)(timeline).pipe(Effect.orDie),
+            ),
+          ),
         readIssueReferences: (issueId: IssueId) =>
           exposeProjectPersistenceFailure(
             "readIssueReferences",
             issues.readIssueReferences(issueId),
+          ).pipe(
+            Effect.flatMap((references) =>
+              Schema.encodeEffect(IssueReferencesRpcResult)(references).pipe(Effect.orDie),
+            ),
           ),
       };
     });

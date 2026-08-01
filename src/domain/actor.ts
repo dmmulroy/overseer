@@ -91,10 +91,24 @@ export const Actor = Schema.TaggedUnion({
 /** Immutable principal snapshot attributed to a committed change. */
 export type Actor = typeof Actor.Type;
 
+/** Human Actor variant attributed to an authenticated human request. */
+export type HumanActor = typeof Actor.cases.HumanActor.Type;
+
+/** Agent Actor variant attributed to an authenticated Agent request. */
+export type AgentActor = typeof Actor.cases.AgentActor.Type;
+
+/** Derive an immutable Actor snapshot from an authenticated principal. */
+export function actorFromAuthenticatedPrincipal(principal: AuthenticatedPrincipal): Actor {
+  return AuthenticatedPrincipal.match(principal, {
+    HumanPrincipal: ({ subject, email }): Actor => Actor.cases.HumanActor.make({ subject, email }),
+    AgentPrincipal: ({ agentId }): Actor => Actor.cases.AgentActor.make({ agentId }),
+  });
+}
+
 /** Untrusted Agent session metadata captured separately from authority. */
 export const AgentSession = Schema.Struct({
   sessionId: AgentSessionId,
-  harness: Schema.NullOr(HarnessName),
+  harness: Schema.OptionFromNullOr(HarnessName),
 });
 
 /** Untrusted Agent session metadata captured separately from authority. */
@@ -103,7 +117,7 @@ export interface AgentSession extends Schema.Schema.Type<typeof AgentSession> {}
 /** Immutable attribution captured with one committed command. */
 export const CommandAttribution = Schema.Struct({
   actor: Actor,
-  agentSession: Schema.NullOr(AgentSession),
+  agentSession: Schema.OptionFromNullOr(AgentSession),
   requestId: RequestId,
 });
 

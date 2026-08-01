@@ -19,7 +19,7 @@ import { IssueNotFound, ProjectIdempotencyKeyReused } from "../issues/issue-disc
 export const CreateIssueRpcInput = Schema.Struct({
   projectId: ProjectId,
   title: IssueTitle,
-  body: Schema.NullOr(IssueBody),
+  body: Schema.OptionFromNullOr(IssueBody),
   idempotencyKey: IdempotencyKey,
   attribution: CommandAttribution,
 });
@@ -73,6 +73,12 @@ export class ProjectRpcCallFailed extends Schema.TaggedErrorClass<ProjectRpcCall
 /** Safe Project persistence failures that may cross private RPC. */
 export type ProjectRemotePersistenceError = ProjectRecordCorrupt | ProjectStateUnavailable;
 
+/** Issue Revisions returned over private RPC. */
+export const IssueRevisionsRpcResult = Schema.Array(IssueRevision);
+
+/** Issue Timeline entries returned over private RPC. */
+export const IssueTimelineRpcResult = Schema.Array(IssueTimelineEntry);
+
 /** Current same-Project references returned over private RPC. */
 export const IssueReferencesRpcResult = Schema.Struct({
   outgoing: Schema.Array(IssueReference),
@@ -87,29 +93,35 @@ export interface IssueReferencesRpcResult extends Schema.Schema.Type<
 /** Operation-specific schemaless RPC implemented by one Project object. */
 export type ProjectRpc = {
   readonly createIssue: (
-    input: CreateIssueRpcInput,
+    input: typeof CreateIssueRpcInput.Encoded,
   ) => Effect.Effect<
-    CreateIssueRpcResult,
+    typeof CreateIssueRpcResult.Encoded,
     ProjectIdempotencyKeyReused | ProjectRemotePersistenceError
   >;
   readonly readIssue: (
     issueId: IssueId,
-  ) => Effect.Effect<Issue, IssueNotFound | ProjectRemotePersistenceError>;
+  ) => Effect.Effect<typeof Issue.Encoded, IssueNotFound | ProjectRemotePersistenceError>;
   readonly readIssueByNumber: (
     number: IssueNumber,
-  ) => Effect.Effect<Issue, IssueNotFound | ProjectRemotePersistenceError>;
+  ) => Effect.Effect<typeof Issue.Encoded, IssueNotFound | ProjectRemotePersistenceError>;
   readonly readIssueRevisions: (
     issueId: IssueId,
-  ) => Effect.Effect<ReadonlyArray<IssueRevision>, IssueNotFound | ProjectRemotePersistenceError>;
+  ) => Effect.Effect<
+    typeof IssueRevisionsRpcResult.Encoded,
+    IssueNotFound | ProjectRemotePersistenceError
+  >;
   readonly readIssueTimeline: (
     issueId: IssueId,
   ) => Effect.Effect<
-    ReadonlyArray<IssueTimelineEntry>,
+    typeof IssueTimelineRpcResult.Encoded,
     IssueNotFound | ProjectRemotePersistenceError
   >;
   readonly readIssueReferences: (
     issueId: IssueId,
-  ) => Effect.Effect<IssueReferencesRpcResult, IssueNotFound | ProjectRemotePersistenceError>;
+  ) => Effect.Effect<
+    typeof IssueReferencesRpcResult.Encoded,
+    IssueNotFound | ProjectRemotePersistenceError
+  >;
 };
 
 /** Gateway-facing operations provided by the Project RPC adapter. */

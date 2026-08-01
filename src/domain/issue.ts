@@ -92,7 +92,7 @@ export const Issue = Schema.Struct({
   projectId: ProjectId,
   number: IssueNumber,
   title: IssueTitle,
-  body: Schema.NullOr(IssueBody),
+  body: Schema.OptionFromNullOr(IssueBody),
   state: Schema.Literal("open"),
   lifecycle: Schema.Literal("active"),
   createdAt: IssueTimestamp,
@@ -105,7 +105,7 @@ export interface Issue extends Schema.Schema.Type<typeof Issue> {}
 const issueRevisionFields = {
   number: RevisionNumber,
   actor: Actor,
-  agentSession: Schema.NullOr(AgentSession),
+  agentSession: Schema.OptionFromNullOr(AgentSession),
   createdAt: IssueTimestamp,
 };
 
@@ -115,7 +115,7 @@ export const IssueRevision = Schema.Union([
   Schema.Struct({
     ...issueRevisionFields,
     field: Schema.Literal("body"),
-    value: Schema.NullOr(IssueBody),
+    value: Schema.OptionFromNullOr(IssueBody),
   }),
 ]);
 
@@ -126,22 +126,33 @@ const issueTimelineEventFields = {
   id: TimelineEventId,
   sourceIssueId: IssueId,
   actor: Actor,
-  agentSession: Schema.NullOr(AgentSession),
+  agentSession: Schema.OptionFromNullOr(AgentSession),
   createdAt: IssueTimestamp,
 };
 
+/** Issue creation event projected into its Issue Timeline. */
+export const IssueCreatedTimelineEvent = Schema.Struct({
+  ...issueTimelineEventFields,
+  kind: Schema.Literal("issue_created"),
+});
+
+/** Issue creation event projected into its Issue Timeline. */
+export type IssueCreatedTimelineEvent = typeof IssueCreatedTimelineEvent.Type;
+
+/** Internal-reference event projected into both affected Issue Timelines. */
+export const InternalReferenceAddedTimelineEvent = Schema.Struct({
+  ...issueTimelineEventFields,
+  kind: Schema.Literal("internal_reference_added"),
+  targetIssueId: IssueId,
+});
+
+/** Internal-reference event projected into both affected Issue Timelines. */
+export type InternalReferenceAddedTimelineEvent = typeof InternalReferenceAddedTimelineEvent.Type;
+
 /** Structured event projected into one or more Issue Timelines. */
 export const IssueTimelineEvent = Schema.Union([
-  Schema.Struct({
-    ...issueTimelineEventFields,
-    kind: Schema.Literal("issue_created"),
-    targetIssueId: Schema.Null,
-  }),
-  Schema.Struct({
-    ...issueTimelineEventFields,
-    kind: Schema.Literal("internal_reference_added"),
-    targetIssueId: IssueId,
-  }),
+  IssueCreatedTimelineEvent,
+  InternalReferenceAddedTimelineEvent,
 ]);
 
 /** Structured event projected into one or more Issue Timelines. */

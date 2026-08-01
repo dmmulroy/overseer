@@ -2,6 +2,7 @@ import * as Cause from "effect/Cause";
 import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
+import * as Option from "effect/Option";
 import * as Redacted from "effect/Redacted";
 import * as Result from "effect/Result";
 import * as SchemaIssue from "effect/SchemaIssue";
@@ -11,13 +12,17 @@ import { HttpApiSchemaError } from "effect/unstable/httpapi/HttpApiError";
 import * as HttpServerRequest from "effect/unstable/http/HttpServerRequest";
 import * as HttpServerResponse from "effect/unstable/http/HttpServerResponse";
 import { UlidGeneratorService } from "../../application/ulid-generator.ts";
-import { Actor, makeRequestId, type RequestId } from "../../domain/actor.ts";
+import {
+  actorFromAuthenticatedPrincipal,
+  makeRequestId,
+  type RequestId,
+} from "../../domain/actor.ts";
 import { AccessAssertionVerifier } from "./access-principal.ts";
 import { GatewayConfiguration } from "./gateway-configuration.ts";
 import { GatewayApi } from "./gateway-http.ts";
-import { GatewayRequestContext } from "./gateway-request-context.ts";
+import { GatewayRequest, GatewayRequestContext } from "./gateway-request-context.ts";
 import { ProblemResponse } from "./problem-response.ts";
-import { admitMutationRequest } from "./request-context.ts";
+import { admitMutationRequest, type MutationAdmission } from "./request-context.ts";
 
 function isStructuralSchemaIssue(
   issue: SchemaIssue.Issue,
@@ -159,26 +164,34 @@ export const make = Effect.gen(function* () {
       const isSafe =
         request.method === "GET" || request.method === "HEAD" || request.method === "OPTIONS";
       const mutationAdmission = isSafe
-        ? null
-        : yield* admitMutationRequest(
-            request,
-            authentication.success,
-            configuration.allowedOrigin,
-            requestId,
-          ).pipe(Effect.provideService(ProblemResponse, problems));
+        ? Option.none<MutationAdmission>()
+        : Option.some(
+            yield* admitMutationRequest(
+              request,
+              authentication.success,
+              configuration.allowedOrigin,
+              requestId,
+            ).pipe(Effect.provideService(ProblemResponse, problems)),
+          );
 
-      if (HttpServerResponse.isHttpServerResponse(mutationAdmission)) {
-        return mutationAdmission;
+      if (
+        Option.isSome(mutationAdmission) &&
+        HttpServerResponse.isHttpServerResponse(mutationAdmission.value)
+      ) {
+        return mutationAdmission.value;
       }
-      const actor =
-        authentication.success._tag === "HumanPrincipal"
-          ? Actor.cases.HumanActor.make({
-              subject: authentication.success.subject,
-              email: authentication.success.email,
-            })
-          : Actor.cases.AgentActor.make({
-              agentId: authentication.success.agentId,
-            });
+
+      const actor = actorFromAuthenticatedPrincipal(authentication.success);
+      const agentSession = Option.flatMap(mutationAdmission, (admission) => {
+        if (HttpServerResponse.isHttpServerResponse(admission)) return Option.none();
+        return admission._tag === "AgentMutation"
+          ? Option.some(admission.agentSession)
+          : Option.none();
+      });
+      const gatewayRequest =
+        actor._tag === "HumanActor"
+          ? GatewayRequest.HumanRequest({ requestId, actor })
+          : GatewayRequest.AgentRequest({ requestId, actor, agentSession });
 
       if (!isSafe) {
         const bodyStatus = yield* inspectRequestBody(request);
@@ -197,10 +210,7 @@ export const make = Effect.gen(function* () {
       return yield* api
         .handle(requestId)
         .pipe(
-          Effect.provideService(
-            GatewayRequestContext,
-            GatewayRequestContext.of({ requestId, actor, agentSession: mutationAdmission }),
-          ),
+          Effect.provideService(GatewayRequestContext, GatewayRequestContext.of(gatewayRequest)),
         );
     }).pipe(
       Effect.catchCause((cause) => {

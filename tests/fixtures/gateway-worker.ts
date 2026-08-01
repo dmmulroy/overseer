@@ -50,6 +50,10 @@ import {
 } from "../../src/application/workspace-registry/workspace-registry-rpc.ts";
 import {
   CreateIssueRpcInput,
+  CreateIssueRpcResult,
+  IssueReferencesRpcResult,
+  IssueRevisionsRpcResult,
+  IssueTimelineRpcResult,
   ProjectClientService,
   ProjectRecordCorrupt,
   ProjectRpcCallFailed,
@@ -61,6 +65,7 @@ import {
   ProjectIdempotencyKeyReused,
 } from "../../src/application/issues/issue-discovery.ts";
 import { makeRequestId } from "../../src/domain/actor.ts";
+import { Issue } from "../../src/domain/issue.ts";
 import { TestProject } from "./project.ts";
 import { TestWorkspaceRegistry } from "./workspace-registry.ts";
 
@@ -333,7 +338,8 @@ function makeHandler(
           try: () =>
             projectNamespace
               .getByName(input.projectId)
-              .createIssue(CreateIssueRpcInput.make(input)),
+              .createIssue(Schema.encodeSync(CreateIssueRpcInput)(input))
+              .then(Schema.decodeUnknownSync(CreateIssueRpcResult)),
           catch: (cause) => {
             const decoded = Schema.decodeUnknownResult(CreateProjectIssueFailure)(cause);
             return Result.isSuccess(decoded)
@@ -344,7 +350,11 @@ function makeHandler(
       ),
       readIssue: Effect.fn("TestProjectRpc.readIssue")((projectId, issueId) =>
         Effect.tryPromise({
-          try: () => projectNamespace.getByName(projectId).readIssue(issueId),
+          try: () =>
+            projectNamespace
+              .getByName(projectId)
+              .readIssue(issueId)
+              .then(Schema.decodeUnknownSync(Issue)),
           catch: (cause) => {
             const decoded = Schema.decodeUnknownResult(ReadProjectIssueFailure)(cause);
             return Result.isSuccess(decoded)
@@ -355,7 +365,11 @@ function makeHandler(
       ),
       readIssueByNumber: Effect.fn("TestProjectRpc.readIssueByNumber")((projectId, number) =>
         Effect.tryPromise({
-          try: () => projectNamespace.getByName(projectId).readIssueByNumber(number),
+          try: () =>
+            projectNamespace
+              .getByName(projectId)
+              .readIssueByNumber(number)
+              .then(Schema.decodeUnknownSync(Issue)),
           catch: (cause) => {
             const decoded = Schema.decodeUnknownResult(ReadProjectIssueFailure)(cause);
             return Result.isSuccess(decoded)
@@ -366,7 +380,11 @@ function makeHandler(
       ),
       readIssueRevisions: Effect.fn("TestProjectRpc.readIssueRevisions")((projectId, issueId) =>
         Effect.tryPromise({
-          try: () => projectNamespace.getByName(projectId).readIssueRevisions(issueId),
+          try: () =>
+            projectNamespace
+              .getByName(projectId)
+              .readIssueRevisions(issueId)
+              .then(Schema.decodeUnknownSync(IssueRevisionsRpcResult)),
           catch: (cause) => {
             const decoded = Schema.decodeUnknownResult(ReadProjectIssueFailure)(cause);
             return Result.isSuccess(decoded)
@@ -377,7 +395,11 @@ function makeHandler(
       ),
       readIssueTimeline: Effect.fn("TestProjectRpc.readIssueTimeline")((projectId, issueId) =>
         Effect.tryPromise({
-          try: () => projectNamespace.getByName(projectId).readIssueTimeline(issueId),
+          try: () =>
+            projectNamespace
+              .getByName(projectId)
+              .readIssueTimeline(issueId)
+              .then(Schema.decodeUnknownSync(IssueTimelineRpcResult)),
           catch: (cause) => {
             const decoded = Schema.decodeUnknownResult(ReadProjectIssueFailure)(cause);
             return Result.isSuccess(decoded)
@@ -388,7 +410,11 @@ function makeHandler(
       ),
       readIssueReferences: Effect.fn("TestProjectRpc.readIssueReferences")((projectId, issueId) =>
         Effect.tryPromise({
-          try: () => projectNamespace.getByName(projectId).readIssueReferences(issueId),
+          try: () =>
+            projectNamespace
+              .getByName(projectId)
+              .readIssueReferences(issueId)
+              .then(Schema.decodeUnknownSync(IssueReferencesRpcResult)),
           catch: (cause) => {
             const decoded = Schema.decodeUnknownResult(ReadProjectIssueFailure)(cause);
             return Result.isSuccess(decoded)

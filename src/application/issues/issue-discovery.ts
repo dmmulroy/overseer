@@ -13,11 +13,12 @@ import {
 } from "../../domain/entity-id.ts";
 import type { IdempotencyKey } from "../../domain/idempotency.ts";
 import {
+  InternalReferenceAddedTimelineEvent,
   Issue,
+  IssueCreatedTimelineEvent,
   IssueNumber,
   IssueRevision,
   IssueTimelineEntry,
-  IssueTimelineEvent,
   IssueTimestamp,
   RevisionNumber,
   TimelinePosition,
@@ -70,7 +71,7 @@ export type ProjectPersistenceError = ProjectStoredRecordCorrupt | ProjectPersis
 export type CreateIssueInput = {
   readonly projectId: ProjectId;
   readonly title: IssueTitle;
-  readonly body: IssueBody | null;
+  readonly body: Option.Option<IssueBody>;
   readonly idempotencyKey: IdempotencyKey;
   readonly attribution: CommandAttribution;
 };
@@ -79,6 +80,29 @@ export type CreateIssueInput = {
 export type CreateIssueResult = {
   readonly issue: Issue;
   readonly replayed: boolean;
+};
+
+/** Values committed atomically for one Issue creation. */
+export type InsertIssueCreationInput = {
+  readonly issue: Issue;
+  readonly titleRevision: IssueRevision;
+  readonly bodyRevision: IssueRevision;
+  readonly event: IssueCreatedTimelineEvent;
+  readonly idempotencyKey: IdempotencyKey;
+};
+
+/** Values committed atomically for one Issue reference. */
+export type InsertIssueReferenceInput = {
+  readonly reference: IssueReference;
+  readonly event: InternalReferenceAddedTimelineEvent;
+  readonly sourcePosition: TimelinePosition;
+  readonly targetPosition: TimelinePosition;
+};
+
+/** Current incoming and outgoing references for one Issue. */
+export type IssueReferences = {
+  readonly outgoing: ReadonlyArray<IssueReference>;
+  readonly incoming: ReadonlyArray<IssueReference>;
 };
 
 /** Transactional Project state required by Issue discovery. */
@@ -96,35 +120,24 @@ export type IssueDiscoveryState = {
   readonly findIssueByNumber: (
     number: IssueNumber,
   ) => Effect.Effect<Option.Option<Issue>, ProjectPersistenceError>;
-  readonly insertIssueCreation: (input: {
-    readonly issue: Issue;
-    readonly titleRevision: IssueRevision;
-    readonly bodyRevision: IssueRevision;
-    readonly event: IssueTimelineEvent;
-    readonly idempotencyKey: IdempotencyKey;
-  }) => Effect.Effect<void, ProjectPersistenceError>;
+  readonly insertIssueCreation: (
+    input: InsertIssueCreationInput,
+  ) => Effect.Effect<void, ProjectPersistenceError>;
   readonly allocateTimelinePosition: (
     issueId: IssueId,
   ) => Effect.Effect<TimelinePosition, ProjectPersistenceError>;
-  readonly insertIssueReference: (input: {
-    readonly reference: IssueReference;
-    readonly event: IssueTimelineEvent;
-    readonly sourcePosition: TimelinePosition;
-    readonly targetPosition: TimelinePosition;
-  }) => Effect.Effect<void, ProjectPersistenceError>;
+  readonly insertIssueReference: (
+    input: InsertIssueReferenceInput,
+  ) => Effect.Effect<void, ProjectPersistenceError>;
   readonly readIssueRevisions: (
     issueId: IssueId,
   ) => Effect.Effect<ReadonlyArray<IssueRevision>, ProjectPersistenceError>;
   readonly readIssueTimeline: (
     issueId: IssueId,
   ) => Effect.Effect<ReadonlyArray<IssueTimelineEntry>, ProjectPersistenceError>;
-  readonly readIssueReferences: (issueId: IssueId) => Effect.Effect<
-    {
-      readonly outgoing: ReadonlyArray<IssueReference>;
-      readonly incoming: ReadonlyArray<IssueReference>;
-    },
-    ProjectPersistenceError
-  >;
+  readonly readIssueReferences: (
+    issueId: IssueId,
+  ) => Effect.Effect<IssueReferences, ProjectPersistenceError>;
 };
 
 /** Effect service for transactional Project Issue state. */
@@ -150,13 +163,9 @@ export type IssueDiscovery = {
   readonly readIssueTimeline: (
     issueId: IssueId,
   ) => Effect.Effect<ReadonlyArray<IssueTimelineEntry>, IssueNotFound | ProjectPersistenceError>;
-  readonly readIssueReferences: (issueId: IssueId) => Effect.Effect<
-    {
-      readonly outgoing: ReadonlyArray<IssueReference>;
-      readonly incoming: ReadonlyArray<IssueReference>;
-    },
-    IssueNotFound | ProjectPersistenceError
-  >;
+  readonly readIssueReferences: (
+    issueId: IssueId,
+  ) => Effect.Effect<IssueReferences, IssueNotFound | ProjectPersistenceError>;
 };
 
 /** Effect service for object-local Issue discovery operations. */
@@ -170,11 +179,11 @@ type MarkdownIssueMentions = {
 };
 
 function markdownIssueMentions(
-  body: IssueBody | null,
+  body: Option.Option<IssueBody>,
   projectId: ProjectId,
 ): MarkdownIssueMentions {
-  if (body === null) return { numbers: [], issueIds: [] };
-  const withoutCode = body
+  if (Option.isNone(body)) return { numbers: [], issueIds: [] };
+  const withoutCode = body.value
     .replace(
       /(^|\n)[ \t]{0,3}(`{3,}|~{3,})[^\n]*(?:\n[\s\S]*?(?:\n[ \t]{0,3}\2[ \t]*(?=\n|$)|$))/g,
       "$1 ",
@@ -249,11 +258,10 @@ export const make = Effect.gen(function* () {
             agentSession: input.attribution.agentSession,
             createdAt: timestamp,
           });
-          const creationEvent = IssueTimelineEvent.make({
+          const creationEvent = IssueCreatedTimelineEvent.make({
             id: makeTimelineEventId(yield* ulids.next()),
             kind: "issue_created",
             sourceIssueId: issue.id,
-            targetIssueId: null,
             actor: input.attribution.actor,
             agentSession: input.attribution.agentSession,
             createdAt: timestamp,
@@ -279,7 +287,7 @@ export const make = Effect.gen(function* () {
           targets.delete(issue.id);
 
           for (const target of targets.values()) {
-            const event = IssueTimelineEvent.make({
+            const event = InternalReferenceAddedTimelineEvent.make({
               id: makeTimelineEventId(yield* ulids.next()),
               kind: "internal_reference_added",
               sourceIssueId: issue.id,

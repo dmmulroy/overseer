@@ -1,4 +1,5 @@
 import * as Effect from "effect/Effect";
+import * as Option from "effect/Option";
 import * as Result from "effect/Result";
 import * as HttpServerResponse from "effect/unstable/http/HttpServerResponse";
 import * as HttpApiBuilder from "effect/unstable/httpapi/HttpApiBuilder";
@@ -19,7 +20,7 @@ import { CommandAttribution, type Actor, type AgentSession } from "../../domain/
 import type { IssueId, ProjectId } from "../../domain/entity-id.ts";
 import type { IdempotencyKey } from "../../domain/idempotency.ts";
 import type { Issue, IssueBody, IssueNumber, IssueTitle } from "../../domain/issue.ts";
-import { GatewayRequestContext } from "./gateway-request-context.ts";
+import { gatewayRequestAgentSession, GatewayRequestContext } from "./gateway-request-context.ts";
 import { ProblemResponse } from "./problem-response.ts";
 
 function apiActor(actor: Actor) {
@@ -27,8 +28,14 @@ function apiActor(actor: Actor) {
     ? { kind: "human" as const, subject: actor.subject, email: actor.email }
     : { kind: "agent" as const, agent_id: actor.agentId };
 }
-function apiAgentSession(session: AgentSession | null) {
-  return session === null ? null : { session_id: session.sessionId, harness: session.harness };
+function apiAgentSession(session: Option.Option<AgentSession>) {
+  return Option.match(session, {
+    onNone: () => null,
+    onSome: (value) => ({
+      session_id: value.sessionId,
+      harness: Option.getOrNull(value.harness),
+    }),
+  });
 }
 function issueResponse(issue: Issue): IssueResponse {
   const self = `/api/issues/${issue.id}`;
@@ -37,7 +44,7 @@ function issueResponse(issue: Issue): IssueResponse {
     project_id: issue.projectId,
     number: issue.number,
     title: issue.title,
-    body: issue.body,
+    body: Option.getOrNull(issue.body),
     state: issue.state,
     lifecycle: issue.lifecycle,
     created_at: issue.createdAt,
@@ -99,7 +106,7 @@ const issueFailure = Effect.fn("Gateway.issueFailure")(function* (failure: Proje
 const createIssueResponse = Effect.fn("Gateway.createIssue")(function* (
   projectId: ProjectId,
   title: IssueTitle,
-  body: IssueBody | null,
+  body: Option.Option<IssueBody>,
   idempotencyKey: IdempotencyKey,
 ) {
   const context = yield* GatewayRequestContext;
@@ -112,7 +119,7 @@ const createIssueResponse = Effect.fn("Gateway.createIssue")(function* (
       idempotencyKey,
       attribution: CommandAttribution.make({
         actor: context.actor,
-        agentSession: context.agentSession,
+        agentSession: gatewayRequestAgentSession(context),
         requestId: context.requestId,
       }),
     }),
@@ -150,7 +157,7 @@ const revisionsResponse = Effect.fn("Gateway.readIssueRevisions")(function* (iss
         IssueRevisionResponse.make({
           field: revision.field,
           number: revision.number,
-          value: revision.value,
+          value: revision.field === "title" ? revision.value : Option.getOrNull(revision.value),
           actor: apiActor(revision.actor),
           agent_session: apiAgentSession(revision.agentSession),
           created_at: revision.createdAt,
@@ -176,7 +183,8 @@ const timelineResponse = Effect.fn("Gateway.readIssueTimeline")(function* (issue
             id: entry.event.id,
             kind: entry.event.kind,
             source_issue_id: entry.event.sourceIssueId,
-            target_issue_id: entry.event.targetIssueId,
+            target_issue_id:
+              entry.event.kind === "issue_created" ? null : entry.event.targetIssueId,
             actor: apiActor(entry.event.actor),
             agent_session: apiAgentSession(entry.event.agentSession),
             created_at: entry.event.createdAt,
@@ -219,7 +227,7 @@ export const layer = HttpApiBuilder.group(OverseerApi, "issues", (handlers) =>
       createIssueResponse(
         params.project_id,
         payload.title,
-        payload.body ?? null,
+        Option.fromNullishOr(payload.body),
         headers["idempotency-key"],
       ),
     )
