@@ -30,7 +30,7 @@ const migrations = SqliteMigrator.fromRecord({
         issue_number INTEGER NOT NULL UNIQUE CHECK (issue_number >= 1),
         title TEXT NOT NULL,
         body TEXT,
-        state TEXT NOT NULL CHECK (state = 'open'),
+        state TEXT NOT NULL CHECK (state IN ('open', 'closed')),
         lifecycle TEXT NOT NULL CHECK (lifecycle = 'active'),
         created_at TEXT NOT NULL,
         updated_at TEXT NOT NULL,
@@ -48,7 +48,7 @@ const migrations = SqliteMigrator.fromRecord({
       )`,
       `CREATE TABLE IF NOT EXISTS timeline_events (
         id TEXT PRIMARY KEY NOT NULL,
-        kind TEXT NOT NULL CHECK (kind IN ('issue_created', 'internal_reference_added')),
+        kind TEXT NOT NULL CHECK (kind IN ('issue_created', 'internal_reference_added', 'issue_closed', 'issue_reopened')),
         source_issue_id TEXT NOT NULL REFERENCES issues(id),
         target_issue_id TEXT REFERENCES issues(id),
         actor_json TEXT NOT NULL,
@@ -69,37 +69,9 @@ const migrations = SqliteMigrator.fromRecord({
       )`,
       `CREATE TABLE IF NOT EXISTS project_idempotency_keys (
         idempotency_key TEXT PRIMARY KEY NOT NULL,
-        result_type TEXT NOT NULL CHECK (result_type = 'issue_creation'),
-        issue_id TEXT NOT NULL REFERENCES issues(id)
-      )`,
-    ] as const;
-    for (const statement of statements) yield* sql.unsafe(statement);
-  }),
-  "2_add_issue_close_reopen": Effect.gen(function* () {
-    const sql = yield* SqlClient.SqlClient;
-    const statements = [
-      `CREATE TABLE IF NOT EXISTS issue_states (
-        issue_id TEXT PRIMARY KEY NOT NULL REFERENCES issues(id),
-        state TEXT NOT NULL CHECK (state IN ('open', 'closed'))
-      )`,
-      `CREATE TABLE IF NOT EXISTS issue_steering_events (
-        id TEXT PRIMARY KEY NOT NULL,
-        kind TEXT NOT NULL CHECK (kind IN ('issue_closed', 'issue_reopened')),
-        source_issue_id TEXT NOT NULL REFERENCES issues(id),
-        actor_json TEXT NOT NULL,
-        agent_session_json TEXT NOT NULL,
-        created_at TEXT NOT NULL
-      )`,
-      `CREATE TABLE IF NOT EXISTS issue_steering_timeline_entries (
+        result_type TEXT NOT NULL CHECK (result_type IN ('issue_creation', 'issue_steering')),
         issue_id TEXT NOT NULL REFERENCES issues(id),
-        position INTEGER NOT NULL CHECK (position >= 1),
-        event_id TEXT NOT NULL REFERENCES issue_steering_events(id),
-        PRIMARY KEY (issue_id, position)
-      )`,
-      `CREATE TABLE IF NOT EXISTS project_steering_idempotency_keys (
-        idempotency_key TEXT PRIMARY KEY NOT NULL,
-        issue_id TEXT NOT NULL REFERENCES issues(id),
-        response_json TEXT NOT NULL
+        response_json TEXT
       )`,
     ] as const;
     for (const statement of statements) yield* sql.unsafe(statement);

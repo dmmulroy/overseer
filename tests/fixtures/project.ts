@@ -22,6 +22,7 @@ import {
   type IssueCursorInvalid,
   IssueDiscoveryService,
   type IssueNotFound,
+  type TimelineCursorInvalid,
   layer as issueDiscoveryLayer,
   type ProjectIdempotencyKeyReused,
   ProjectPersistenceUnavailable,
@@ -33,16 +34,17 @@ import {
   CreateIssueRpcResult,
   IssueReferencesRpcResult,
   IssueRevisionsRpcResult,
+  IssueTimelinePageRpcResult,
   ListIssuesRpcInput,
   ListIssuesRpcResult,
+  ReadIssueTimelineRpcInput,
   SteerIssueStateRpcInput,
   SteerIssueStateRpcResult,
-  IssueTimelineRpcResult,
   ProjectRecordCorrupt,
   ProjectStateUnavailable,
 } from "../../src/application/project/project-rpc.ts";
-import type { IssueId } from "../../src/domain/entity-id.ts";
-import { Issue, type IssueNumber } from "../../src/domain/issue.ts";
+import type { IssueId, TimelineEventId } from "../../src/domain/entity-id.ts";
+import { Issue, IssueTimelineEvent, type IssueNumber } from "../../src/domain/issue.ts";
 
 function exposePersistence<A>(
   effect: Effect.Effect<A, ProjectIdempotencyKeyReused | ProjectPersistenceError>,
@@ -60,9 +62,19 @@ function exposePersistence<A>(
   effect: Effect.Effect<A, IssueCursorInvalid | ProjectPersistenceError>,
 ): Effect.Effect<A, IssueCursorInvalid | ProjectRecordCorrupt | ProjectStateUnavailable>;
 function exposePersistence<A>(
+  effect: Effect.Effect<A, TimelineCursorInvalid | IssueNotFound | ProjectPersistenceError>,
+): Effect.Effect<
+  A,
+  TimelineCursorInvalid | IssueNotFound | ProjectRecordCorrupt | ProjectStateUnavailable
+>;
+function exposePersistence<A>(
   effect: Effect.Effect<
     A,
-    IssueCursorInvalid | IssueNotFound | ProjectIdempotencyKeyReused | ProjectPersistenceError
+    | IssueCursorInvalid
+    | TimelineCursorInvalid
+    | IssueNotFound
+    | ProjectIdempotencyKeyReused
+    | ProjectPersistenceError
   >,
 ) {
   return effect.pipe(
@@ -116,8 +128,9 @@ export class TestProject extends DurableObject<Readonly<Record<never, never>>> {
   ): Promise<typeof CreateIssueRpcResult.Encoded> {
     const { issues } = await this.#ready;
     const decoded = Schema.decodeUnknownSync(CreateIssueRpcInput)(input);
-    const result = await this.#run(exposePersistence(issues.createIssue(decoded)));
-    return Schema.encodeSync(CreateIssueRpcResult)(result);
+    return Schema.encodeSync(CreateIssueRpcResult)(
+      await this.#run(exposePersistence(issues.createIssue(decoded))),
+    );
   }
   /** Close one Issue through its named target-state action. */
   async closeIssue(
@@ -125,8 +138,9 @@ export class TestProject extends DurableObject<Readonly<Record<never, never>>> {
   ): Promise<typeof SteerIssueStateRpcResult.Encoded> {
     const { steering } = await this.#ready;
     const decoded = Schema.decodeUnknownSync(SteerIssueStateRpcInput)(input);
-    const result = await this.#run(exposePersistence(steering.closeIssue(decoded)));
-    return Schema.encodeSync(SteerIssueStateRpcResult)(result);
+    return Schema.encodeSync(SteerIssueStateRpcResult)(
+      await this.#run(exposePersistence(steering.closeIssue(decoded))),
+    );
   }
   /** Reopen one Issue through its named target-state action. */
   async reopenIssue(
@@ -134,8 +148,9 @@ export class TestProject extends DurableObject<Readonly<Record<never, never>>> {
   ): Promise<typeof SteerIssueStateRpcResult.Encoded> {
     const { steering } = await this.#ready;
     const decoded = Schema.decodeUnknownSync(SteerIssueStateRpcInput)(input);
-    const result = await this.#run(exposePersistence(steering.reopenIssue(decoded)));
-    return Schema.encodeSync(SteerIssueStateRpcResult)(result);
+    return Schema.encodeSync(SteerIssueStateRpcResult)(
+      await this.#run(exposePersistence(steering.reopenIssue(decoded))),
+    );
   }
   /** List one exact filtered and ordered Project Issue page. */
   async listIssues(
@@ -143,37 +158,54 @@ export class TestProject extends DurableObject<Readonly<Record<never, never>>> {
   ): Promise<typeof ListIssuesRpcResult.Encoded> {
     const { issues } = await this.#ready;
     const decoded = Schema.decodeUnknownSync(ListIssuesRpcInput)(input);
-    const page = await this.#run(exposePersistence(issues.listIssues(decoded)));
-    return Schema.encodeSync(ListIssuesRpcResult)(page);
+    return Schema.encodeSync(ListIssuesRpcResult)(
+      await this.#run(exposePersistence(issues.listIssues(decoded))),
+    );
   }
   /** Read one Issue by canonical identity. */
   async readIssue(issueId: IssueId): Promise<typeof Issue.Encoded> {
     const { issues } = await this.#ready;
-    const issue = await this.#run(exposePersistence(issues.readIssue(issueId)));
-    return Schema.encodeSync(Issue)(issue);
+    return Schema.encodeSync(Issue)(await this.#run(exposePersistence(issues.readIssue(issueId))));
   }
   /** Read one Issue by its immutable Project-local number. */
   async readIssueByNumber(number: IssueNumber): Promise<typeof Issue.Encoded> {
     const { issues } = await this.#ready;
-    const issue = await this.#run(exposePersistence(issues.readIssueByNumber(number)));
-    return Schema.encodeSync(Issue)(issue);
+    return Schema.encodeSync(Issue)(
+      await this.#run(exposePersistence(issues.readIssueByNumber(number))),
+    );
   }
   /** Read one Issue's immutable text Revisions. */
   async readIssueRevisions(issueId: IssueId): Promise<typeof IssueRevisionsRpcResult.Encoded> {
     const { issues } = await this.#ready;
-    const revisions = await this.#run(exposePersistence(issues.readIssueRevisions(issueId)));
-    return Schema.encodeSync(IssueRevisionsRpcResult)(revisions);
+    return Schema.encodeSync(IssueRevisionsRpcResult)(
+      await this.#run(exposePersistence(issues.readIssueRevisions(issueId))),
+    );
   }
-  /** Read one Issue's structured Timeline. */
-  async readIssueTimeline(issueId: IssueId): Promise<typeof IssueTimelineRpcResult.Encoded> {
+  /** Read one keyset page from an Issue's structured Timeline. */
+  async readIssueTimeline(
+    input: typeof ReadIssueTimelineRpcInput.Encoded,
+  ): Promise<typeof IssueTimelinePageRpcResult.Encoded> {
     const { issues } = await this.#ready;
-    const timeline = await this.#run(exposePersistence(issues.readIssueTimeline(issueId)));
-    return Schema.encodeSync(IssueTimelineRpcResult)(timeline);
+    const decoded = Schema.decodeUnknownSync(ReadIssueTimelineRpcInput)(input);
+    return Schema.encodeSync(IssueTimelinePageRpcResult)(
+      await this.#run(exposePersistence(issues.readIssueTimeline(decoded))),
+    );
+  }
+  /** Read one immutable Event through its owning Issue. */
+  async readTimelineEvent(
+    issueId: IssueId,
+    eventId: TimelineEventId,
+  ): Promise<typeof IssueTimelineEvent.Encoded> {
+    const { issues } = await this.#ready;
+    return Schema.encodeSync(IssueTimelineEvent)(
+      await this.#run(exposePersistence(issues.readTimelineEvent(issueId, eventId))),
+    );
   }
   /** Read one Issue's current reciprocal references. */
   async readIssueReferences(issueId: IssueId): Promise<typeof IssueReferencesRpcResult.Encoded> {
     const { issues } = await this.#ready;
-    const references = await this.#run(exposePersistence(issues.readIssueReferences(issueId)));
-    return Schema.encodeSync(IssueReferencesRpcResult)(references);
+    return Schema.encodeSync(IssueReferencesRpcResult)(
+      await this.#run(exposePersistence(issues.readIssueReferences(issueId))),
+    );
   }
 }

@@ -20,6 +20,7 @@ import {
   type IssueCursorInvalid,
   IssueDiscoveryService,
   type IssueNotFound,
+  type TimelineCursorInvalid,
   layer as issueDiscoveryLayer,
   type ProjectIdempotencyKeyReused,
   ProjectPersistenceUnavailable,
@@ -31,17 +32,17 @@ import {
   CreateIssueRpcResult,
   IssueReferencesRpcResult,
   IssueRevisionsRpcResult,
+  IssueTimelinePageRpcResult,
   ListIssuesRpcInput,
   ListIssuesRpcResult,
+  ReadIssueTimelineRpcInput,
   SteerIssueStateRpcInput,
   SteerIssueStateRpcResult,
-  IssueTimelineRpcResult,
   ProjectRecordCorrupt,
-  ProjectRpcCallFailed,
   ProjectStateUnavailable,
 } from "../application/project/project-rpc.ts";
-import type { IssueId } from "../domain/entity-id.ts";
-import { Issue, type IssueNumber } from "../domain/issue.ts";
+import type { IssueId, TimelineEventId } from "../domain/entity-id.ts";
+import { Issue, IssueTimelineEvent, type IssueNumber } from "../domain/issue.ts";
 import { ProjectObject } from "./project-resource.ts";
 
 function exposeProjectPersistenceFailure<A>(
@@ -65,13 +66,25 @@ function exposeProjectPersistenceFailure<A>(
 ): Effect.Effect<A, IssueCursorInvalid | ProjectRecordCorrupt | ProjectStateUnavailable>;
 function exposeProjectPersistenceFailure<A>(
   operation: string,
+  effect: Effect.Effect<A, TimelineCursorInvalid | IssueNotFound | ProjectPersistenceError>,
+): Effect.Effect<
+  A,
+  TimelineCursorInvalid | IssueNotFound | ProjectRecordCorrupt | ProjectStateUnavailable
+>;
+function exposeProjectPersistenceFailure<A>(
+  operation: string,
   effect: Effect.Effect<
     A,
-    IssueCursorInvalid | IssueNotFound | ProjectIdempotencyKeyReused | ProjectPersistenceError
+    | IssueCursorInvalid
+    | TimelineCursorInvalid
+    | IssueNotFound
+    | ProjectIdempotencyKeyReused
+    | ProjectPersistenceError
   >,
 ): Effect.Effect<
   A,
   | IssueCursorInvalid
+  | TimelineCursorInvalid
   | IssueNotFound
   | ProjectIdempotencyKeyReused
   | ProjectRecordCorrupt
@@ -159,45 +172,52 @@ const ProjectObjectLive = ProjectObject.make<never>(
           ),
         listIssues: (input) =>
           Schema.decodeUnknownEffect(ListIssuesRpcInput)(input).pipe(
-            Effect.mapError(
-              (cause) => new ProjectRpcCallFailed({ operation: "listIssues", cause }),
-            ),
+            Effect.orDie,
             Effect.flatMap((decoded) =>
               exposeProjectPersistenceFailure("listIssues", issues.listIssues(decoded)),
             ),
-            Effect.flatMap((page) =>
-              Schema.encodeEffect(ListIssuesRpcResult)(page).pipe(
-                Effect.mapError(
-                  (cause) => new ProjectRpcCallFailed({ operation: "listIssues", cause }),
-                ),
-              ),
+            Effect.flatMap((result) =>
+              Schema.encodeEffect(ListIssuesRpcResult)(result).pipe(Effect.orDie),
             ),
           ),
         readIssue: (issueId: IssueId) =>
           exposeProjectPersistenceFailure("readIssue", issues.readIssue(issueId)).pipe(
-            Effect.flatMap((issue) => Schema.encodeEffect(Issue)(issue).pipe(Effect.orDie)),
+            Effect.flatMap((result) => Schema.encodeEffect(Issue)(result).pipe(Effect.orDie)),
           ),
         readIssueByNumber: (number: IssueNumber) =>
           exposeProjectPersistenceFailure(
             "readIssueByNumber",
             issues.readIssueByNumber(number),
-          ).pipe(Effect.flatMap((issue) => Schema.encodeEffect(Issue)(issue).pipe(Effect.orDie))),
+          ).pipe(Effect.flatMap((result) => Schema.encodeEffect(Issue)(result).pipe(Effect.orDie))),
         readIssueRevisions: (issueId: IssueId) =>
           exposeProjectPersistenceFailure(
             "readIssueRevisions",
             issues.readIssueRevisions(issueId),
           ).pipe(
-            Effect.flatMap((revisions) =>
-              Schema.encodeEffect(IssueRevisionsRpcResult)(revisions).pipe(Effect.orDie),
+            Effect.flatMap((result) =>
+              Schema.encodeEffect(IssueRevisionsRpcResult)(result).pipe(Effect.orDie),
             ),
           ),
-        readIssueTimeline: (issueId: IssueId) =>
+        readIssueTimeline: (input) =>
+          Schema.decodeUnknownEffect(ReadIssueTimelineRpcInput)(input).pipe(
+            Effect.orDie,
+            Effect.flatMap((decoded) =>
+              exposeProjectPersistenceFailure(
+                "readIssueTimeline",
+                issues.readIssueTimeline(decoded),
+              ),
+            ),
+            Effect.flatMap((result) =>
+              Schema.encodeEffect(IssueTimelinePageRpcResult)(result).pipe(Effect.orDie),
+            ),
+          ),
+        readTimelineEvent: (issueId: IssueId, eventId: TimelineEventId) =>
           exposeProjectPersistenceFailure(
-            "readIssueTimeline",
-            issues.readIssueTimeline(issueId),
+            "readTimelineEvent",
+            issues.readTimelineEvent(issueId, eventId),
           ).pipe(
-            Effect.flatMap((timeline) =>
-              Schema.encodeEffect(IssueTimelineRpcResult)(timeline).pipe(Effect.orDie),
+            Effect.flatMap((result) =>
+              Schema.encodeEffect(IssueTimelineEvent)(result).pipe(Effect.orDie),
             ),
           ),
         readIssueReferences: (issueId: IssueId) =>
@@ -205,8 +225,8 @@ const ProjectObjectLive = ProjectObject.make<never>(
             "readIssueReferences",
             issues.readIssueReferences(issueId),
           ).pipe(
-            Effect.flatMap((references) =>
-              Schema.encodeEffect(IssueReferencesRpcResult)(references).pipe(Effect.orDie),
+            Effect.flatMap((result) =>
+              Schema.encodeEffect(IssueReferencesRpcResult)(result).pipe(Effect.orDie),
             ),
           ),
       };

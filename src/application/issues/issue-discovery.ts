@@ -36,6 +36,8 @@ import type {
   IssueLifecycleFilter,
   IssuePageLimit,
   IssueSort,
+  TimelineCursor,
+  TimelinePageLimit,
   IssueSortDirection,
   IssueStateFilter,
 } from "../../domain/pagination.ts";
@@ -57,6 +59,15 @@ export class IssueCursorInvalid extends Schema.TaggedErrorClass<IssueCursorInval
 ) {
   /** Stable safe diagnostic message. */
   override readonly message = "The Issue page cursor is invalid for this collection request";
+}
+
+/** A Timeline page cursor is malformed or belongs to another Issue. */
+export class TimelineCursorInvalid extends Schema.TaggedErrorClass<TimelineCursorInvalid>()(
+  "TimelineCursorInvalid",
+  {},
+) {
+  /** Stable safe diagnostic message. */
+  override readonly message = "The Timeline page cursor is invalid for this Issue";
 }
 
 /** An Issue creation key already identifies another Project-local result. */
@@ -146,6 +157,20 @@ export type InsertIssueReferenceInput = {
   readonly targetPosition: TimelinePosition;
 };
 
+/** Inputs selecting one ascending keyset page from an Issue Timeline. */
+export type ReadIssueTimelineInput = {
+  readonly issueId: IssueId;
+  readonly cursor: Option.Option<TimelineCursor>;
+  readonly limit: TimelinePageLimit;
+};
+
+/** One exact ascending Issue Timeline page. */
+export type IssueTimelinePage = {
+  readonly entries: ReadonlyArray<IssueTimelineEntry>;
+  readonly previousCursor: Option.Option<TimelineCursor>;
+  readonly nextCursor: Option.Option<TimelineCursor>;
+};
+
 /** Current incoming and outgoing references for one Issue. */
 export type IssueReferences = {
   readonly outgoing: ReadonlyArray<IssueReference>;
@@ -183,8 +208,12 @@ export type IssueDiscoveryState = {
     issueId: IssueId,
   ) => Effect.Effect<ReadonlyArray<IssueRevision>, ProjectPersistenceError>;
   readonly readIssueTimeline: (
+    input: ReadIssueTimelineInput,
+  ) => Effect.Effect<IssueTimelinePage, TimelineCursorInvalid | ProjectPersistenceError>;
+  readonly readTimelineEvent: (
     issueId: IssueId,
-  ) => Effect.Effect<ReadonlyArray<IssueTimelineEntry>, ProjectPersistenceError>;
+    eventId: IssueTimelineEntry["event"]["id"],
+  ) => Effect.Effect<Option.Option<IssueTimelineEntry["event"]>, ProjectPersistenceError>;
   readonly readIssueReferences: (
     issueId: IssueId,
   ) => Effect.Effect<IssueReferences, ProjectPersistenceError>;
@@ -214,8 +243,15 @@ export type IssueDiscovery = {
     issueId: IssueId,
   ) => Effect.Effect<ReadonlyArray<IssueRevision>, IssueNotFound | ProjectPersistenceError>;
   readonly readIssueTimeline: (
+    input: ReadIssueTimelineInput,
+  ) => Effect.Effect<
+    IssueTimelinePage,
+    TimelineCursorInvalid | IssueNotFound | ProjectPersistenceError
+  >;
+  readonly readTimelineEvent: (
     issueId: IssueId,
-  ) => Effect.Effect<ReadonlyArray<IssueTimelineEntry>, IssueNotFound | ProjectPersistenceError>;
+    eventId: IssueTimelineEntry["event"]["id"],
+  ) => Effect.Effect<IssueTimelineEntry["event"], IssueNotFound | ProjectPersistenceError>;
   readonly readIssueReferences: (
     issueId: IssueId,
   ) => Effect.Effect<IssueReferences, IssueNotFound | ProjectPersistenceError>;
@@ -371,9 +407,15 @@ export const make = Effect.gen(function* () {
       yield* requireIssue(issueId);
       return yield* state.readIssueRevisions(issueId);
     }),
-    readIssueTimeline: Effect.fn("IssueDiscovery.readIssueTimeline")(function* (issueId) {
+    readIssueTimeline: Effect.fn("IssueDiscovery.readIssueTimeline")(function* (input) {
+      yield* requireIssue(input.issueId);
+      return yield* state.readIssueTimeline(input);
+    }),
+    readTimelineEvent: Effect.fn("IssueDiscovery.readTimelineEvent")(function* (issueId, eventId) {
       yield* requireIssue(issueId);
-      return yield* state.readIssueTimeline(issueId);
+      const event = yield* state.readTimelineEvent(issueId, eventId);
+      if (Option.isNone(event)) return yield* new IssueNotFound({ issueId });
+      return event.value;
     }),
     readIssueReferences: Effect.fn("IssueDiscovery.readIssueReferences")(function* (issueId) {
       yield* requireIssue(issueId);

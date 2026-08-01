@@ -545,7 +545,19 @@ describe("authenticated application shell", () => {
     );
     await page.getByRole("heading", { name: "Steer from browser" }).waitFor();
     await page.getByRole("heading", { name: "Timeline" }).waitFor();
+    expect(await page.getByText("Unassigned", { exact: true }).isVisible()).toBe(true);
+    expect(await page.getByText("ready", { exact: true }).isVisible()).toBe(true);
+    expect(await page.getByText("None", { exact: true }).isVisible()).toBe(true);
+    expect(await page.getByText("0 sub-Issues · 0 blockers · 0 blocked Issues").isVisible()).toBe(
+      true,
+    );
 
+    const preflightMethods: Array<string> = [];
+    const preflightPattern = `**/api/issues/${issue.id}`;
+    await page.route(preflightPattern, (route) => {
+      preflightMethods.push(route.request().method());
+      return route.continue();
+    });
     let releaseClose: (() => void) | undefined;
     const closeReleased = new Promise<void>((resolve) => {
       releaseClose = resolve;
@@ -561,7 +573,9 @@ describe("authenticated application shell", () => {
     releaseClose?.();
     await page.getByRole("button", { name: "Reopen Issue" }).waitFor();
     await page.getByText("issue closed").waitFor();
+    expect(preflightMethods).toContain("GET");
     await page.unroute(closePattern);
+    await page.unroute(preflightPattern);
 
     const reopenPattern = `**/api/issues/${issue.id}/reopen`;
     await page.route(reopenPattern, (route) =>
@@ -584,6 +598,9 @@ describe("authenticated application shell", () => {
     expect(await page.getByText("closed", { exact: true }).isVisible()).toBe(true);
     expect(await page.getByRole("button", { name: "Reopen Issue" }).isVisible()).toBe(true);
     await page.unroute(reopenPattern);
+    expect(await page.getByRole("button", { name: "Reopen Issue" }).isDisabled()).toBe(true);
+    await page.getByRole("button", { name: "Retry validation" }).click();
+    await page.getByRole("heading", { name: "Steer from browser" }).waitFor();
 
     await page.getByRole("button", { name: "Reopen Issue" }).click();
     await page.getByRole("button", { name: "Close Issue" }).waitFor();
@@ -625,6 +642,42 @@ describe("authenticated application shell", () => {
       await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth),
     ).toBe(true);
     await expectNoAccessibilityViolations(page);
+  });
+
+  it("follows and renders Timeline activity beyond the first 50 entries", async () => {
+    const workspaceId = await seedWorkspace("Long Timeline", "browser-long-timeline-workspace");
+    const projectId = await seedProject(
+      workspaceId,
+      "Long Timeline Project",
+      "browser-long-timeline-project",
+    );
+    const issue = await seedIssue(projectId, "Long Timeline Issue", "browser-long-timeline-issue");
+    for (let index = 0; index < 51; index += 1) {
+      const action = index % 2 === 0 ? "close" : "reopen";
+      const response = await gateway.dispatchFetch(
+        `http://localhost/api/issues/${issue.id}/${action}`,
+        {
+          method: "POST",
+          headers: {
+            "cf-access-jwt-assertion": assertion,
+            "content-type": "application/json",
+            "idempotency-key": `browser-long-timeline-${index}`,
+            origin: gatewayOrigin,
+          },
+          body: "{}",
+        },
+      );
+      expect(response.status).toBe(200);
+    }
+
+    await page.goto(
+      new URL(`/issues/${issue.id}?workspace_id=${workspaceId}&project_id=${projectId}`, gatewayUrl)
+        .href,
+    );
+    await page.getByRole("heading", { name: "Long Timeline Issue" }).waitFor();
+    await expect
+      .poll(() => page.getByRole("list", { name: "Issue Timeline" }).getByRole("listitem").count())
+      .toBe(52);
   });
 
   it("redirects a moved Project to its current Workspace on desktop and mobile", async () => {

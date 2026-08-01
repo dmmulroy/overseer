@@ -12,6 +12,7 @@ import {
   DiscoveryPaths,
   IssueCollection,
   IssueResponse,
+  IssueTimelineCollection,
   Link,
   OverseerApi,
   ProblemDocument,
@@ -25,6 +26,7 @@ import {
   type ProjectCursor as ProjectCursorType,
   type ProjectPageLimit,
   ProjectPageLimitFromString,
+  TimelineCursor,
   WorkspaceCursor,
   type WorkspaceCursor as WorkspaceCursorType,
   type WorkspacePageLimit,
@@ -42,6 +44,7 @@ import type {
   IssueSort,
   IssueSortDirection,
   IssueStateFilter,
+  TimelineCursor as TimelineCursorType,
 } from "../../domain/pagination.ts";
 
 /** Generated browser client and Atom runtime for Overseer's HTTP contract. */
@@ -969,19 +972,83 @@ export const issueQuery = Atom.family((issueId: IssueId) =>
   ),
 );
 
-/** Focused Issue Timeline query family with ordinary conditional polling. */
+const readCompleteIssueTimeline = Effect.fn("Browser.readCompleteIssueTimeline")(function* (
+  issueId: IssueId,
+) {
+  const client = yield* OverseerHttpClient;
+  const items: Array<IssueTimelineCollection["items"][number]> = [];
+  const seen = new Set<string>();
+  let cursor: TimelineCursorType | undefined;
+  let links: IssueTimelineCollection["links"] = {};
+  while (true) {
+    const page = yield* client.issues
+      .readIssueTimeline({
+        params: { issue_id: issueId },
+        query: cursor === undefined ? {} : { cursor },
+        headers: {},
+      })
+      .pipe(
+        Effect.mapError((cause) =>
+          readFailure({
+            operation: "issues",
+            reason: HttpClientError.isHttpClientError(cause) ? "transport" : "status",
+            message: "Browser Timeline page request failed",
+            retryable: HttpClientError.isHttpClientError(cause),
+            cause,
+          }),
+        ),
+      );
+    if (page === undefined) {
+      return yield* Effect.fail(
+        readFailure({
+          operation: "issues",
+          reason: "not-modified-without-cache",
+          message: "Browser Timeline page received 304 without a page cache",
+          retryable: false,
+          cause: issueId,
+        }),
+      );
+    }
+    items.push(...page.items);
+    if (items.length === page.items.length) {
+      const { next: _next, previous: _previous, ...stableLinks } = page.links;
+      links = stableLinks;
+    }
+    const next = page.links.next;
+    if (next === undefined) return IssueTimelineCollection.make({ items, links });
+    const url = new URL(next.href, browserOrigin());
+    const nextCursor = url.searchParams.get("cursor");
+    if (
+      url.origin !== browserOrigin() ||
+      url.pathname !== `/api/issues/${issueId}/timeline` ||
+      nextCursor === null ||
+      seen.has(nextCursor)
+    ) {
+      return yield* Effect.fail(
+        readFailure({
+          operation: "issues",
+          reason: "pagination",
+          message: "Browser Timeline pagination link was invalid or repeated",
+          retryable: false,
+          cause: next.href,
+        }),
+      );
+    }
+    seen.add(nextCursor);
+    cursor = TimelineCursor.make(nextCursor);
+  }
+});
+
+/** Focused Issue Timeline query follows and renders every currently visible page. */
 export const issueTimelineQuery = Atom.family((issueId: IssueId) =>
-  OverseerHttpClient.query("issues", "readIssueTimeline", {
-    params: { issue_id: issueId },
-    query: {},
-    headers: {},
-  }).pipe(
+  OverseerHttpClient.runtime.atom(readCompleteIssueTimeline(issueId)).pipe(
     Atom.swr({
       staleTime: "5 seconds",
       revalidateOnFocus: true,
       focusSignal: Atom.windowFocusSignal,
     }),
     Atom.withRefresh("15 seconds"),
+    withBrowserResourceRetry,
     Atom.setIdleTTL("5 minutes"),
   ),
 );

@@ -1,8 +1,8 @@
 import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
-import type { IssueId, ProjectId } from "../../domain/entity-id.ts";
-import type { Issue, IssueNumber, IssueRevision, IssueTimelineEntry } from "../../domain/issue.ts";
+import type { IssueId, ProjectId, TimelineEventId } from "../../domain/entity-id.ts";
+import type { Issue, IssueNumber, IssueRevision, IssueTimelineEvent } from "../../domain/issue.ts";
 import type { SteerIssueStateInput, SteerIssueStateResult } from "../issues/issue-steering.ts";
 import type {
   CreateIssueInput,
@@ -10,12 +10,15 @@ import type {
   IssueCursorInvalid,
   IssueNotFound,
   IssuePage,
+  IssueReferences,
+  IssueTimelinePage,
   ListIssuesInput,
+  ReadIssueTimelineInput,
+  TimelineCursorInvalid,
   ProjectIdempotencyKeyReused,
 } from "../issues/issue-discovery.ts";
 import {
   ProjectClientService,
-  type IssueReferencesRpcResult,
   type ProjectRecordCorrupt,
   type ProjectRpcCallFailed,
   type ProjectStateUnavailable,
@@ -33,6 +36,7 @@ import type {
 export type ProjectOperationError =
   | IssueCursorInvalid
   | IssueNotFound
+  | TimelineCursorInvalid
   | IssueOwnerNotFound
   | ProjectNotFound
   | ProjectIdempotencyKeyReused
@@ -64,11 +68,15 @@ export type ProjectOperations = {
     issueId: IssueId,
   ) => Effect.Effect<ReadonlyArray<IssueRevision>, ProjectOperationError>;
   readonly readIssueTimeline: (
+    input: ReadIssueTimelineInput,
+  ) => Effect.Effect<IssueTimelinePage, ProjectOperationError>;
+  readonly readTimelineEvent: (
     issueId: IssueId,
-  ) => Effect.Effect<ReadonlyArray<IssueTimelineEntry>, ProjectOperationError>;
+    eventId: TimelineEventId,
+  ) => Effect.Effect<IssueTimelineEvent, ProjectOperationError>;
   readonly readIssueReferences: (
     issueId: IssueId,
-  ) => Effect.Effect<IssueReferencesRpcResult, ProjectOperationError>;
+  ) => Effect.Effect<IssueReferences, ProjectOperationError>;
 };
 
 /** Effect service for Gateway Project-local operation routing and admission. */
@@ -122,11 +130,18 @@ export const make = Effect.gen(function* () {
       yield* registry.readProject(projectId);
       return yield* projects.readIssueRevisions(projectId, issueId);
     }),
-    readIssueTimeline: Effect.fn("ProjectOperations.readIssueTimeline")(function* (issueId) {
-      const projectId = yield* owner(issueId);
+    readIssueTimeline: Effect.fn("ProjectOperations.readIssueTimeline")(function* (input) {
+      const projectId = yield* owner(input.issueId);
       yield* registry.readProject(projectId);
-      return yield* projects.readIssueTimeline(projectId, issueId);
+      return yield* projects.readIssueTimeline(projectId, input);
     }),
+    readTimelineEvent: Effect.fn("ProjectOperations.readTimelineEvent")(
+      function* (issueId, eventId) {
+        const projectId = yield* owner(issueId);
+        yield* registry.readProject(projectId);
+        return yield* projects.readTimelineEvent(projectId, issueId, eventId);
+      },
+    ),
     readIssueReferences: Effect.fn("ProjectOperations.readIssueReferences")(function* (issueId) {
       const projectId = yield* owner(issueId);
       yield* registry.readProject(projectId);

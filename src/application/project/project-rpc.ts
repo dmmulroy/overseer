@@ -2,7 +2,7 @@ import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
 import * as Schema from "effect/Schema";
 import { CommandAttribution } from "../../domain/actor.ts";
-import { IssueId, LabelId, ProjectId } from "../../domain/entity-id.ts";
+import { IssueId, LabelId, ProjectId, TimelineEventId } from "../../domain/entity-id.ts";
 import { IdempotencyKey } from "../../domain/idempotency.ts";
 import {
   Assignee,
@@ -11,17 +11,10 @@ import {
   IssueNumber,
   IssueReference,
   IssueRevision,
-  IssueTimelineEntry,
+  IssueTimelineEvent,
   IssueTitle,
+  TimelinePosition,
 } from "../../domain/issue.ts";
-import type { SteerIssueStateInput, SteerIssueStateResult } from "../issues/issue-steering.ts";
-import {
-  IssueCursorInvalid,
-  IssueNotFound,
-  ProjectIdempotencyKeyReused,
-  type IssuePage,
-  type ListIssuesInput,
-} from "../issues/issue-discovery.ts";
 import {
   IssueAssigneeStatusFilter,
   IssueBlockingStatusFilter,
@@ -32,9 +25,25 @@ import {
   IssueSort,
   IssueSortDirection,
   IssueStateFilter,
+  TimelineCursor,
+  TimelinePageLimit,
 } from "../../domain/pagination.ts";
+import type { SteerIssueStateInput, SteerIssueStateResult } from "../issues/issue-steering.ts";
+import {
+  type CreateIssueInput,
+  type CreateIssueResult,
+  type IssueCursorInvalid,
+  type IssueNotFound,
+  type IssuePage,
+  type IssueReferences,
+  type IssueTimelinePage,
+  type ListIssuesInput,
+  type ProjectIdempotencyKeyReused,
+  type ReadIssueTimelineInput,
+  type TimelineCursorInvalid,
+} from "../issues/issue-discovery.ts";
 
-/** Plain input for idempotent Issue creation over private RPC. */
+/** Structured-clone representation for idempotent Issue creation. */
 export const CreateIssueRpcInput = Schema.Struct({
   projectId: ProjectId,
   title: IssueTitle,
@@ -42,31 +51,25 @@ export const CreateIssueRpcInput = Schema.Struct({
   idempotencyKey: IdempotencyKey,
   attribution: CommandAttribution,
 });
-
-/** Plain input for idempotent Issue creation over private RPC. */
-export interface CreateIssueRpcInput extends Schema.Schema.Type<typeof CreateIssueRpcInput> {}
-
-/** Plain input for one idempotent Issue close or reopen action over private RPC. */
+/** Trusted same-deployment input for idempotent Issue creation. */
+export type CreateIssueRpcInput = CreateIssueInput;
+/** Structured-clone representation for a successful Issue creation. */
+export const CreateIssueRpcResult = Schema.Struct({ issue: Issue, replayed: Schema.Boolean });
+/** Trusted same-deployment successful Issue creation result. */
+export type CreateIssueRpcResult = CreateIssueResult;
+/** Structured-clone representation for one Issue state action. */
 export const SteerIssueStateRpcInput = Schema.Struct({
   issueId: IssueId,
   idempotencyKey: IdempotencyKey,
   attribution: CommandAttribution,
 });
-
-/** Plain input for one idempotent Issue close or reopen action over private RPC. */
-export interface SteerIssueStateRpcInput extends Schema.Schema.Type<
-  typeof SteerIssueStateRpcInput
-> {}
-
-/** Plain close or reopen result returned over private RPC. */
+/** Trusted same-deployment input for one Issue close or reopen action. */
+export type SteerIssueStateRpcInput = SteerIssueStateInput;
+/** Structured-clone representation for one Issue state result. */
 export const SteerIssueStateRpcResult = Schema.Struct({ issue: Issue, replayed: Schema.Boolean });
-
-/** Plain close or reopen result returned over private RPC. */
-export interface SteerIssueStateRpcResult extends Schema.Schema.Type<
-  typeof SteerIssueStateRpcResult
-> {}
-
-/** Plain normalized Project Issue page request over private RPC. */
+/** Trusted same-deployment close or reopen result. */
+export type SteerIssueStateRpcResult = SteerIssueStateResult;
+/** Structured-clone representation for one normalized Issue page request. */
 export const ListIssuesRpcInput = Schema.Struct({
   projectId: ProjectId,
   state: IssueStateFilter,
@@ -83,25 +86,40 @@ export const ListIssuesRpcInput = Schema.Struct({
   cursor: Schema.OptionFromNullOr(IssueCursor),
   limit: IssuePageLimit,
 });
-
-/** Plain normalized Project Issue page request over private RPC. */
-export interface ListIssuesRpcInput extends Schema.Schema.Type<typeof ListIssuesRpcInput> {}
-
-/** Plain exact Project Issue page returned over private RPC. */
+/** Trusted same-deployment normalized Project Issue page request. */
+export type ListIssuesRpcInput = ListIssuesInput;
+/** Structured-clone representation for one exact Issue page. */
 export const ListIssuesRpcResult = Schema.Struct({
   issues: Schema.Array(Issue),
   previousCursor: Schema.OptionFromNullOr(IssueCursor),
   nextCursor: Schema.OptionFromNullOr(IssueCursor),
 });
-
-/** Plain exact Project Issue page returned over private RPC. */
-export interface ListIssuesRpcResult extends Schema.Schema.Type<typeof ListIssuesRpcResult> {}
-
-/** Plain successful Issue creation returned over private RPC. */
-export const CreateIssueRpcResult = Schema.Struct({ issue: Issue, replayed: Schema.Boolean });
-
-/** Plain successful Issue creation returned over private RPC. */
-export interface CreateIssueRpcResult extends Schema.Schema.Type<typeof CreateIssueRpcResult> {}
+/** Trusted same-deployment exact Project Issue page. */
+export type ListIssuesRpcResult = IssuePage;
+/** Structured-clone representation for one Timeline page request. */
+export const ReadIssueTimelineRpcInput = Schema.Struct({
+  issueId: IssueId,
+  cursor: Schema.OptionFromNullOr(TimelineCursor),
+  limit: TimelinePageLimit,
+});
+/** Structured-clone representation for one Timeline page. */
+export const IssueTimelinePageRpcResult = Schema.Struct({
+  entries: Schema.Array(
+    Schema.Struct({
+      position: TimelinePosition,
+      event: IssueTimelineEvent,
+    }),
+  ),
+  previousCursor: Schema.OptionFromNullOr(TimelineCursor),
+  nextCursor: Schema.OptionFromNullOr(TimelineCursor),
+});
+/** Structured-clone representation for Issue Revision results. */
+export const IssueRevisionsRpcResult = Schema.Array(IssueRevision);
+/** Structured-clone representation for reciprocal Issue references. */
+export const IssueReferencesRpcResult = Schema.Struct({
+  outgoing: Schema.Array(IssueReference),
+  incoming: Schema.Array(IssueReference),
+});
 
 /** A persisted Project record is corrupt. */
 export class ProjectRecordCorrupt extends Schema.TaggedErrorClass<ProjectRecordCorrupt>()(
@@ -134,6 +152,7 @@ export class ProjectRpcCallFailed extends Schema.TaggedErrorClass<ProjectRpcCall
       "readIssueByNumber",
       "readIssueRevisions",
       "readIssueTimeline",
+      "readTimelineEvent",
       "readIssueReferences",
     ]),
     cause: Schema.Defect(),
@@ -146,24 +165,7 @@ export class ProjectRpcCallFailed extends Schema.TaggedErrorClass<ProjectRpcCall
 /** Safe Project persistence failures that may cross private RPC. */
 export type ProjectRemotePersistenceError = ProjectRecordCorrupt | ProjectStateUnavailable;
 
-/** Issue Revisions returned over private RPC. */
-export const IssueRevisionsRpcResult = Schema.Array(IssueRevision);
-
-/** Issue Timeline entries returned over private RPC. */
-export const IssueTimelineRpcResult = Schema.Array(IssueTimelineEntry);
-
-/** Current same-Project references returned over private RPC. */
-export const IssueReferencesRpcResult = Schema.Struct({
-  outgoing: Schema.Array(IssueReference),
-  incoming: Schema.Array(IssueReference),
-});
-
-/** Current same-Project references returned over private RPC. */
-export interface IssueReferencesRpcResult extends Schema.Schema.Type<
-  typeof IssueReferencesRpcResult
-> {}
-
-/** Operation-specific schemaless RPC implemented by one Project object. */
+/** Operation-specific structured-clone RPC implemented by one Project object. */
 export type ProjectRpc = {
   readonly createIssue: (
     input: typeof CreateIssueRpcInput.Encoded,
@@ -187,7 +189,7 @@ export type ProjectRpc = {
     input: typeof ListIssuesRpcInput.Encoded,
   ) => Effect.Effect<
     typeof ListIssuesRpcResult.Encoded,
-    IssueCursorInvalid | ProjectRemotePersistenceError | ProjectRpcCallFailed
+    IssueCursorInvalid | ProjectRemotePersistenceError
   >;
   readonly readIssue: (
     issueId: IssueId,
@@ -202,9 +204,16 @@ export type ProjectRpc = {
     IssueNotFound | ProjectRemotePersistenceError
   >;
   readonly readIssueTimeline: (
-    issueId: IssueId,
+    input: typeof ReadIssueTimelineRpcInput.Encoded,
   ) => Effect.Effect<
-    typeof IssueTimelineRpcResult.Encoded,
+    typeof IssueTimelinePageRpcResult.Encoded,
+    TimelineCursorInvalid | IssueNotFound | ProjectRemotePersistenceError
+  >;
+  readonly readTimelineEvent: (
+    issueId: IssueId,
+    eventId: TimelineEventId,
+  ) => Effect.Effect<
+    typeof IssueTimelineEvent.Encoded,
     IssueNotFound | ProjectRemotePersistenceError
   >;
   readonly readIssueReferences: (
@@ -218,9 +227,9 @@ export type ProjectRpc = {
 /** Gateway-facing operations provided by the Project RPC adapter. */
 export type ProjectClient = {
   readonly createIssue: (
-    input: CreateIssueRpcInput,
+    input: CreateIssueInput,
   ) => Effect.Effect<
-    CreateIssueRpcResult,
+    CreateIssueResult,
     ProjectIdempotencyKeyReused | ProjectRemotePersistenceError | ProjectRpcCallFailed
   >;
   readonly closeIssue: (
@@ -266,16 +275,24 @@ export type ProjectClient = {
   >;
   readonly readIssueTimeline: (
     projectId: ProjectId,
-    issueId: IssueId,
+    input: ReadIssueTimelineInput,
   ) => Effect.Effect<
-    ReadonlyArray<IssueTimelineEntry>,
+    IssueTimelinePage,
+    TimelineCursorInvalid | IssueNotFound | ProjectRemotePersistenceError | ProjectRpcCallFailed
+  >;
+  readonly readTimelineEvent: (
+    projectId: ProjectId,
+    issueId: IssueId,
+    eventId: TimelineEventId,
+  ) => Effect.Effect<
+    IssueTimelineEvent,
     IssueNotFound | ProjectRemotePersistenceError | ProjectRpcCallFailed
   >;
   readonly readIssueReferences: (
     projectId: ProjectId,
     issueId: IssueId,
   ) => Effect.Effect<
-    IssueReferencesRpcResult,
+    IssueReferences,
     IssueNotFound | ProjectRemotePersistenceError | ProjectRpcCallFailed
   >;
 };

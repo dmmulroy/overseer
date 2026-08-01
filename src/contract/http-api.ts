@@ -296,6 +296,14 @@ const ApiAgentSession = Schema.Struct({
   harness: Schema.NullOr(HarnessName),
 });
 
+const IssueLabelSummary = Schema.Struct({
+  id: LabelId,
+  name: Schema.String,
+  description: Schema.NullOr(Schema.String),
+  color: Schema.NullOr(Schema.String),
+  links: Schema.Record(Schema.String, Link),
+});
+
 /** Full canonical Issue API response body. */
 export const IssueResponse = Schema.Struct({
   id: IssueId,
@@ -307,19 +315,19 @@ export const IssueResponse = Schema.Struct({
   lifecycle: Schema.Literal("active"),
   created_at: IssueTimestamp,
   updated_at: IssueTimestamp,
+  assignee: Schema.NullOr(Assignee),
+  labels: Schema.Array(IssueLabelSummary),
+  readiness: Schema.Literals(["ready", "blocked"]),
+  active_blocker_count: Schema.Int.check(Schema.isGreaterThanOrEqualTo(0)),
+  parent_issue_id: Schema.NullOr(IssueId),
+  sub_issue_count: Schema.Int.check(Schema.isGreaterThanOrEqualTo(0)),
+  blocked_by_count: Schema.Int.check(Schema.isGreaterThanOrEqualTo(0)),
+  blocks_count: Schema.Int.check(Schema.isGreaterThanOrEqualTo(0)),
   links: Schema.Record(Schema.String, Link),
 }).annotate({ identifier: "Issue" });
 
 /** Full canonical Issue API response body. */
 export interface IssueResponse extends Schema.Schema.Type<typeof IssueResponse> {}
-
-const IssueLabelSummary = Schema.Struct({
-  id: LabelId,
-  name: Schema.String,
-  description: Schema.NullOr(Schema.String),
-  color: Schema.NullOr(Schema.String),
-  links: Schema.Record(Schema.String, Link),
-});
 
 /** Bounded Issue summary returned by one Project-scoped list page. */
 export const IssueSummaryResponse = Schema.Struct({
@@ -375,23 +383,30 @@ export interface IssueRevisionCollection extends Schema.Schema.Type<
   typeof IssueRevisionCollection
 > {}
 
+/** Immutable independently readable structured Event representation. */
+export const IssueEventResponse = Schema.Struct({
+  id: TimelineEventId,
+  kind: Schema.Literals([
+    "issue_created",
+    "internal_reference_added",
+    "issue_closed",
+    "issue_reopened",
+  ]),
+  source_issue_id: IssueId,
+  target_issue_id: Schema.NullOr(IssueId),
+  actor: ApiActor,
+  agent_session: Schema.NullOr(ApiAgentSession),
+  created_at: IssueTimestamp,
+  links: Schema.Record(Schema.String, Link),
+}).annotate({ identifier: "IssueEvent" });
+
+/** Immutable independently readable structured Event representation. */
+export interface IssueEventResponse extends Schema.Schema.Type<typeof IssueEventResponse> {}
+
 /** Structured Timeline event projected at one Issue-local position. */
 export const IssueTimelineEntryResponse = Schema.Struct({
   position: TimelinePosition,
-  event: Schema.Struct({
-    id: TimelineEventId,
-    kind: Schema.Literals([
-      "issue_created",
-      "internal_reference_added",
-      "issue_closed",
-      "issue_reopened",
-    ]),
-    source_issue_id: IssueId,
-    target_issue_id: Schema.NullOr(IssueId),
-    actor: ApiActor,
-    agent_session: Schema.NullOr(ApiAgentSession),
-    created_at: IssueTimestamp,
-  }),
+  event: IssueEventResponse,
 }).annotate({ identifier: "IssueTimelineEntry" });
 
 /** Structured Timeline event projected at one Issue-local position. */
@@ -399,13 +414,13 @@ export interface IssueTimelineEntryResponse extends Schema.Schema.Type<
   typeof IssueTimelineEntryResponse
 > {}
 
-/** Complete structured Timeline introduced for one Issue. */
+/** One ascending keyset page of an Issue's structured Timeline. */
 export const IssueTimelineCollection = Schema.Struct({
   items: Schema.Array(IssueTimelineEntryResponse),
   links: Schema.Record(Schema.String, Link),
 }).annotate({ identifier: "IssueTimelineCollection" });
 
-/** Complete structured Timeline introduced for one Issue. */
+/** One ascending keyset page of an Issue's structured Timeline. */
 export interface IssueTimelineCollection extends Schema.Schema.Type<
   typeof IssueTimelineCollection
 > {}
@@ -629,6 +644,7 @@ const moveProject = HttpApiEndpoint.post("moveProject", "/api/projects/:project_
 });
 
 const issuePath = { issue_id: IssueId };
+const issueEventPath = { issue_id: IssueId, event_id: TimelineEventId };
 const numberedIssuePath = { project_id: ProjectId, issue_number: IssueNumberFromString };
 const issueCreated = IssueResponse.pipe(HttpApiSchema.status(201));
 const issueListKeys = new Set([
@@ -770,6 +786,37 @@ const readIssueTimeline = HttpApiEndpoint.get(
     error: issueReadProblems,
   },
 );
+const headIssueTimeline = HttpApiEndpoint.head(
+  "headIssueTimeline",
+  "/api/issues/:issue_id/timeline",
+  {
+    params: issuePath,
+    query: timelineQuery,
+    headers: cacheValidationHeaders,
+    success: [IssueTimelineCollection, NotModified],
+    error: issueReadProblems,
+  },
+);
+const readIssueEvent = HttpApiEndpoint.get(
+  "readIssueEvent",
+  "/api/issues/:issue_id/events/:event_id",
+  {
+    params: issueEventPath,
+    headers: cacheValidationHeaders,
+    success: [IssueEventResponse, NotModified],
+    error: issueReadProblems,
+  },
+);
+const headIssueEvent = HttpApiEndpoint.head(
+  "headIssueEvent",
+  "/api/issues/:issue_id/events/:event_id",
+  {
+    params: issueEventPath,
+    headers: cacheValidationHeaders,
+    success: [IssueEventResponse, NotModified],
+    error: issueReadProblems,
+  },
+);
 const readIssueReferences = HttpApiEndpoint.get(
   "readIssueReferences",
   "/api/issues/:issue_id/references",
@@ -826,6 +873,9 @@ export class IssueGroup extends HttpApiGroup.make("issues")
   .add(headNumberedIssue)
   .add(readIssueRevisions)
   .add(readIssueTimeline)
+  .add(headIssueTimeline)
+  .add(readIssueEvent)
+  .add(headIssueEvent)
   .add(readIssueReferences) {}
 
 /** Cloudflare Access assertion scheme published in generated OpenAPI. */

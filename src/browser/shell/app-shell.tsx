@@ -5,12 +5,10 @@ import * as Schema from "effect/Schema";
 import { AsyncResult } from "effect/unstable/reactivity";
 import { useCallback, useEffect, useState } from "react";
 import {
-  closeIssueMutation,
   discoveryQuery,
   invalidateBrowserIssueListPages,
   issueQuery,
   issueTimelineQuery,
-  reopenIssueMutation,
   projectQuery,
   workspaceQuery,
 } from "../../adapters/web-client/api-resources.ts";
@@ -21,7 +19,11 @@ import type {
   WorkspaceResponse,
 } from "../../contract/http-api.ts";
 import { IssueId, type ProjectId, type WorkspaceId } from "../../domain/entity-id.ts";
-import { IdempotencyKey } from "../../domain/idempotency.ts";
+import {
+  issueSteeringCommand,
+  optimisticIssueState,
+  type BrowserIssueStateAction,
+} from "../issue-steering-command.ts";
 import { ProjectIssueList } from "../features/issues/project-issue-list.tsx";
 import { completeIssueListSearch } from "../issue-list-search.ts";
 import { cn } from "../../lib/ui-classnames.ts";
@@ -255,11 +257,9 @@ function LoadingCard(props: {
 function FocusedIssueContent(props: { readonly issueId: IssueId }): React.JSX.Element {
   const state = useAtomValue(issueQuery(props.issueId));
   const timelineState = useAtomValue(issueTimelineQuery(props.issueId));
-  const closeCommand = useAtomValue(closeIssueMutation);
-  const reopenCommand = useAtomValue(reopenIssueMutation);
-  const closeIssue = useAtomSet(closeIssueMutation);
-  const reopenIssue = useAtomSet(reopenIssueMutation);
-  const refreshIssue = useAtomRefresh(issueQuery(props.issueId));
+  const commandAtom = issueSteeringCommand(props.issueId);
+  const command = useAtomValue(commandAtom);
+  const runCommand = useAtomSet(commandAtom);
   const refreshTimeline = useAtomRefresh(issueTimelineQuery(props.issueId));
   const canonicalIssue = Option.filter(
     AsyncResult.value(state),
@@ -269,33 +269,23 @@ function FocusedIssueContent(props: { readonly issueId: IssueId }): React.JSX.El
     AsyncResult.value(timelineState),
     (value): value is IssueTimelineCollection => value !== undefined,
   );
-  const [visibleIssue, setVisibleIssue] = useState<IssueResponse | undefined>(undefined);
-  const [activeAction, setActiveAction] = useState<"close" | "reopen" | undefined>(undefined);
-  const [lastAction, setLastAction] = useState<"close" | "reopen">("close");
+  const [activeAction, setActiveAction] = useState<BrowserIssueStateAction | undefined>(undefined);
 
   useEffect(() => {
     if (Option.isSome(canonicalIssue)) {
-      setVisibleIssue(canonicalIssue.value);
       invalidateBrowserIssueListPages();
-    }
-  }, [Option.isSome(canonicalIssue) ? canonicalIssue.value.updated_at : undefined]);
-
-  const activeCommand = (activeAction ?? lastAction) === "close" ? closeCommand : reopenCommand;
-  useEffect(() => {
-    if (activeAction === undefined || activeCommand.waiting) return;
-    const committed = AsyncResult.value(activeCommand);
-    if (Option.isSome(committed)) {
-      setVisibleIssue(committed.value);
-      invalidateBrowserIssueListPages();
-      refreshIssue();
       refreshTimeline();
-    } else if (AsyncResult.isFailure(activeCommand)) {
-      setVisibleIssue(Option.getOrUndefined(canonicalIssue));
     }
-    setActiveAction(undefined);
-  }, [activeAction, activeCommand, canonicalIssue, refreshIssue, refreshTimeline]);
+  }, [
+    Option.isSome(canonicalIssue) ? canonicalIssue.value.updated_at : undefined,
+    refreshTimeline,
+  ]);
 
-  if (Option.isNone(canonicalIssue) || visibleIssue === undefined) {
+  useEffect(() => {
+    if (activeAction !== undefined && !command.waiting) setActiveAction(undefined);
+  }, [activeAction, command.waiting]);
+
+  if (Option.isNone(canonicalIssue)) {
     return state._tag === "Failure" ? (
       <StateCard>
         <div role="alert">
@@ -312,36 +302,22 @@ function FocusedIssueContent(props: { readonly issueId: IssueId }): React.JSX.El
     );
   }
 
-  const runStateAction = (action: "close" | "reopen") => {
+  const committed = AsyncResult.value(command);
+  const baseIssue = Option.match(committed, {
+    onNone: () => canonicalIssue.value,
+    onSome: (issue) =>
+      canonicalIssue.value.updated_at > issue.updated_at ? canonicalIssue.value : issue,
+  });
+  const visibleIssue =
+    activeAction === undefined ? baseIssue : optimisticIssueState(baseIssue, activeAction);
+  const runStateAction = (action: BrowserIssueStateAction) => {
     setActiveAction(action);
-    setLastAction(action);
-    const { close: _close, reopen: _reopen, ...stableLinks } = visibleIssue.links;
-    const optimisticState = action === "close" ? "closed" : "open";
-    setVisibleIssue({
-      ...visibleIssue,
-      state: optimisticState,
-      links: {
-        ...stableLinks,
-        [optimisticState === "closed" ? "reopen" : "close"]: {
-          href: `/api/issues/${props.issueId}/${optimisticState === "closed" ? "reopen" : "close"}`,
-          method: "POST",
-        },
-      },
-    });
-    const request = {
-      params: { issue_id: props.issueId },
-      headers: {
-        "content-type": "application/json",
-        "idempotency-key": IdempotencyKey.make(`browser-issue-state-${crypto.randomUUID()}`),
-      },
-      payload: {},
-    };
-    if (action === "close") closeIssue(request);
-    else reopenIssue(request);
+    runCommand(action);
   };
   const action =
     visibleIssue.state === "open" ? visibleIssue.links.close : visibleIssue.links.reopen;
-  const writesDisabled = state._tag === "Failure" || activeAction !== undefined;
+  const writesDisabled =
+    state._tag === "Failure" || AsyncResult.isFailure(command) || activeAction !== undefined;
 
   return (
     <section className="issue-focused grid w-full max-w-5xl items-start gap-4 lg:grid-cols-[minmax(0,1fr)_16rem]">
@@ -396,6 +372,29 @@ function FocusedIssueContent(props: { readonly issueId: IssueId }): React.JSX.El
             <dt className="text-muted-foreground">Identity</dt>
             <dd>#{visibleIssue.number}</dd>
           </div>
+          <div>
+            <dt className="text-muted-foreground">Assignee</dt>
+            <dd>{visibleIssue.assignee ?? "Unassigned"}</dd>
+          </div>
+          <div>
+            <dt className="text-muted-foreground">Readiness</dt>
+            <dd className="capitalize">{visibleIssue.readiness}</dd>
+          </div>
+          <div>
+            <dt className="text-muted-foreground">Labels</dt>
+            <dd>
+              {visibleIssue.labels.length === 0
+                ? "None"
+                : visibleIssue.labels.map((label) => label.name).join(", ")}
+            </dd>
+          </div>
+          <div>
+            <dt className="text-muted-foreground">Relationships</dt>
+            <dd>
+              {visibleIssue.sub_issue_count} sub-Issues · {visibleIssue.blocked_by_count} blockers ·{" "}
+              {visibleIssue.blocks_count} blocked Issues
+            </dd>
+          </div>
         </dl>
         {action === undefined ? null : (
           <Button
@@ -413,10 +412,16 @@ function FocusedIssueContent(props: { readonly issueId: IssueId }): React.JSX.El
                 : "Reopening…"}
           </Button>
         )}
-        {AsyncResult.isFailure(activeCommand) && activeAction === undefined ? (
-          <p className="mt-3 text-sm text-destructive" role="alert">
-            The Issue state change failed and was rolled back.
-          </p>
+        {AsyncResult.isFailure(command) && activeAction === undefined ? (
+          <div className="mt-3 grid gap-2" role="alert">
+            <p className="text-sm text-destructive">
+              The Issue state change failed and was rolled back. Cached Issue content remains
+              readable and server writes are disabled.
+            </p>
+            <Button onClick={() => window.location.reload()} size="sm" variant="outline">
+              Retry validation
+            </Button>
+          </div>
         ) : null}
       </aside>
     </section>

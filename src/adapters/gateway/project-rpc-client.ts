@@ -7,22 +7,23 @@ import {
   CreateIssueRpcResult,
   IssueReferencesRpcResult,
   IssueRevisionsRpcResult,
+  IssueTimelinePageRpcResult,
   ListIssuesRpcInput,
   ListIssuesRpcResult,
+  ReadIssueTimelineRpcInput,
   SteerIssueStateRpcInput,
   SteerIssueStateRpcResult,
-  IssueTimelineRpcResult,
   ProjectClientService,
   ProjectRpcCallFailed,
   type ProjectRpc,
 } from "../../application/project/project-rpc.ts";
 import type { ProjectId } from "../../domain/entity-id.ts";
-import { Issue } from "../../domain/issue.ts";
+import { Issue, IssueTimelineEvent } from "../../domain/issue.ts";
 import { ProjectObject } from "../../infra/project-resource.ts";
 
 type RpcOperation = keyof ProjectRpc;
 
-function decodeRpcResponse<A>(
+function transformRpcValue<A>(
   schema: Schema.Decoder<A>,
   value: unknown,
   operation: RpcOperation,
@@ -38,6 +39,7 @@ function withRpcCallError<A, E>(
   // SAFETY: Alchemy's schemaless stub can fail with RpcCallError when native JSRPC rejects, but its Shape mapping omits that transport error from the static method type.
   return effect as Effect.Effect<A, E | Cloudflare.RpcCallError>;
 }
+
 function rpcCall<A, E>(
   effect: Effect.Effect<A, E>,
   operation: RpcOperation,
@@ -54,7 +56,7 @@ function rpcCall<A, E>(
   );
 }
 
-/** Construct the Gateway Project client from the hosted Alchemy namespace. */
+/** Construct the Gateway Project client from trusted same-deployment Alchemy RPC. */
 export const make = Effect.gen(function* () {
   const projects = yield* ProjectObject;
   const stub = (projectId: ProjectId) => projects.getByName(projectId);
@@ -65,64 +67,73 @@ export const make = Effect.gen(function* () {
         Effect.flatMap((encoded) =>
           rpcCall(stub(input.projectId).createIssue(encoded), "createIssue"),
         ),
-        Effect.flatMap((result) => decodeRpcResponse(CreateIssueRpcResult, result, "createIssue")),
+        Effect.flatMap((value) => transformRpcValue(CreateIssueRpcResult, value, "createIssue")),
       ),
     ),
     closeIssue: Effect.fn("ProjectRpc.closeIssue")((projectId, input) =>
       Schema.encodeEffect(SteerIssueStateRpcInput)(input).pipe(
         Effect.orDie,
         Effect.flatMap((encoded) => rpcCall(stub(projectId).closeIssue(encoded), "closeIssue")),
-        Effect.flatMap((result) =>
-          decodeRpcResponse(SteerIssueStateRpcResult, result, "closeIssue"),
-        ),
+        Effect.flatMap((value) => transformRpcValue(SteerIssueStateRpcResult, value, "closeIssue")),
       ),
     ),
     reopenIssue: Effect.fn("ProjectRpc.reopenIssue")((projectId, input) =>
       Schema.encodeEffect(SteerIssueStateRpcInput)(input).pipe(
         Effect.orDie,
         Effect.flatMap((encoded) => rpcCall(stub(projectId).reopenIssue(encoded), "reopenIssue")),
-        Effect.flatMap((result) =>
-          decodeRpcResponse(SteerIssueStateRpcResult, result, "reopenIssue"),
+        Effect.flatMap((value) =>
+          transformRpcValue(SteerIssueStateRpcResult, value, "reopenIssue"),
         ),
       ),
     ),
     listIssues: Effect.fn("ProjectRpc.listIssues")((input) =>
       Schema.encodeEffect(ListIssuesRpcInput)(input).pipe(
-        Effect.mapError((cause) => new ProjectRpcCallFailed({ operation: "listIssues", cause })),
+        Effect.orDie,
         Effect.flatMap((encoded) =>
           rpcCall(stub(input.projectId).listIssues(encoded), "listIssues"),
         ),
-        Effect.flatMap((result) => decodeRpcResponse(ListIssuesRpcResult, result, "listIssues")),
+        Effect.flatMap((value) => transformRpcValue(ListIssuesRpcResult, value, "listIssues")),
       ),
     ),
     readIssue: Effect.fn("ProjectRpc.readIssue")((projectId, issueId) =>
       rpcCall(stub(projectId).readIssue(issueId), "readIssue").pipe(
-        Effect.flatMap((result) => decodeRpcResponse(Issue, result, "readIssue")),
+        Effect.flatMap((value) => transformRpcValue(Issue, value, "readIssue")),
       ),
     ),
     readIssueByNumber: Effect.fn("ProjectRpc.readIssueByNumber")((projectId, number) =>
       rpcCall(stub(projectId).readIssueByNumber(number), "readIssueByNumber").pipe(
-        Effect.flatMap((result) => decodeRpcResponse(Issue, result, "readIssueByNumber")),
+        Effect.flatMap((value) => transformRpcValue(Issue, value, "readIssueByNumber")),
       ),
     ),
     readIssueRevisions: Effect.fn("ProjectRpc.readIssueRevisions")((projectId, issueId) =>
       rpcCall(stub(projectId).readIssueRevisions(issueId), "readIssueRevisions").pipe(
-        Effect.flatMap((result) =>
-          decodeRpcResponse(IssueRevisionsRpcResult, result, "readIssueRevisions"),
+        Effect.flatMap((value) =>
+          transformRpcValue(IssueRevisionsRpcResult, value, "readIssueRevisions"),
         ),
       ),
     ),
-    readIssueTimeline: Effect.fn("ProjectRpc.readIssueTimeline")((projectId, issueId) =>
-      rpcCall(stub(projectId).readIssueTimeline(issueId), "readIssueTimeline").pipe(
-        Effect.flatMap((result) =>
-          decodeRpcResponse(IssueTimelineRpcResult, result, "readIssueTimeline"),
+    readIssueTimeline: Effect.fn("ProjectRpc.readIssueTimeline")((projectId, input) =>
+      Schema.encodeEffect(ReadIssueTimelineRpcInput)(input).pipe(
+        Effect.orDie,
+        Effect.flatMap((encoded) =>
+          rpcCall(stub(projectId).readIssueTimeline(encoded), "readIssueTimeline"),
+        ),
+        Effect.flatMap((value) =>
+          transformRpcValue(IssueTimelinePageRpcResult, value, "readIssueTimeline"),
+        ),
+      ),
+    ),
+    readTimelineEvent: Effect.fn("ProjectRpc.readTimelineEvent")((projectId, issueId, eventId) =>
+      rpcCall(stub(projectId).readTimelineEvent(issueId, eventId), "readTimelineEvent").pipe(
+        Effect.flatMap((value) =>
+          transformRpcValue(IssueTimelineEvent, value, "readTimelineEvent"),
         ),
       ),
     ),
     readIssueReferences: Effect.fn("ProjectRpc.readIssueReferences")((projectId, issueId) =>
       rpcCall(stub(projectId).readIssueReferences(issueId), "readIssueReferences").pipe(
-        Effect.flatMap((result) =>
-          decodeRpcResponse(IssueReferencesRpcResult, result, "readIssueReferences"),
+        Effect.flatMap((value) =>
+          transformRpcValue(IssueReferencesRpcResult, value, "readIssueReferences"),
         ),
       ),
     ),

@@ -201,6 +201,16 @@ describe("Issue REST interface", () => {
     const created = Schema.decodeUnknownSync(IssueResponse)(
       await (await createIssue("Steer state", "issue-steer-create")).json(),
     );
+    expect(created).toMatchObject({
+      assignee: null,
+      labels: [],
+      readiness: "ready",
+      active_blocker_count: 0,
+      parent_issue_id: null,
+      sub_issue_count: 0,
+      blocked_by_count: 0,
+      blocks_count: 0,
+    });
     expect(created.links.close).toMatchObject({
       href: `/api/issues/${created.id}/close`,
       method: "POST",
@@ -264,8 +274,20 @@ describe("Issue REST interface", () => {
       event: {
         kind: "issue_closed",
         actor: { kind: "human", subject: "issue-human" },
+        links: {
+          self: { href: expect.stringContaining(`/api/issues/${created.id}/events/`) },
+          source_issue: { href: `/api/issues/${created.id}` },
+        },
       },
     });
+    const event = timeline.items[1]?.event;
+    expect(event).toBeDefined();
+    const eventRead = await api(event?.links.self?.href ?? "");
+    expect(eventRead.status).toBe(200);
+    expect(await eventRead.json()).toEqual(event);
+    const eventHead = await api(event?.links.self?.href ?? "", { method: "HEAD" });
+    expect(eventHead.status).toBe(200);
+    expect(await eventHead.text()).toBe("");
     expect(timeline.links.next?.href).toContain("cursor=");
     const nextTimeline = Schema.decodeUnknownSync(IssueTimelineCollection)(
       await (await api(timeline.links.next?.href ?? "")).json(),

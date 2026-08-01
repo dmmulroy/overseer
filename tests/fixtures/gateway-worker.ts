@@ -53,11 +53,12 @@ import {
   CreateIssueRpcResult,
   IssueReferencesRpcResult,
   IssueRevisionsRpcResult,
+  IssueTimelinePageRpcResult,
   ListIssuesRpcInput,
   ListIssuesRpcResult,
+  ReadIssueTimelineRpcInput,
   SteerIssueStateRpcInput,
   SteerIssueStateRpcResult,
-  IssueTimelineRpcResult,
   ProjectClientService,
   ProjectRecordCorrupt,
   ProjectRpcCallFailed,
@@ -70,7 +71,7 @@ import {
   ProjectIdempotencyKeyReused,
 } from "../../src/application/issues/issue-discovery.ts";
 import { makeRequestId } from "../../src/domain/actor.ts";
-import { Issue } from "../../src/domain/issue.ts";
+import { Issue, IssueTimelineEvent } from "../../src/domain/issue.ts";
 import { TestProject } from "./project.ts";
 import { TestWorkspaceRegistry } from "./workspace-registry.ts";
 
@@ -452,13 +453,13 @@ function makeHandler(
           },
         }),
       ),
-      readIssueTimeline: Effect.fn("TestProjectRpc.readIssueTimeline")((projectId, issueId) =>
+      readIssueTimeline: Effect.fn("TestProjectRpc.readIssueTimeline")((projectId, input) =>
         Effect.tryPromise({
           try: () =>
             projectNamespace
               .getByName(projectId)
-              .readIssueTimeline(issueId)
-              .then(Schema.decodeUnknownSync(IssueTimelineRpcResult)),
+              .readIssueTimeline(Schema.encodeSync(ReadIssueTimelineRpcInput)(input))
+              .then(Schema.decodeUnknownSync(IssueTimelinePageRpcResult)),
           catch: (cause) => {
             const decoded = Schema.decodeUnknownResult(ReadProjectIssueFailure)(cause);
             return Result.isSuccess(decoded)
@@ -466,6 +467,22 @@ function makeHandler(
               : new ProjectRpcCallFailed({ operation: "readIssueTimeline", cause });
           },
         }),
+      ),
+      readTimelineEvent: Effect.fn("TestProjectRpc.readTimelineEvent")(
+        (projectId, issueId, eventId) =>
+          Effect.tryPromise({
+            try: () =>
+              projectNamespace
+                .getByName(projectId)
+                .readTimelineEvent(issueId, eventId)
+                .then(Schema.decodeUnknownSync(IssueTimelineEvent)),
+            catch: (cause) => {
+              const decoded = Schema.decodeUnknownResult(ReadProjectIssueFailure)(cause);
+              return Result.isSuccess(decoded)
+                ? decoded.success
+                : new ProjectRpcCallFailed({ operation: "readTimelineEvent", cause });
+            },
+          }),
       ),
       readIssueReferences: Effect.fn("TestProjectRpc.readIssueReferences")((projectId, issueId) =>
         Effect.tryPromise({

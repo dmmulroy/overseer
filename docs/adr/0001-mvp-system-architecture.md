@@ -177,7 +177,7 @@ sequenceDiagram
   G-->>C: 200/201 response body + fresh ETag
 ```
 
-A no-op performs no Revision, event, timestamp, association, or idempotent relation change. A shared graph/reference event and all of its Issue-local Timeline positions commit in the same Project transaction. Creation and key recording commit together in the authoritative object's transaction.
+A no-op performs no Revision, event, timestamp, association, or naturally idempotent relation change. A named POST action still records its caller key and original successful response so a later replay returns that response even if the Issue has since changed; this protocol record is not a domain change. A shared graph/reference event and all of its Issue-local Timeline positions commit in the same Project transaction. Entity creation and its key recording commit together in the authoritative object's transaction.
 
 ### ETag cache validation response
 
@@ -314,6 +314,7 @@ A future DO-to-DO call captures the required namespace in the caller's Alchemy o
 - Replays ignore changed bodies, authenticated principals, and target paths. They return `201`, the current entity data, its canonical `Location`, and `Idempotency-Replayed: true`.
 - A key recorded for another result type in the same object namespace returns `409 idempotency_key_reused`. Workspace and Project creation therefore conflict in the current shared Registry namespace.
 - The same key may be used independently in another Durable Object. Future Project-owned creates use Project-local key storage; no deployment-global coordination exists.
+- Named Issue state-action keys retain the original successful Issue response, including no-op responses. This is required because a replay after a later state change must return the first response rather than recompute the target state.
 - Multipart part replacement, completion, and abort use their dedicated state/part semantics.
 
 ### Expected errors
