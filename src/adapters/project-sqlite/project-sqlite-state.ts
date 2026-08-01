@@ -1,17 +1,22 @@
 import * as Effect from "effect/Effect";
+import * as Encoding from "effect/Encoding";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
+import * as Result from "effect/Result";
 import * as Schema from "effect/Schema";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
 import {
+  IssueCursorInvalid,
   IssueDiscoveryStateService,
   ProjectIdempotencyKeyReused,
+  type ListIssuesInput,
   ProjectPersistenceUnavailable,
   ProjectStoredRecordCorrupt,
 } from "../../application/issues/issue-discovery.ts";
 import { Actor, AgentSession } from "../../domain/actor.ts";
-import { IssueId, ProjectId, TimelineEventId } from "../../domain/entity-id.ts";
+import { IssueId, LabelId, ProjectId, TimelineEventId } from "../../domain/entity-id.ts";
 import {
+  Assignee,
   Issue,
   IssueBody,
   IssueNumber,
@@ -24,6 +29,17 @@ import {
   type IssueTimelineEntry,
   type IssueTimelineEvent,
 } from "../../domain/issue.ts";
+import {
+  IssueAssigneeStatusFilter,
+  IssueBlockingStatusFilter,
+  IssueCursor,
+  IssueLabelMatchFilter,
+  IssueLifecycleFilter,
+  IssuePageLimit,
+  IssueSort,
+  IssueSortDirection,
+  IssueStateFilter,
+} from "../../domain/pagination.ts";
 
 const ActorJson = Schema.fromJsonString(Actor);
 const AgentSessionJson = Schema.fromJsonString(Schema.OptionFromNullOr(AgentSession));
@@ -121,6 +137,79 @@ const TimelineRowSchema = Schema.Union([
 ]);
 
 const ReferenceRowSchema = Schema.Struct({ source_issue_id: IssueId, target_issue_id: IssueId });
+
+const IssueCursorBinding = Schema.Struct({
+  projectId: ProjectId,
+  state: IssueStateFilter,
+  lifecycle: IssueLifecycleFilter,
+  assignee: Schema.NullOr(Assignee),
+  assigneeStatus: IssueAssigneeStatusFilter,
+  labelIds: Schema.Array(LabelId),
+  labelMatch: IssueLabelMatchFilter,
+  parent: Schema.NullOr(Schema.Union([Schema.Literal("root"), IssueId])),
+  blockingStatus: IssueBlockingStatusFilter,
+  number: Schema.NullOr(IssueNumber),
+  sort: IssueSort,
+  direction: IssueSortDirection,
+  limit: IssuePageLimit,
+});
+const issueCursorBindingEquals = Schema.toEquivalence(IssueCursorBinding);
+const IssueCursorState = Schema.Struct({
+  binding: IssueCursorBinding,
+  mode: Schema.Literals(["after", "before"]),
+  issueId: IssueId,
+  number: IssueNumber,
+  createdAt: IssueTimestamp,
+  updatedAt: IssueTimestamp,
+});
+const IssueCursorJson = Schema.fromJsonString(IssueCursorState);
+type IssueCursorState = typeof IssueCursorState.Type;
+
+function issueCursorBinding(input: ListIssuesInput): typeof IssueCursorBinding.Type {
+  return IssueCursorBinding.make({
+    projectId: input.projectId,
+    state: input.state,
+    lifecycle: input.lifecycle,
+    assignee: Option.getOrNull(input.assignee),
+    assigneeStatus: input.assigneeStatus,
+    labelIds: input.labelIds,
+    labelMatch: input.labelMatch,
+    parent: Option.getOrNull(input.parent),
+    blockingStatus: input.blockingStatus,
+    number: Option.getOrNull(input.number),
+    sort: input.sort,
+    direction: input.direction,
+    limit: input.limit,
+  });
+}
+
+function decodeIssueCursor(cursor: IssueCursor): Option.Option<IssueCursorState> {
+  const decoded = Encoding.decodeBase64UrlString(cursor);
+  return Result.isSuccess(decoded)
+    ? Schema.decodeUnknownOption(IssueCursorJson)(decoded.success)
+    : Option.none();
+}
+
+function encodeIssueCursor(
+  input: ListIssuesInput,
+  mode: "after" | "before",
+  issue: IssueType,
+): IssueCursor {
+  return IssueCursor.make(
+    Encoding.encodeBase64Url(
+      Schema.encodeSync(IssueCursorJson)(
+        IssueCursorState.make({
+          binding: issueCursorBinding(input),
+          mode,
+          issueId: issue.id,
+          number: issue.number,
+          createdAt: issue.createdAt,
+          updatedAt: issue.updatedAt,
+        }),
+      ),
+    ),
+  );
+}
 
 function parseStored<A>(
   schema: Schema.Decoder<A>,
@@ -227,6 +316,108 @@ export const make = Effect.gen(function* () {
       Effect.catchTag("SqlError", unavailable("allocateIssueNumber")),
     ),
     findIssue,
+    listIssues: Effect.fn("ProjectSqliteState.listIssues")(
+      function* (input) {
+        const requestedCursor = Option.flatMap(input.cursor, decodeIssueCursor);
+        if (Option.isSome(input.cursor) && Option.isNone(requestedCursor)) {
+          return yield* new IssueCursorInvalid({ reason: "malformed" });
+        }
+        const binding = issueCursorBinding(input);
+        if (
+          Option.isSome(requestedCursor) &&
+          !issueCursorBindingEquals(requestedCursor.value.binding, binding)
+        ) {
+          return yield* new IssueCursorInvalid({ reason: "rebound" });
+        }
+
+        const clauses: Array<string> = [];
+        const parameters: Array<unknown> = [];
+        if (input.state === "closed" || input.lifecycle === "deleted") clauses.push("0 = 1");
+        if (Option.isSome(input.assignee) || input.assigneeStatus === "assigned") {
+          clauses.push("0 = 1");
+        }
+        if (input.labelIds.length > 0) clauses.push("0 = 1");
+        if (Option.isSome(input.parent) && input.parent.value !== "root") clauses.push("0 = 1");
+        if (input.blockingStatus === "blocked") clauses.push("0 = 1");
+        if (Option.isSome(input.number)) {
+          clauses.push("issue_number = ?");
+          parameters.push(input.number.value);
+        }
+
+        const sort =
+          input.sort === "number"
+            ? {
+                column: "issue_number",
+                cursorValue: (cursor: IssueCursorState) => cursor.number,
+              }
+            : input.sort === "created_at"
+              ? {
+                  column: "created_at",
+                  cursorValue: (cursor: IssueCursorState) => cursor.createdAt,
+                }
+              : {
+                  column: "updated_at",
+                  cursorValue: (cursor: IssueCursorState) => cursor.updatedAt,
+                };
+        if (Option.isSome(requestedCursor)) {
+          const cursor = requestedCursor.value;
+          const followsDisplayOrder = cursor.mode === "after";
+          const ascendingComparison =
+            (input.direction === "asc" && followsDisplayOrder) ||
+            (input.direction === "desc" && !followsDisplayOrder);
+          const operator = ascendingComparison ? ">" : "<";
+          const sortValue = sort.cursorValue(cursor);
+          clauses.push(
+            `(${sort.column} ${operator} ? OR (${sort.column} = ? AND id ${operator} ?))`,
+          );
+          parameters.push(sortValue, sortValue, cursor.issueId);
+        }
+
+        const reversePage =
+          Option.isSome(requestedCursor) && requestedCursor.value.mode === "before";
+        const queryDirection = reversePage
+          ? input.direction === "asc"
+            ? "DESC"
+            : "ASC"
+          : input.direction === "asc"
+            ? "ASC"
+            : "DESC";
+        const size = input.limit + 1;
+        parameters.push(size);
+        const rows = yield* sql.unsafe<IssueRow>(
+          `SELECT id, project_id, issue_number, title, body, state, lifecycle, created_at, updated_at
+           FROM issues
+           ${clauses.length === 0 ? "" : `WHERE ${clauses.join(" AND ")}`}
+           ORDER BY ${sort.column} ${queryDirection}, id ${queryDirection}
+           LIMIT ?`,
+          parameters,
+        );
+        const parsed: Array<IssueType> = [];
+        for (const row of rows) parsed.push(yield* issueFromRow(row));
+        const bounded = parsed.slice(0, input.limit);
+        const issues = reversePage ? bounded.toReversed() : bounded;
+        const first = issues[0];
+        const last = issues.at(-1);
+        const hasPrevious =
+          Option.isSome(requestedCursor) &&
+          (requestedCursor.value.mode === "after" || parsed.length > input.limit);
+        const hasNext =
+          (Option.isSome(requestedCursor) && requestedCursor.value.mode === "before") ||
+          (!reversePage && parsed.length > input.limit);
+        return {
+          issues,
+          previousCursor:
+            hasPrevious && first !== undefined
+              ? Option.some(encodeIssueCursor(input, "before", first))
+              : Option.none(),
+          nextCursor:
+            hasNext && last !== undefined
+              ? Option.some(encodeIssueCursor(input, "after", last))
+              : Option.none(),
+        };
+      },
+      Effect.catchTag("SqlError", unavailable("listIssues")),
+    ),
     findIssueByNumber,
     insertIssueCreation: Effect.fn("ProjectSqliteState.insertIssueCreation")(
       function* ({ issue, titleRevision, bodyRevision, event, idempotencyKey }) {

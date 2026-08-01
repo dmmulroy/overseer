@@ -40,6 +40,16 @@ export const IssueBody = Schema.String.check(hasUnicodeLength(0, 65_536)).pipe(
 /** Exact Issue Markdown body, limited to 65,536 Unicode characters. */
 export type IssueBody = typeof IssueBody.Type;
 
+/** Exact cooperative Issue claim, preserved without normalization. */
+export const Assignee = Schema.String.check(
+  hasUnicodeLength(1, 200),
+  containsNonWhitespace,
+  Schema.isPattern(/^[^\p{Cc}]*$/u),
+).pipe(Schema.brand("Assignee"));
+
+/** Exact cooperative Issue claim, preserved without normalization. */
+export type Assignee = typeof Assignee.Type;
+
 /** Immutable positive Project-local Issue number. */
 export const IssueNumber = Schema.Int.check(Schema.isGreaterThanOrEqualTo(1)).pipe(
   Schema.brand("IssueNumber"),

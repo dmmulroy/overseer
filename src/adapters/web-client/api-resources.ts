@@ -10,6 +10,7 @@ import type * as AtomRegistry from "effect/unstable/reactivity/AtomRegistry";
 import {
   DiscoveryDocument,
   DiscoveryPaths,
+  IssueCollection,
   Link,
   OverseerApi,
   ProblemDocument,
@@ -28,7 +29,19 @@ import {
   type WorkspacePageLimit,
   WorkspacePageLimitFromString,
 } from "../../domain/pagination.ts";
-import type { IssueId } from "../../domain/entity-id.ts";
+import type { IssueId, LabelId, ProjectId } from "../../domain/entity-id.ts";
+import type { Assignee, IssueNumber } from "../../domain/issue.ts";
+import type {
+  IssueAssigneeStatusFilter,
+  IssueBlockingStatusFilter,
+  IssueCursor,
+  IssueLabelMatchFilter,
+  IssueLifecycleFilter,
+  IssuePageLimit,
+  IssueSort,
+  IssueSortDirection,
+  IssueStateFilter,
+} from "../../domain/pagination.ts";
 
 /** Generated browser client and Atom runtime for Overseer's HTTP contract. */
 export class OverseerHttpClient extends AtomHttpApi.Service<OverseerHttpClient>()(
@@ -55,12 +68,12 @@ export type BrowserReadFailureReason = typeof BrowserReadFailureReason.Type;
 export class BrowserResourceReadFailed extends Schema.TaggedErrorClass<BrowserResourceReadFailed>()(
   "BrowserResourceReadFailed",
   {
-    operation: Schema.Literals(["discovery", "workspaces", "projects"]),
+    operation: Schema.Literals(["discovery", "workspaces", "projects", "issues"]),
     reason: BrowserReadFailureReason,
     message: Schema.String,
     retryable: Schema.Boolean,
     retryAfterMilliseconds: Schema.Number,
-    status: Schema.optionalKey(Schema.Number),
+    status: Schema.optional(Schema.Number),
     cause: Schema.Defect(),
   },
 ) {}
@@ -191,7 +204,7 @@ function withBrowserResourceRetry<A>(
 }
 
 function readFailure(options: {
-  readonly operation: "discovery" | "workspaces" | "projects";
+  readonly operation: "discovery" | "workspaces" | "projects" | "issues";
   readonly reason: BrowserReadFailureReason;
   readonly message: string;
   readonly retryable: boolean;
@@ -199,19 +212,21 @@ function readFailure(options: {
   readonly status?: number;
   readonly cause: unknown;
 }): BrowserResourceReadFailed {
-  return new BrowserResourceReadFailed({
+  const input = {
     operation: options.operation,
     reason: options.reason,
     message: options.message,
     retryable: options.retryable,
     retryAfterMilliseconds: options.retryAfterMilliseconds ?? 0,
-    ...(options.status === undefined ? {} : { status: options.status }),
     cause: options.cause,
-  });
+  };
+  return options.status === undefined
+    ? new BrowserResourceReadFailed(input)
+    : new BrowserResourceReadFailed({ ...input, status: options.status });
 }
 
 function transportFailure(
-  operation: "discovery" | "workspaces" | "projects",
+  operation: "discovery" | "workspaces" | "projects" | "issues",
   cause: HttpClientError.HttpClientError,
 ): BrowserResourceReadFailed {
   return readFailure({
@@ -226,7 +241,7 @@ function transportFailure(
 const EntityTag = Schema.String.check(Schema.isPattern(/^(?:W\/)?"[\x21\x23-\x7e\x80-\xff]*"$/));
 
 function decodeModified<A>(options: {
-  readonly operation: "discovery" | "workspaces" | "projects";
+  readonly operation: "discovery" | "workspaces" | "projects" | "issues";
   readonly response: HttpClientResponse.HttpClientResponse;
   readonly schema: Schema.ConstraintDecoder<A, never>;
   readonly now: number;
@@ -271,7 +286,7 @@ function decodeModified<A>(options: {
 }
 
 function classifyStatus(
-  operation: "discovery" | "workspaces" | "projects",
+  operation: "discovery" | "workspaces" | "projects" | "issues",
   response: HttpClientResponse.HttpClientResponse,
   now: number,
 ): Effect.Effect<never, BrowserResourceReadFailed> {
@@ -745,6 +760,120 @@ const readProjectCollection = Effect.gen(function* () {
     query = { cursor: navigation.cursor, limit: navigation.limit };
   }
 });
+
+/** Exact URL-owned filters selecting one rendered Project Issue page. */
+export type BrowserIssueListQuery = {
+  readonly state?: IssueStateFilter;
+  readonly lifecycle?: IssueLifecycleFilter;
+  readonly assignee?: Assignee;
+  readonly assignee_status?: IssueAssigneeStatusFilter;
+  readonly label_id?: LabelId | ReadonlyArray<LabelId>;
+  readonly label_match?: IssueLabelMatchFilter;
+  readonly parent?: "root" | IssueId;
+  readonly blocking_status?: IssueBlockingStatusFilter;
+  readonly number?: IssueNumber;
+  readonly sort?: IssueSort;
+  readonly direction?: IssueSortDirection;
+  readonly cursor?: IssueCursor;
+  readonly limit?: IssuePageLimit;
+};
+
+function issueListExactUrl(projectId: ProjectId, query: BrowserIssueListQuery): string {
+  const parameters = new URLSearchParams();
+  if (query.state !== undefined) parameters.set("state", query.state);
+  if (query.lifecycle !== undefined) parameters.set("lifecycle", query.lifecycle);
+  if (query.assignee !== undefined) parameters.set("assignee", query.assignee);
+  if (query.assignee_status !== undefined) parameters.set("assignee_status", query.assignee_status);
+  if (typeof query.label_id === "string") parameters.append("label_id", query.label_id);
+  else if (query.label_id !== undefined)
+    for (const labelId of query.label_id) parameters.append("label_id", labelId);
+  if (query.label_match !== undefined) parameters.set("label_match", query.label_match);
+  if (query.parent !== undefined) parameters.set("parent", query.parent);
+  if (query.blocking_status !== undefined) parameters.set("blocking_status", query.blocking_status);
+  if (query.number !== undefined) parameters.set("number", String(query.number));
+  if (query.sort !== undefined) parameters.set("sort", query.sort);
+  if (query.direction !== undefined) parameters.set("direction", query.direction);
+  if (query.cursor !== undefined) parameters.set("cursor", query.cursor);
+  if (query.limit !== undefined) parameters.set("limit", String(query.limit));
+  const url = new URL(`/api/projects/${projectId}/issues`, browserOrigin());
+  url.search = parameters.toString();
+  return url.href;
+}
+
+const retainedIssuePages = new Map<string, CacheEntry<IssueCollection>>();
+
+const readIssuePage = Effect.fn("Browser.readIssuePage")(function* (
+  projectId: ProjectId,
+  query: BrowserIssueListQuery,
+): Effect.fn.Return<CacheEntry<IssueCollection>, BrowserResourceReadFailed, OverseerHttpClient> {
+  const client = yield* OverseerHttpClient;
+  const exactUrl = issueListExactUrl(projectId, query);
+  const previous = retainedIssuePages.get(exactUrl);
+  const now = yield* Clock.currentTimeMillis;
+  const response = yield* client.issues
+    .listIssues({
+      params: { project_id: projectId },
+      query,
+      headers: previous === undefined ? {} : { "if-none-match": previous.etag },
+      responseMode: "response-only",
+    })
+    .pipe(
+      Effect.mapError((cause) =>
+        HttpClientError.isHttpClientError(cause)
+          ? transportFailure("issues", cause)
+          : readFailure({
+              operation: "issues",
+              reason: "status",
+              message: "Browser Issue client returned a typed API failure",
+              retryable: cause.retryable,
+              cause,
+            }),
+      ),
+    );
+  if (response.status === 304) {
+    if (previous === undefined)
+      return yield* Effect.fail(
+        readFailure({
+          operation: "issues",
+          reason: "not-modified-without-cache",
+          message: "Browser Issue page received 304 without cached data",
+          retryable: false,
+          cause: response,
+        }),
+      );
+    const validated = { ...previous, validatedAt: now };
+    retainedIssuePages.set(exactUrl, validated);
+    return validated;
+  }
+  if (response.status !== 200) return yield* classifyStatus("issues", response, now);
+  const page = yield* decodeModified({
+    operation: "issues",
+    response,
+    schema: IssueCollection,
+    now,
+  });
+  retainedIssuePages.set(exactUrl, page);
+  return page;
+});
+
+/** Build one conditionally validated Project Issue page with a 30-second visible-route cadence. */
+export function makeIssueListQuery(
+  projectId: ProjectId,
+  query: BrowserIssueListQuery,
+): Atom.Atom<AsyncResult.AsyncResult<IssueCollection, BrowserResourceReadFailed>> {
+  return OverseerHttpClient.runtime
+    .atom(readIssuePage(projectId, query).pipe(Effect.map((page) => page.data)))
+    .pipe(
+      Atom.swr({
+        staleTime: "5 seconds",
+        revalidateOnFocus: true,
+        focusSignal: Atom.windowFocusSignal,
+      }),
+      Atom.withRefresh("30 seconds"),
+      withBrowserResourceRetry,
+      Atom.setIdleTTL("5 minutes"),
+    );
+}
 
 /** Create-Issue command backed by the generated HTTP contract client. */
 export const createIssueMutation = OverseerHttpClient.mutation("issues", "createIssue");

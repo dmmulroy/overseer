@@ -2,9 +2,10 @@ import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
 import * as Schema from "effect/Schema";
 import { CommandAttribution } from "../../domain/actor.ts";
-import { IssueId, ProjectId } from "../../domain/entity-id.ts";
+import { IssueId, LabelId, ProjectId } from "../../domain/entity-id.ts";
 import { IdempotencyKey } from "../../domain/idempotency.ts";
 import {
+  Assignee,
   Issue,
   IssueBody,
   IssueNumber,
@@ -13,7 +14,24 @@ import {
   IssueTimelineEntry,
   IssueTitle,
 } from "../../domain/issue.ts";
-import { IssueNotFound, ProjectIdempotencyKeyReused } from "../issues/issue-discovery.ts";
+import {
+  IssueCursorInvalid,
+  IssueNotFound,
+  ProjectIdempotencyKeyReused,
+  type IssuePage,
+  type ListIssuesInput,
+} from "../issues/issue-discovery.ts";
+import {
+  IssueAssigneeStatusFilter,
+  IssueBlockingStatusFilter,
+  IssueCursor,
+  IssueLabelMatchFilter,
+  IssueLifecycleFilter,
+  IssuePageLimit,
+  IssueSort,
+  IssueSortDirection,
+  IssueStateFilter,
+} from "../../domain/pagination.ts";
 
 /** Plain input for idempotent Issue creation over private RPC. */
 export const CreateIssueRpcInput = Schema.Struct({
@@ -26,6 +44,37 @@ export const CreateIssueRpcInput = Schema.Struct({
 
 /** Plain input for idempotent Issue creation over private RPC. */
 export interface CreateIssueRpcInput extends Schema.Schema.Type<typeof CreateIssueRpcInput> {}
+
+/** Plain normalized Project Issue page request over private RPC. */
+export const ListIssuesRpcInput = Schema.Struct({
+  projectId: ProjectId,
+  state: IssueStateFilter,
+  lifecycle: IssueLifecycleFilter,
+  assignee: Schema.OptionFromNullOr(Assignee),
+  assigneeStatus: IssueAssigneeStatusFilter,
+  labelIds: Schema.Array(LabelId),
+  labelMatch: IssueLabelMatchFilter,
+  parent: Schema.OptionFromNullOr(Schema.Union([Schema.Literal("root"), IssueId])),
+  blockingStatus: IssueBlockingStatusFilter,
+  number: Schema.OptionFromNullOr(IssueNumber),
+  sort: IssueSort,
+  direction: IssueSortDirection,
+  cursor: Schema.OptionFromNullOr(IssueCursor),
+  limit: IssuePageLimit,
+});
+
+/** Plain normalized Project Issue page request over private RPC. */
+export interface ListIssuesRpcInput extends Schema.Schema.Type<typeof ListIssuesRpcInput> {}
+
+/** Plain exact Project Issue page returned over private RPC. */
+export const ListIssuesRpcResult = Schema.Struct({
+  issues: Schema.Array(Issue),
+  previousCursor: Schema.OptionFromNullOr(IssueCursor),
+  nextCursor: Schema.OptionFromNullOr(IssueCursor),
+});
+
+/** Plain exact Project Issue page returned over private RPC. */
+export interface ListIssuesRpcResult extends Schema.Schema.Type<typeof ListIssuesRpcResult> {}
 
 /** Plain successful Issue creation returned over private RPC. */
 export const CreateIssueRpcResult = Schema.Struct({ issue: Issue, replayed: Schema.Boolean });
@@ -57,6 +106,7 @@ export class ProjectRpcCallFailed extends Schema.TaggedErrorClass<ProjectRpcCall
   {
     operation: Schema.Literals([
       "createIssue",
+      "listIssues",
       "readIssue",
       "readIssueByNumber",
       "readIssueRevisions",
@@ -98,6 +148,12 @@ export type ProjectRpc = {
     typeof CreateIssueRpcResult.Encoded,
     ProjectIdempotencyKeyReused | ProjectRemotePersistenceError
   >;
+  readonly listIssues: (
+    input: typeof ListIssuesRpcInput.Encoded,
+  ) => Effect.Effect<
+    typeof ListIssuesRpcResult.Encoded,
+    IssueCursorInvalid | ProjectRemotePersistenceError
+  >;
   readonly readIssue: (
     issueId: IssueId,
   ) => Effect.Effect<typeof Issue.Encoded, IssueNotFound | ProjectRemotePersistenceError>;
@@ -131,6 +187,12 @@ export type ProjectClient = {
   ) => Effect.Effect<
     CreateIssueRpcResult,
     ProjectIdempotencyKeyReused | ProjectRemotePersistenceError | ProjectRpcCallFailed
+  >;
+  readonly listIssues: (
+    input: ListIssuesInput,
+  ) => Effect.Effect<
+    IssuePage,
+    IssueCursorInvalid | ProjectRemotePersistenceError | ProjectRpcCallFailed
   >;
   readonly readIssue: (
     projectId: ProjectId,

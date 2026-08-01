@@ -6,7 +6,10 @@ import type { Issue, IssueNumber, IssueRevision, IssueTimelineEntry } from "../.
 import type {
   CreateIssueInput,
   CreateIssueResult,
+  IssueCursorInvalid,
   IssueNotFound,
+  IssuePage,
+  ListIssuesInput,
   ProjectIdempotencyKeyReused,
 } from "../issues/issue-discovery.ts";
 import {
@@ -27,6 +30,7 @@ import type {
 
 /** Expected failures while routing one Project-local operation through the Gateway. */
 export type ProjectOperationError =
+  | IssueCursorInvalid
   | IssueNotFound
   | IssueOwnerNotFound
   | ProjectNotFound
@@ -43,6 +47,7 @@ export type ProjectOperations = {
   readonly createIssue: (
     input: CreateIssueInput,
   ) => Effect.Effect<CreateIssueResult, ProjectOperationError>;
+  readonly listIssues: (input: ListIssuesInput) => Effect.Effect<IssuePage, ProjectOperationError>;
   readonly readIssue: (issueId: IssueId) => Effect.Effect<Issue, ProjectOperationError>;
   readonly readIssueByNumber: (
     projectId: ProjectId,
@@ -79,6 +84,10 @@ export const make = Effect.gen(function* () {
       const created = yield* projects.createIssue(input);
       yield* registry.registerIssueOwner({ issueId: created.issue.id, projectId: input.projectId });
       return created;
+    }),
+    listIssues: Effect.fn("ProjectOperations.listIssues")(function* (input) {
+      yield* registry.readProject(input.projectId);
+      return yield* projects.listIssues(input);
     }),
     readIssue: Effect.fn("ProjectOperations.readIssue")(function* (issueId) {
       const projectId = yield* owner(issueId);

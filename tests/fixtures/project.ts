@@ -12,6 +12,7 @@ import { layer as migrationLayer } from "../../src/adapters/project-sqlite/proje
 import { layer as sqliteStateLayer } from "../../src/adapters/project-sqlite/project-sqlite-state.ts";
 import { layer as ulidGeneratorLayer } from "../../src/application/ulid-generator.ts";
 import {
+  type IssueCursorInvalid,
   IssueDiscoveryService,
   type IssueNotFound,
   layer as issueDiscoveryLayer,
@@ -25,6 +26,8 @@ import {
   CreateIssueRpcResult,
   IssueReferencesRpcResult,
   IssueRevisionsRpcResult,
+  ListIssuesRpcInput,
+  ListIssuesRpcResult,
   IssueTimelineRpcResult,
   ProjectRecordCorrupt,
   ProjectStateUnavailable,
@@ -39,7 +42,13 @@ function exposePersistence<A>(
   effect: Effect.Effect<A, IssueNotFound | ProjectPersistenceError>,
 ): Effect.Effect<A, IssueNotFound | ProjectRecordCorrupt | ProjectStateUnavailable>;
 function exposePersistence<A>(
-  effect: Effect.Effect<A, IssueNotFound | ProjectIdempotencyKeyReused | ProjectPersistenceError>,
+  effect: Effect.Effect<A, IssueCursorInvalid | ProjectPersistenceError>,
+): Effect.Effect<A, IssueCursorInvalid | ProjectRecordCorrupt | ProjectStateUnavailable>;
+function exposePersistence<A>(
+  effect: Effect.Effect<
+    A,
+    IssueCursorInvalid | IssueNotFound | ProjectIdempotencyKeyReused | ProjectPersistenceError
+  >,
 ) {
   return effect.pipe(
     Effect.catchTag("ProjectStoredRecordCorrupt", (_error: ProjectStoredRecordCorrupt) =>
@@ -82,6 +91,15 @@ export class TestProject extends DurableObject<Readonly<Record<never, never>>> {
     const decoded = Schema.decodeUnknownSync(CreateIssueRpcInput)(input);
     const result = await this.#run(exposePersistence(issues.createIssue(decoded)));
     return Schema.encodeSync(CreateIssueRpcResult)(result);
+  }
+  /** List one exact filtered and ordered Project Issue page. */
+  async listIssues(
+    input: typeof ListIssuesRpcInput.Encoded,
+  ): Promise<typeof ListIssuesRpcResult.Encoded> {
+    const issues = await this.#ready;
+    const decoded = Schema.decodeUnknownSync(ListIssuesRpcInput)(input);
+    const page = await this.#run(exposePersistence(issues.listIssues(decoded)));
+    return Schema.encodeSync(ListIssuesRpcResult)(page);
   }
   /** Read one Issue by canonical identity. */
   async readIssue(issueId: IssueId): Promise<typeof Issue.Encoded> {

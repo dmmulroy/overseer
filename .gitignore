@@ -2,6 +2,8 @@
 target/
 build/
 dist/
+.alchemy/bundles/
+.alchemy/local/
 
 # Dependencies
 node_modules/

@@ -6,6 +6,7 @@ import axe from "axe-core";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from "vite-plus/test";
 import type { Miniflare } from "miniflare";
 import {
+  IssueResponse,
   ProjectCollection,
   ProjectResponse,
   WorkspaceResponse,
@@ -84,6 +85,24 @@ async function seedProject(workspaceId: string, name: string, key: string): Prom
   );
   expect(response.status).toBe(201);
   return Schema.decodeUnknownSync(ProjectResponse)(await response.json()).id;
+}
+
+async function seedIssue(projectId: string, title: string, key: string): Promise<IssueResponse> {
+  const response = await gateway.dispatchFetch(
+    `http://localhost/api/projects/${projectId}/issues`,
+    {
+      method: "POST",
+      headers: {
+        "cf-access-jwt-assertion": assertion,
+        "content-type": "application/json",
+        "idempotency-key": key,
+        origin: gatewayOrigin,
+      },
+      body: JSON.stringify({ title }),
+    },
+  );
+  expect(response.status).toBe(201);
+  return Schema.decodeUnknownSync(IssueResponse)(await response.json());
 }
 
 beforeAll(async () => {
@@ -405,6 +424,73 @@ describe("authenticated application shell", () => {
     expect(
       await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth),
     ).toBe(true);
+    await expectNoAccessibilityViolations(page);
+  });
+
+  it("keeps Issue filters, pagination, and Back navigation in the exact list URL", async () => {
+    const workspaceId = await seedWorkspace("Issue browsing", "browser-browse-workspace");
+    const projectId = await seedProject(
+      workspaceId,
+      "Issue browsing Project",
+      "browser-browse-project",
+    );
+    const issues = await Promise.all([
+      seedIssue(projectId, "Browse first", "browser-browse-first"),
+      seedIssue(projectId, "Browse second", "browser-browse-second"),
+      seedIssue(projectId, "Browse third", "browser-browse-third"),
+    ]);
+    const listUrl = new URL(
+      `/?workspace_id=${workspaceId}&project_id=${projectId}&state=all&assignee_status=unassigned&blocking_status=unblocked&sort=number&direction=asc&limit=2`,
+      gatewayUrl,
+    );
+
+    await page.goto(listUrl.href);
+    await page.getByRole("heading", { name: "Issue browsing Project Issues" }).waitFor();
+    expect(await page.getByRole("list", { name: "Issues" }).getByRole("listitem").count()).toBe(2);
+    expect(await page.getByRole("button", { name: "Next" }).isEnabled()).toBe(true);
+
+    let resolveIssueValidator: ((validator: string | undefined) => void) | undefined;
+    const issueValidator = new Promise<string | undefined>((resolve) => {
+      resolveIssueValidator = resolve;
+    });
+    const issueListPattern = `**/api/projects/${projectId}/issues?*`;
+    await page.route(issueListPattern, (route) => {
+      resolveIssueValidator?.(route.request().headers()["if-none-match"]);
+      return route.fulfill({ status: 304 });
+    });
+    await page.getByRole("button", { name: "Refresh Issues" }).click();
+    expect(await issueValidator).toMatch(/^"[A-Za-z0-9_-]+"$/);
+    expect(await page.getByText("Browse first").isVisible()).toBe(true);
+    await page.unroute(issueListPattern);
+
+    await page
+      .getByRole("textbox", { name: "Filter by Label ID" })
+      .fill("label_01J00000000000000000000000");
+    await page.getByRole("button", { name: "Apply Label" }).click();
+    await page.getByText("No Issues match these filters").waitFor();
+    expect(new URL(page.url()).searchParams.get("label_id")).toBe(
+      "label_01J00000000000000000000000",
+    );
+    await page.goBack();
+    await page.getByText("Browse first").waitFor();
+
+    await page.getByRole("combobox", { name: "Filter by Issue state" }).selectOption("closed");
+    await page.getByText("No Issues match these filters").waitFor();
+    expect(new URL(page.url()).searchParams.get("state")).toBe("closed");
+
+    await page.goBack();
+    await page.getByText("Browse first").waitFor();
+    const restoredListUrl = page.url();
+    expect(new URL(restoredListUrl).searchParams.get("state")).toBe("all");
+
+    await page.getByText("Browse first").click();
+    await page.getByRole("heading", { name: "Browse first" }).waitFor();
+    expect(new URL(page.url()).search).toBe(new URL(restoredListUrl).search);
+
+    await page.goBack();
+    await page.getByRole("heading", { name: "Issue browsing Project Issues" }).waitFor();
+    expect(page.url()).toBe(restoredListUrl);
+    expect(issues).toHaveLength(3);
     await expectNoAccessibilityViolations(page);
   });
 

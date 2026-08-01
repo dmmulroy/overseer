@@ -1,11 +1,10 @@
-import { useAtomRefresh, useAtomSet, useAtomValue } from "@effect/atom-react";
+import { useAtomRefresh, useAtomValue } from "@effect/atom-react";
 import { Link, useNavigate, useParams, useSearch } from "@tanstack/react-router";
 import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
 import { AsyncResult } from "effect/unstable/reactivity";
 import { useCallback, useEffect, useState } from "react";
 import {
-  createIssueMutation,
   discoveryQuery,
   issueQuery,
   projectQuery,
@@ -13,8 +12,8 @@ import {
 } from "../../adapters/web-client/api-resources.ts";
 import type { IssueResponse, ProjectResponse, WorkspaceResponse } from "../../contract/http-api.ts";
 import { IssueId, type ProjectId, type WorkspaceId } from "../../domain/entity-id.ts";
-import { IdempotencyKey } from "../../domain/idempotency.ts";
-import { IssueBody, IssueTitle } from "../../domain/issue.ts";
+import { ProjectIssueList } from "../features/issues/project-issue-list.tsx";
+import { completeIssueListSearch } from "../issue-list-search.ts";
 import { cn } from "../../lib/ui-classnames.ts";
 import { Button } from "../../ui/primitives/button.tsx";
 import { useTheme } from "../../ui/theme-provider.tsx";
@@ -243,82 +242,6 @@ function LoadingCard(props: {
   );
 }
 
-function CreateIssueForm(props: { readonly projectId: ProjectId }): React.JSX.Element {
-  const command = useAtomValue(createIssueMutation);
-  const createIssue = useAtomSet(createIssueMutation);
-  const navigate = useNavigate();
-  const [title, setTitle] = useState("");
-  const [body, setBody] = useState("");
-  const created = AsyncResult.value(command);
-
-  useEffect(() => {
-    if (Option.isNone(created)) return;
-    void navigate({
-      to: "/issues/$issueId",
-      params: { issueId: created.value.id },
-      search: (previous) => ({
-        workspace_id: previous.workspace_id,
-        project_id: previous.project_id,
-      }),
-    });
-  }, [created, navigate]);
-
-  return (
-    <form
-      className="mt-8 grid gap-3 border-t pt-6"
-      onSubmit={(event) => {
-        event.preventDefault();
-        const parsedTitle = Schema.decodeUnknownOption(IssueTitle)(title);
-        const parsedBody =
-          body.length === 0
-            ? Option.none<IssueBody>()
-            : Schema.decodeUnknownOption(IssueBody)(body);
-        if (Option.isNone(parsedTitle) || (body.length > 0 && Option.isNone(parsedBody))) return;
-        createIssue({
-          params: { project_id: props.projectId },
-          headers: {
-            "content-type": "application/json",
-            "idempotency-key": IdempotencyKey.make(`browser-issue-${crypto.randomUUID()}`),
-          },
-          payload: {
-            title: parsedTitle.value,
-            ...(Option.isSome(parsedBody) ? { body: parsedBody.value } : {}),
-          },
-        });
-      }}
-    >
-      <Eyebrow>Create Issue</Eyebrow>
-      <label className="grid gap-1.5 text-sm">
-        <span>Title</span>
-        <input
-          className="h-8 rounded-md border bg-surface-raised px-2"
-          name="title"
-          onChange={(event) => setTitle(event.currentTarget.value)}
-          required
-          value={title}
-        />
-      </label>
-      <label className="grid gap-1.5 text-sm">
-        <span>Body (Markdown, optional)</span>
-        <textarea
-          className="min-h-24 rounded-md border bg-surface-raised p-2"
-          name="body"
-          onChange={(event) => setBody(event.currentTarget.value)}
-          value={body}
-        />
-      </label>
-      <Button disabled={command.waiting} type="submit">
-        {command.waiting ? "Creating…" : "Create Issue"}
-      </Button>
-      {AsyncResult.isFailure(command) ? (
-        <p className="text-sm text-destructive" role="alert">
-          The Issue could not be created. Review the fields and try again.
-        </p>
-      ) : null}
-    </form>
-  );
-}
-
 function FocusedIssueContent(props: { readonly issueId: IssueId }): React.JSX.Element {
   const state = useAtomValue(issueQuery(props.issueId));
   const issue = Option.filter(
@@ -353,12 +276,9 @@ function FocusedIssueContent(props: { readonly issueId: IssueId }): React.JSX.El
       <Link
         className="mt-6 inline-flex text-sm font-medium underline underline-offset-4"
         to="/"
-        search={(previous) => ({
-          workspace_id: previous.workspace_id,
-          project_id: previous.project_id,
-        })}
+        search={(previous) => completeIssueListSearch(previous)}
       >
-        Back to Project
+        Back to Issues
       </Link>
     </StateCard>
   );
@@ -380,10 +300,7 @@ function ShellNavigation(props: {
         <Link
           className="brand text-lg font-bold tracking-tight"
           to="/"
-          search={(previous) => ({
-            workspace_id: previous.workspace_id,
-            project_id: previous.project_id,
-          })}
+          search={(previous) => completeIssueListSearch(previous)}
         >
           Overseer
         </Link>
@@ -413,10 +330,7 @@ function ShellNavigation(props: {
         <Link
           className="brand text-lg font-bold tracking-tight"
           to="/"
-          search={(previous) => ({
-            workspace_id: previous.workspace_id,
-            project_id: previous.project_id,
-          })}
+          search={(previous) => completeIssueListSearch(previous)}
         >
           Overseer
         </Link>
@@ -612,20 +526,24 @@ function WorkspaceContent(props: WorkspaceContentProps): React.JSX.Element {
     );
   }
 
+  if (Option.isSome(props.selectedProject)) {
+    return (
+      <ProjectIssueList
+        project={props.selectedProject.value}
+        refreshProjects={props.refreshProjects}
+        workspace={props.selectedWorkspace.value}
+      />
+    );
+  }
+
   return (
     <StateCard className="workspace-context">
-      <Eyebrow>
-        {Option.isSome(props.selectedProject) ? "Project context" : "Workspace context"}
-      </Eyebrow>
+      <Eyebrow>Workspace context</Eyebrow>
       <h1 className="text-3xl font-semibold tracking-tight sm:text-4xl">
-        {Option.isSome(props.selectedProject)
-          ? props.selectedProject.value.name
-          : props.selectedWorkspace.value.name}
+        {props.selectedWorkspace.value.name}
       </h1>
       <p className="mt-4 leading-6 text-muted-foreground">
-        {Option.isSome(props.selectedProject)
-          ? `${props.selectedWorkspace.value.name} Workspace · Project identity is retained in the URL.`
-          : "No Project selected. This Workspace remains selected in the URL."}
+        No Project selected. This Workspace remains selected in the URL.
       </p>
       {props.waiting ? <UpdatingStatus /> : null}
       {props.workspaceStale || props.projectStale ? (
@@ -651,9 +569,6 @@ function WorkspaceContent(props: WorkspaceContentProps): React.JSX.Element {
           Refresh Projects
         </Button>
       </div>
-      {Option.isSome(props.selectedProject) ? (
-        <CreateIssueForm projectId={props.selectedProject.value.id} />
-      ) : null}
     </StateCard>
   );
 }
@@ -709,17 +624,20 @@ export function AppShell(): React.JSX.Element {
     }
     void navigate({
       replace: true,
-      search: (previous) => ({
-        ...previous,
-        workspace_id: currentProjectWorkspaceId,
-        project_id: search.project_id,
-      }),
+      search: (previous) =>
+        completeIssueListSearch({ ...previous, workspace_id: currentProjectWorkspaceId }),
     });
   }, [currentProjectWorkspaceId, navigate, search.project_id, search.workspace_id]);
   const selectWorkspace = useCallback(
     (workspaceId: WorkspaceId) => {
       void navigate({
-        search: (previous) => ({ ...previous, workspace_id: workspaceId, project_id: undefined }),
+        search: (previous) =>
+          completeIssueListSearch({
+            ...previous,
+            workspace_id: workspaceId,
+            project_id: undefined,
+            cursor: undefined,
+          }),
       });
     },
     [navigate],
@@ -727,11 +645,13 @@ export function AppShell(): React.JSX.Element {
   const selectProject = useCallback(
     (project: ProjectResponse) => {
       void navigate({
-        search: (previous) => ({
-          ...previous,
-          workspace_id: project.workspace_id,
-          project_id: project.id,
-        }),
+        search: (previous) =>
+          completeIssueListSearch({
+            ...previous,
+            workspace_id: project.workspace_id,
+            project_id: project.id,
+            cursor: undefined,
+          }),
       });
     },
     [navigate],

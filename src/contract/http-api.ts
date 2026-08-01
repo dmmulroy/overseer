@@ -14,15 +14,25 @@ import {
   HumanPrincipalId,
   RequestId,
 } from "../domain/actor.ts";
-import { IssueId, ProjectId, TimelineEventId, WorkspaceId } from "../domain/entity-id.ts";
+import { IssueId, LabelId, ProjectId, TimelineEventId, WorkspaceId } from "../domain/entity-id.ts";
 import { IdempotencyKey } from "../domain/idempotency.ts";
 import {
+  IssueAssigneeStatusFilter,
+  IssueBlockingStatusFilter,
+  IssueCursor,
+  IssueLabelMatchFilter,
+  IssueLifecycleFilter,
+  IssuePageLimitFromString,
+  IssueSort,
+  IssueSortDirection,
+  IssueStateFilter,
   ProjectCursor,
   ProjectPageLimitFromString,
   WorkspaceCursor,
   WorkspacePageLimitFromString,
 } from "../domain/pagination.ts";
 import {
+  Assignee,
   IssueBody,
   IssueNumber,
   IssueNumberFromString,
@@ -102,6 +112,7 @@ export const ProblemCode = Schema.Literals([
   "gateway_unavailable",
   "idempotency_key_reused",
   "internal_error",
+  "invalid_cursor",
   "malformed_request",
   "method_not_allowed",
   "payload_too_large",
@@ -203,6 +214,7 @@ const projectReadProblems = errorsAtStatuses([400, 404, 406, 500, 503]);
 const projectRenameProblems = errorsAtStatuses([400, 403, 404, 413, 415, 422, 500, 503]);
 const projectMoveProblems = errorsAtStatuses([400, 403, 404, 409, 413, 415, 422, 500, 503]);
 const issueCreateProblems = errorsAtStatuses([400, 403, 404, 409, 413, 415, 422, 500, 503]);
+const issueListProblems = errorsAtStatuses([400, 404, 406, 500, 503]);
 const issueReadProblems = errorsAtStatuses([400, 404, 406, 500, 503]);
 const cacheValidationHeaders = {
   accept: Schema.optionalKey(Schema.String),
@@ -295,6 +307,44 @@ export const IssueResponse = Schema.Struct({
 
 /** Full canonical Issue API response body. */
 export interface IssueResponse extends Schema.Schema.Type<typeof IssueResponse> {}
+
+const IssueLabelSummary = Schema.Struct({
+  id: LabelId,
+  name: Schema.String,
+  description: Schema.NullOr(Schema.String),
+  color: Schema.NullOr(Schema.String),
+  links: Schema.Record(Schema.String, Link),
+});
+
+/** Bounded Issue summary returned by one Project-scoped list page. */
+export const IssueSummaryResponse = Schema.Struct({
+  id: IssueId,
+  project_id: ProjectId,
+  number: IssueNumber,
+  title: IssueTitle,
+  state: Schema.Literals(["open", "closed"]),
+  lifecycle: Schema.Literals(["live", "deleted"]),
+  assignee: Schema.NullOr(Assignee),
+  parent_issue_id: Schema.NullOr(IssueId),
+  parent_status: Schema.optionalKey(Schema.Literals(["active", "inactive"])),
+  blocking_status: Schema.Literals(["blocked", "unblocked"]),
+  active_blocker_count: Schema.Int.check(Schema.isGreaterThanOrEqualTo(0)),
+  labels: Schema.Array(IssueLabelSummary),
+  updated_at: IssueTimestamp,
+  links: Schema.Record(Schema.String, Link),
+}).annotate({ identifier: "IssueSummary" });
+
+/** Bounded Issue summary returned by one Project-scoped list page. */
+export interface IssueSummaryResponse extends Schema.Schema.Type<typeof IssueSummaryResponse> {}
+
+/** Exact filtered and ordered Project Issue collection page. */
+export const IssueCollection = Schema.Struct({
+  items: Schema.Array(IssueSummaryResponse),
+  links: Schema.Record(Schema.String, Link),
+}).annotate({ identifier: "IssueCollection" });
+
+/** Exact filtered and ordered Project Issue collection page. */
+export interface IssueCollection extends Schema.Schema.Type<typeof IssueCollection> {}
 
 /** Immutable Issue title/body Revision returned by the API. */
 export const IssueRevisionResponse = Schema.Struct({
@@ -571,6 +621,58 @@ const moveProject = HttpApiEndpoint.post("moveProject", "/api/projects/:project_
 const issuePath = { issue_id: IssueId };
 const numberedIssuePath = { project_id: ProjectId, issue_number: IssueNumberFromString };
 const issueCreated = IssueResponse.pipe(HttpApiSchema.status(201));
+const issueListKeys = new Set([
+  "state",
+  "lifecycle",
+  "assignee",
+  "assignee_status",
+  "label_id",
+  "label_match",
+  "parent",
+  "blocking_status",
+  "number",
+  "sort",
+  "direction",
+  "cursor",
+  "limit",
+]);
+const issueListQuery = Schema.Struct({
+  state: Schema.optionalKey(IssueStateFilter),
+  lifecycle: Schema.optionalKey(IssueLifecycleFilter),
+  assignee: Schema.optionalKey(Assignee),
+  assignee_status: Schema.optionalKey(IssueAssigneeStatusFilter),
+  label_id: Schema.optionalKey(Schema.Union([LabelId, Schema.Array(LabelId)])),
+  label_match: Schema.optionalKey(IssueLabelMatchFilter),
+  parent: Schema.optionalKey(Schema.Union([Schema.Literal("root"), IssueId])),
+  blocking_status: Schema.optionalKey(IssueBlockingStatusFilter),
+  number: Schema.optionalKey(IssueNumberFromString),
+  sort: Schema.optionalKey(IssueSort),
+  direction: Schema.optionalKey(IssueSortDirection),
+  cursor: Schema.optionalKey(IssueCursor),
+  limit: Schema.optionalKey(IssuePageLimitFromString),
+}).pipe(
+  Schema.flip,
+  Schema.check(
+    Schema.makeFilter((query) => Object.keys(query).every((key) => issueListKeys.has(key)), {
+      expected: "an object containing only documented Issue collection parameters",
+    }),
+  ),
+  Schema.flip,
+);
+const listIssues = HttpApiEndpoint.get("listIssues", "/api/projects/:project_id/issues", {
+  params: projectPath,
+  headers: cacheValidationHeaders,
+  query: issueListQuery,
+  success: [IssueCollection, NotModified],
+  error: issueListProblems,
+});
+const headIssues = HttpApiEndpoint.head("headIssues", "/api/projects/:project_id/issues", {
+  params: projectPath,
+  headers: cacheValidationHeaders,
+  query: issueListQuery,
+  success: [IssueCollection, NotModified],
+  error: issueListProblems,
+});
 const createIssue = HttpApiEndpoint.post("createIssue", "/api/projects/:project_id/issues", {
   params: projectPath,
   headers: idempotentMutationHeaders,
@@ -675,6 +777,8 @@ export class ProjectGroup extends HttpApiGroup.make("projects")
 
 /** Issue discovery endpoints in the public Overseer API. */
 export class IssueGroup extends HttpApiGroup.make("issues")
+  .add(listIssues)
+  .add(headIssues)
   .add(createIssue)
   .add(readIssue)
   .add(headIssue)

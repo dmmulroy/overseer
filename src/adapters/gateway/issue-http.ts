@@ -8,8 +8,12 @@ import {
   type ProjectOperationError,
 } from "../../application/gateway/project-operations.ts";
 import {
+  IssueCollection,
   IssueReferenceCollection,
   IssueResponse,
+  IssueSchemaPaths,
+  IssueSummaryResponse,
+  type Link,
   IssueRevisionCollection,
   IssueRevisionResponse,
   IssueTimelineCollection,
@@ -17,9 +21,21 @@ import {
   OverseerApi,
 } from "../../contract/http-api.ts";
 import { CommandAttribution, type Actor, type AgentSession } from "../../domain/actor.ts";
-import type { IssueId, ProjectId } from "../../domain/entity-id.ts";
+import type { IssueId, LabelId, ProjectId } from "../../domain/entity-id.ts";
 import type { IdempotencyKey } from "../../domain/idempotency.ts";
-import type { Issue, IssueBody, IssueNumber, IssueTitle } from "../../domain/issue.ts";
+import type { Assignee, Issue, IssueBody, IssueNumber, IssueTitle } from "../../domain/issue.ts";
+import {
+  IssuePageLimit,
+  type IssueAssigneeStatusFilter,
+  type IssueBlockingStatusFilter,
+  type IssueCursor,
+  type IssueLabelMatchFilter,
+  type IssueLifecycleFilter,
+  type IssuePageLimit as IssuePageLimitType,
+  type IssueSort,
+  type IssueSortDirection,
+  type IssueStateFilter,
+} from "../../domain/pagination.ts";
 import { gatewayRequestAgentSession, GatewayRequestContext } from "./gateway-request-context.ts";
 import { ProblemResponse } from "./problem-response.ts";
 
@@ -59,6 +75,75 @@ function issueResponse(issue: Issue): IssueResponse {
     },
   });
 }
+function issueSummaryResponse(issue: Issue): IssueSummaryResponse {
+  return IssueSummaryResponse.make({
+    id: issue.id,
+    project_id: issue.projectId,
+    number: issue.number,
+    title: issue.title,
+    state: issue.state,
+    lifecycle: "live",
+    assignee: null,
+    parent_issue_id: null,
+    blocking_status: "unblocked",
+    active_blocker_count: 0,
+    labels: [],
+    updated_at: issue.updatedAt,
+    links: { self: { href: `/api/issues/${issue.id}` } },
+  });
+}
+
+type IssueListHttpQuery = {
+  readonly state?: IssueStateFilter;
+  readonly lifecycle?: IssueLifecycleFilter;
+  readonly assignee?: Assignee;
+  readonly assignee_status?: IssueAssigneeStatusFilter;
+  readonly label_id?: LabelId | ReadonlyArray<LabelId>;
+  readonly label_match?: IssueLabelMatchFilter;
+  readonly parent?: "root" | IssueId;
+  readonly blocking_status?: IssueBlockingStatusFilter;
+  readonly number?: IssueNumber;
+  readonly sort?: IssueSort;
+  readonly direction?: IssueSortDirection;
+  readonly cursor?: IssueCursor;
+  readonly limit?: IssuePageLimitType;
+};
+
+type NormalizedIssueListQuery = {
+  readonly state: IssueStateFilter;
+  readonly lifecycle: IssueLifecycleFilter;
+  readonly assignee: Assignee | undefined;
+  readonly assignee_status: IssueAssigneeStatusFilter;
+  readonly label_id: ReadonlyArray<LabelId>;
+  readonly label_match: IssueLabelMatchFilter;
+  readonly parent: "root" | IssueId | undefined;
+  readonly blocking_status: IssueBlockingStatusFilter;
+  readonly number: IssueNumber | undefined;
+  readonly sort: IssueSort;
+  readonly direction: IssueSortDirection;
+  readonly cursor: IssueCursor | undefined;
+  readonly limit: IssuePageLimitType;
+};
+
+function issuePageHref(projectId: ProjectId, query: NormalizedIssueListQuery): string {
+  const parameters = new URLSearchParams({
+    state: query.state,
+    lifecycle: query.lifecycle,
+    assignee_status: query.assignee_status,
+    blocking_status: query.blocking_status,
+    sort: query.sort,
+    direction: query.direction,
+    limit: String(query.limit),
+  });
+  if (query.assignee !== undefined) parameters.set("assignee", query.assignee);
+  for (const labelId of query.label_id) parameters.append("label_id", labelId);
+  if (query.label_id.length > 0) parameters.set("label_match", query.label_match);
+  if (query.parent !== undefined) parameters.set("parent", query.parent);
+  if (query.number !== undefined) parameters.set("number", String(query.number));
+  if (query.cursor !== undefined) parameters.set("cursor", query.cursor);
+  return `/api/projects/${projectId}/issues?${parameters.toString()}`;
+}
+
 function json(value: unknown, status = 200, headers?: Readonly<Record<string, string>>) {
   return HttpServerResponse.jsonUnsafe(value, { status, headers });
 }
@@ -66,6 +151,16 @@ const issueFailure = Effect.fn("Gateway.issueFailure")(function* (failure: Proje
   const context = yield* GatewayRequestContext;
   const problems = yield* ProblemResponse;
   switch (failure._tag) {
+    case "IssueCursorInvalid":
+      return problems.render({
+        code: "invalid_cursor",
+        detail:
+          failure.reason === "rebound"
+            ? "The Issue cursor belongs to different filters or ordering. Follow the complete pagination link without changing its query."
+            : "The Issue cursor is malformed or expired. Restart from the collection without a cursor.",
+        details: { reason: failure.reason },
+        requestId: context.requestId,
+      });
     case "IssueNotFound":
     case "IssueOwnerNotFound":
       return problems.render({
@@ -103,6 +198,113 @@ const issueFailure = Effect.fn("Gateway.issueFailure")(function* (failure: Proje
       });
   }
 });
+const listIssuesResponse = Effect.fn("Gateway.listIssues")(function* (
+  projectId: ProjectId,
+  query: IssueListHttpQuery,
+) {
+  const context = yield* GatewayRequestContext;
+  const problems = yield* ProblemResponse;
+  if (query.assignee !== undefined && query.assignee_status === "unassigned") {
+    return problems.render({
+      code: "malformed_request",
+      detail: "An exact assignee cannot be combined with assignee_status=unassigned.",
+      errors: [
+        {
+          code: "contradictory",
+          path: "/query/assignee_status",
+          message: "Use assigned or any when filtering by an exact assignee.",
+        },
+      ],
+      requestId: context.requestId,
+    });
+  }
+  if (query.label_match !== undefined && query.label_id === undefined) {
+    return problems.render({
+      code: "malformed_request",
+      detail: "label_match requires at least one label_id filter.",
+      errors: [
+        {
+          code: "requires_label_id",
+          path: "/query/label_match",
+          message: "Add one or more label_id parameters or omit label_match.",
+        },
+      ],
+      requestId: context.requestId,
+    });
+  }
+  const operations = yield* ProjectOperationsService;
+  const labelIds =
+    query.label_id === undefined
+      ? []
+      : Array.isArray(query.label_id)
+        ? query.label_id
+        : [query.label_id];
+  const normalized = {
+    state: query.state ?? "open",
+    lifecycle: query.lifecycle ?? "live",
+    assignee: query.assignee,
+    assignee_status: query.assignee_status ?? "any",
+    label_id: labelIds,
+    label_match: query.label_match ?? "any",
+    parent: query.parent,
+    blocking_status: query.blocking_status ?? "any",
+    number: query.number,
+    sort: query.sort ?? "updated_at",
+    direction: query.direction ?? "desc",
+    cursor: query.cursor,
+    limit: query.limit ?? IssuePageLimit.make(50),
+  } as const;
+  const result = yield* Effect.result(
+    operations.listIssues({
+      projectId,
+      state: normalized.state,
+      lifecycle: normalized.lifecycle,
+      assignee: Option.fromNullishOr(normalized.assignee),
+      assigneeStatus: normalized.assignee_status,
+      labelIds,
+      labelMatch: normalized.label_match,
+      parent: Option.fromNullishOr(normalized.parent),
+      blockingStatus: normalized.blocking_status,
+      number: Option.fromNullishOr(normalized.number),
+      sort: normalized.sort,
+      direction: normalized.direction,
+      cursor: Option.fromNullishOr(normalized.cursor),
+      limit: normalized.limit,
+    }),
+  );
+  if (Result.isFailure(result)) return yield* issueFailure(result.failure);
+  const links: Record<string, Link> = {
+    self: { href: issuePageHref(projectId, normalized) },
+    create: {
+      href: `/api/projects/${projectId}/issues`,
+      method: "POST",
+      schema: IssueSchemaPaths.create,
+    },
+  };
+  if (Option.isSome(result.success.previousCursor)) {
+    links.previous = {
+      href: issuePageHref(projectId, {
+        ...normalized,
+        cursor: result.success.previousCursor.value,
+      }),
+    };
+  }
+  if (Option.isSome(result.success.nextCursor)) {
+    links.next = {
+      href: issuePageHref(projectId, {
+        ...normalized,
+        cursor: result.success.nextCursor.value,
+      }),
+    };
+  }
+  return json(
+    IssueCollection.make({
+      items: result.success.issues.map(issueSummaryResponse),
+      links,
+    }),
+  );
+});
+
 const createIssueResponse = Effect.fn("Gateway.createIssue")(function* (
   projectId: ProjectId,
   title: IssueTitle,
@@ -125,10 +327,11 @@ const createIssueResponse = Effect.fn("Gateway.createIssue")(function* (
     }),
   );
   if (Result.isFailure(result)) return yield* issueFailure(result.failure);
-  return json(issueResponse(result.success.issue), 201, {
+  const responseHeaders: Record<string, string> = {
     location: `/api/issues/${result.success.issue.id}`,
-    ...(result.success.replayed ? { "idempotency-replayed": "true" } : {}),
-  });
+  };
+  if (result.success.replayed) responseHeaders["idempotency-replayed"] = "true";
+  return json(issueResponse(result.success.issue), 201, responseHeaders);
 });
 const readCanonicalIssueResponse = Effect.fn("Gateway.readIssue")(function* (issueId: IssueId) {
   const operations = yield* ProjectOperationsService;
@@ -223,6 +426,8 @@ const referencesResponse = Effect.fn("Gateway.readIssueReferences")(function* (i
 /** Issue HTTP handlers backed by routed Project operations. */
 export const layer = HttpApiBuilder.group(OverseerApi, "issues", (handlers) =>
   handlers
+    .handle("listIssues", ({ params, query }) => listIssuesResponse(params.project_id, query))
+    .handle("headIssues", ({ params, query }) => listIssuesResponse(params.project_id, query))
     .handle("createIssue", ({ params, headers, payload }) =>
       createIssueResponse(
         params.project_id,

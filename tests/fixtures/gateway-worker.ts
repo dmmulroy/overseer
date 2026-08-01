@@ -53,6 +53,8 @@ import {
   CreateIssueRpcResult,
   IssueReferencesRpcResult,
   IssueRevisionsRpcResult,
+  ListIssuesRpcInput,
+  ListIssuesRpcResult,
   IssueTimelineRpcResult,
   ProjectClientService,
   ProjectRecordCorrupt,
@@ -61,6 +63,7 @@ import {
   type ProjectRpc,
 } from "../../src/application/project/project-rpc.ts";
 import {
+  IssueCursorInvalid,
   IssueNotFound,
   ProjectIdempotencyKeyReused,
 } from "../../src/application/issues/issue-discovery.ts";
@@ -125,6 +128,11 @@ const ReadIssueOwnerFailure = Schema.Union([
 ]);
 const CreateProjectIssueFailure = Schema.Union([
   ProjectIdempotencyKeyReused,
+  ProjectRecordCorrupt,
+  ProjectStateUnavailable,
+]);
+const ListProjectIssuesFailure = Schema.Union([
+  IssueCursorInvalid,
   ProjectRecordCorrupt,
   ProjectStateUnavailable,
 ]);
@@ -242,10 +250,8 @@ function makeHandler(
           Effect.tryPromise({
             try: () =>
               stub().listProjects({
-                ...(Option.isSome(input.workspaceId)
-                  ? { workspaceId: input.workspaceId.value }
-                  : {}),
-                ...(Option.isSome(input.cursor) ? { cursor: input.cursor.value } : {}),
+                workspaceId: Option.getOrUndefined(input.workspaceId),
+                cursor: Option.getOrUndefined(input.cursor),
                 limit: input.limit,
               }),
             catch: (cause) => {
@@ -345,6 +351,21 @@ function makeHandler(
             return Result.isSuccess(decoded)
               ? decoded.success
               : new ProjectRpcCallFailed({ operation: "createIssue", cause });
+          },
+        }),
+      ),
+      listIssues: Effect.fn("TestProjectRpc.listIssues")((input) =>
+        Effect.tryPromise({
+          try: () =>
+            projectNamespace
+              .getByName(input.projectId)
+              .listIssues(Schema.encodeSync(ListIssuesRpcInput)(input))
+              .then(Schema.decodeUnknownSync(ListIssuesRpcResult)),
+          catch: (cause) => {
+            const decoded = Schema.decodeUnknownResult(ListProjectIssuesFailure)(cause);
+            return Result.isSuccess(decoded)
+              ? decoded.success
+              : new ProjectRpcCallFailed({ operation: "listIssues", cause });
           },
         }),
       ),

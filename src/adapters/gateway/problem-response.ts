@@ -27,6 +27,7 @@ const problemPolicies: Readonly<Record<ProblemCode, ProblemPolicy>> = {
   gateway_unavailable: { retryable: true, status: 503, title: "Gateway unavailable" },
   idempotency_key_reused: { retryable: false, status: 409, title: "Idempotency key reused" },
   internal_error: { retryable: true, status: 500, title: "Internal error" },
+  invalid_cursor: { retryable: false, status: 400, title: "Invalid cursor" },
   malformed_request: { retryable: false, status: 400, title: "Malformed request" },
   method_not_allowed: { retryable: false, status: 405, title: "Method not allowed" },
   payload_too_large: { retryable: false, status: 413, title: "Payload too large" },

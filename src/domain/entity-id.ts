@@ -36,6 +36,17 @@ export function makeIssueId(ulid: Ulid): IssueId {
   return IssueId.make(`issue_${ulid}`);
 }
 
+/** Immutable, canonical identity for a Project Label. */
+export const LabelId = Schema.TemplateLiteral(["label_", Ulid]).pipe(Schema.brand("LabelId"));
+
+/** Immutable, canonical identity for a Project Label. */
+export type LabelId = typeof LabelId.Type;
+
+/** Prefix a ULID for use as a Project Label identity. */
+export function makeLabelId(ulid: Ulid): LabelId {
+  return LabelId.make(`label_${ulid}`);
+}
+
 /** Immutable identity for a structured Timeline event. */
 export const TimelineEventId = Schema.TemplateLiteral(["event_", Ulid]).pipe(
   Schema.brand("TimelineEventId"),

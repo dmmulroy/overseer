@@ -10,6 +10,7 @@ import { layer as migrationLayer } from "../adapters/project-sqlite/project-migr
 import { layer as sqliteStateLayer } from "../adapters/project-sqlite/project-sqlite-state.ts";
 import { layer as ulidGeneratorLayer } from "../application/ulid-generator.ts";
 import {
+  type IssueCursorInvalid,
   IssueDiscoveryService,
   type IssueNotFound,
   layer as issueDiscoveryLayer,
@@ -23,6 +24,8 @@ import {
   CreateIssueRpcResult,
   IssueReferencesRpcResult,
   IssueRevisionsRpcResult,
+  ListIssuesRpcInput,
+  ListIssuesRpcResult,
   IssueTimelineRpcResult,
   ProjectRecordCorrupt,
   ProjectStateUnavailable,
@@ -41,10 +44,21 @@ function exposeProjectPersistenceFailure<A>(
 ): Effect.Effect<A, IssueNotFound | ProjectRecordCorrupt | ProjectStateUnavailable>;
 function exposeProjectPersistenceFailure<A>(
   operation: string,
-  effect: Effect.Effect<A, IssueNotFound | ProjectIdempotencyKeyReused | ProjectPersistenceError>,
+  effect: Effect.Effect<A, IssueCursorInvalid | ProjectPersistenceError>,
+): Effect.Effect<A, IssueCursorInvalid | ProjectRecordCorrupt | ProjectStateUnavailable>;
+function exposeProjectPersistenceFailure<A>(
+  operation: string,
+  effect: Effect.Effect<
+    A,
+    IssueCursorInvalid | IssueNotFound | ProjectIdempotencyKeyReused | ProjectPersistenceError
+  >,
 ): Effect.Effect<
   A,
-  IssueNotFound | ProjectIdempotencyKeyReused | ProjectRecordCorrupt | ProjectStateUnavailable
+  | IssueCursorInvalid
+  | IssueNotFound
+  | ProjectIdempotencyKeyReused
+  | ProjectRecordCorrupt
+  | ProjectStateUnavailable
 > {
   return effect.pipe(
     Effect.catchTag("ProjectStoredRecordCorrupt", (error: ProjectStoredRecordCorrupt) =>
@@ -98,6 +112,16 @@ const ProjectObjectLive = ProjectObject.make<never>(
             ),
             Effect.flatMap((result) =>
               Schema.encodeEffect(CreateIssueRpcResult)(result).pipe(Effect.orDie),
+            ),
+          ),
+        listIssues: (input) =>
+          Schema.decodeUnknownEffect(ListIssuesRpcInput)(input).pipe(
+            Effect.orDie,
+            Effect.flatMap((decoded) =>
+              exposeProjectPersistenceFailure("listIssues", issues.listIssues(decoded)),
+            ),
+            Effect.flatMap((page) =>
+              Schema.encodeEffect(ListIssuesRpcResult)(page).pipe(Effect.orDie),
             ),
           ),
         readIssue: (issueId: IssueId) =>

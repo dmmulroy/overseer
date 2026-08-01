@@ -3,6 +3,7 @@ import * as Schema from "effect/Schema";
 import { afterAll, beforeAll, describe, expect, it } from "vite-plus/test";
 import type { Miniflare } from "miniflare";
 import {
+  IssueCollection,
   IssueReferenceCollection,
   IssueResponse,
   IssueRevisionCollection,
@@ -79,22 +80,18 @@ async function api(
     readonly body?: string;
   } = {},
 ) {
-  return gateway.dispatchFetch(`${origin}${path}`, {
-    ...init,
-    headers: {
-      ...init.headers,
-      "cf-access-jwt-assertion": await humanAssertion(),
-      ...(init.method === undefined || init.method === "GET" || init.method === "HEAD"
-        ? {}
-        : { origin }),
-    },
-  });
+  const headers: Record<string, string> = { ...init.headers };
+  headers["cf-access-jwt-assertion"] = await humanAssertion();
+  if (init.method !== undefined && init.method !== "GET" && init.method !== "HEAD") {
+    headers.origin = origin;
+  }
+  return gateway.dispatchFetch(`${origin}${path}`, { ...init, headers });
 }
 async function createIssue(title: string, key: string, body?: string) {
   return api(`/api/projects/${projectId}/issues`, {
     method: "POST",
     headers: { "content-type": "application/json", "idempotency-key": key },
-    body: JSON.stringify({ title, ...(body === undefined ? {} : { body }) }),
+    body: JSON.stringify({ title, body }),
   });
 }
 
@@ -198,6 +195,144 @@ describe("Issue REST interface", () => {
         agent_session: { session_id: "session-58", harness: "pi" },
       },
     });
+  });
+
+  it("lists exact Issue pages with bound bidirectional cursors and complete discrete filters", async () => {
+    const listed = await Promise.all(
+      Array.from({ length: 4 }, (_, index) =>
+        createIssue(`Browsable Issue ${index + 1}`, `issue-browse-${index + 1}`),
+      ),
+    );
+    const createdIssues = await Promise.all(
+      listed.map(async (response) =>
+        Schema.decodeUnknownSync(IssueResponse)(await response.json()),
+      ),
+    );
+    const exactIssue = createdIssues[0];
+    expect(exactIssue).toBeDefined();
+
+    const firstResponse = await api(
+      `/api/projects/${projectId}/issues?state=all&lifecycle=all&assignee_status=unassigned&parent=root&blocking_status=unblocked&sort=number&direction=asc&limit=2`,
+    );
+    expect(firstResponse.status).toBe(200);
+    const first = Schema.decodeUnknownSync(IssueCollection)(await firstResponse.json());
+    expect(first.items).toHaveLength(2);
+    expect(first.items[0]?.number).toBeLessThan(first.items[1]?.number ?? 0);
+    expect(first.links).not.toHaveProperty("previous");
+    expect(first.links.next?.href).toContain("cursor=");
+    for (const [name, value] of Object.entries({
+      state: "all",
+      lifecycle: "all",
+      assignee_status: "unassigned",
+      parent: "root",
+      blocking_status: "unblocked",
+      sort: "number",
+      direction: "asc",
+      limit: "2",
+    })) {
+      expect(new URL(first.links.next?.href ?? "", origin).searchParams.get(name)).toBe(value);
+    }
+
+    const secondResponse = await api(first.links.next?.href ?? "");
+    const second = Schema.decodeUnknownSync(IssueCollection)(await secondResponse.json());
+    expect(second.items).toHaveLength(2);
+    expect(second.links.previous?.href).toContain("cursor=");
+    const previous = Schema.decodeUnknownSync(IssueCollection)(
+      await (await api(second.links.previous?.href ?? "")).json(),
+    );
+    expect(previous.items).toEqual(first.items);
+
+    const exact = Schema.decodeUnknownSync(IssueCollection)(
+      await (
+        await api(`/api/projects/${projectId}/issues?number=${exactIssue?.number ?? 1}`)
+      ).json(),
+    );
+    expect(exact.items.map((issue) => issue.id)).toEqual([exactIssue?.id]);
+
+    for (const query of [
+      "state=closed",
+      "lifecycle=deleted",
+      "assignee=unclaimed",
+      "assignee_status=assigned",
+      "label_id=label_01J00000000000000000000000",
+      "parent=issue_01J00000000000000000000000",
+      "blocking_status=blocked",
+    ]) {
+      const empty = Schema.decodeUnknownSync(IssueCollection)(
+        await (await api(`/api/projects/${projectId}/issues?${query}`)).json(),
+      );
+      expect(empty.items).toEqual([]);
+    }
+  });
+
+  it("rejects malformed, contradictory, and rebound Issue collection parameters", async () => {
+    for (const query of [
+      "unknown=value",
+      "state=open&state=closed",
+      "assignee=someone&assignee_status=unassigned",
+      "label_match=all",
+      "limit=0",
+      "limit=101",
+    ]) {
+      const response = await api(`/api/projects/${projectId}/issues?${query}`);
+      expect(response.status).toBe(400);
+      await expect(response.json()).resolves.toMatchObject({ code: "malformed_request" });
+    }
+
+    const contradictory = await api(
+      `/api/projects/${projectId}/issues?assignee=someone&assignee_status=unassigned`,
+    );
+    await expect(contradictory.json()).resolves.toMatchObject({
+      code: "malformed_request",
+      errors: [
+        {
+          code: "contradictory",
+          path: "/query/assignee_status",
+        },
+      ],
+    });
+
+    const malformedCursor = await api(`/api/projects/${projectId}/issues?cursor=not-a-cursor`);
+    expect(malformedCursor.status).toBe(400);
+    await expect(malformedCursor.json()).resolves.toMatchObject({
+      code: "invalid_cursor",
+      details: { reason: "malformed" },
+    });
+
+    const first = Schema.decodeUnknownSync(IssueCollection)(
+      await (
+        await api(`/api/projects/${projectId}/issues?sort=number&direction=asc&limit=1`)
+      ).json(),
+    );
+    const rebound = new URL(first.links.next?.href ?? "", origin);
+    rebound.searchParams.set("direction", "desc");
+    const reboundResponse = await api(`${rebound.pathname}${rebound.search}`);
+    expect(reboundResponse.status).toBe(400);
+    await expect(reboundResponse.json()).resolves.toMatchObject({
+      code: "invalid_cursor",
+      details: { reason: "rebound" },
+    });
+  });
+
+  it("validates exact Issue pages with strong ETags and HEAD", async () => {
+    const path = `/api/projects/${projectId}/issues?sort=number&direction=desc&limit=1`;
+    const initial = await api(path);
+    const initialEtag = initial.headers.get("etag");
+    expect(initialEtag).toMatch(/^"[A-Za-z0-9_-]+"$/);
+
+    const head = await api(path, { method: "HEAD" });
+    expect(head.status).toBe(200);
+    expect(head.headers.get("etag")).toBe(initialEtag);
+    expect(await head.text()).toBe("");
+
+    const unchanged = await api(path, { headers: { "if-none-match": initialEtag ?? "" } });
+    expect(unchanged.status).toBe(304);
+    expect(await unchanged.text()).toBe("");
+
+    await createIssue("Changes the first Issue page", "issue-page-etag-change");
+    const changed = await api(path, { headers: { "if-none-match": initialEtag ?? "" } });
+    expect(changed.status).toBe(200);
+    expect(changed.headers.get("etag")).not.toBe(initialEtag);
   });
 
   it("reconciles resolvable same-Project mentions atomically and leaves unresolved qualified text literal", async () => {

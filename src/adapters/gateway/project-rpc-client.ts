@@ -7,6 +7,8 @@ import {
   CreateIssueRpcResult,
   IssueReferencesRpcResult,
   IssueRevisionsRpcResult,
+  ListIssuesRpcInput,
+  ListIssuesRpcResult,
   IssueTimelineRpcResult,
   ProjectClientService,
   ProjectRpcCallFailed,
@@ -62,6 +64,15 @@ export const make = Effect.gen(function* () {
           rpcCall(stub(input.projectId).createIssue(encoded), "createIssue"),
         ),
         Effect.flatMap((result) => decodeRpcResponse(CreateIssueRpcResult, result, "createIssue")),
+      ),
+    ),
+    listIssues: Effect.fn("ProjectRpc.listIssues")((input) =>
+      Schema.encodeEffect(ListIssuesRpcInput)(input).pipe(
+        Effect.orDie,
+        Effect.flatMap((encoded) =>
+          rpcCall(stub(input.projectId).listIssues(encoded), "listIssues"),
+        ),
+        Effect.flatMap((result) => decodeRpcResponse(ListIssuesRpcResult, result, "listIssues")),
       ),
     ),
     readIssue: Effect.fn("ProjectRpc.readIssue")((projectId, issueId) =>

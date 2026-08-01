@@ -7,6 +7,7 @@ import * as Schema from "effect/Schema";
 import type { CommandAttribution } from "../../domain/actor.ts";
 import {
   IssueId,
+  type LabelId,
   makeIssueId,
   makeTimelineEventId,
   type ProjectId,
@@ -22,10 +23,22 @@ import {
   IssueTimestamp,
   RevisionNumber,
   TimelinePosition,
+  type Assignee,
   type IssueBody,
   type IssueReference,
   type IssueTitle,
 } from "../../domain/issue.ts";
+import type {
+  IssueAssigneeStatusFilter,
+  IssueBlockingStatusFilter,
+  IssueCursor,
+  IssueLabelMatchFilter,
+  IssueLifecycleFilter,
+  IssuePageLimit,
+  IssueSort,
+  IssueSortDirection,
+  IssueStateFilter,
+} from "../../domain/pagination.ts";
 import { UlidGeneratorService } from "../ulid-generator.ts";
 
 /** A requested Issue does not exist in its owning Project. */
@@ -35,6 +48,15 @@ export class IssueNotFound extends Schema.TaggedErrorClass<IssueNotFound>()("Iss
 }) {
   /** Stable safe diagnostic message. */
   override readonly message = "The requested Issue does not exist";
+}
+
+/** An Issue page cursor is malformed or bound to another list request. */
+export class IssueCursorInvalid extends Schema.TaggedErrorClass<IssueCursorInvalid>()(
+  "IssueCursorInvalid",
+  { reason: Schema.Literals(["malformed", "rebound"]) },
+) {
+  /** Stable safe diagnostic message. */
+  override readonly message = "The Issue page cursor is invalid for this collection request";
 }
 
 /** An Issue creation key already identifies another Project-local result. */
@@ -82,6 +104,31 @@ export type CreateIssueResult = {
   readonly replayed: boolean;
 };
 
+/** Complete normalized filters and ordering selecting one Project Issue page. */
+export type ListIssuesInput = {
+  readonly projectId: ProjectId;
+  readonly state: IssueStateFilter;
+  readonly lifecycle: IssueLifecycleFilter;
+  readonly assignee: Option.Option<Assignee>;
+  readonly assigneeStatus: IssueAssigneeStatusFilter;
+  readonly labelIds: ReadonlyArray<LabelId>;
+  readonly labelMatch: IssueLabelMatchFilter;
+  readonly parent: Option.Option<"root" | IssueId>;
+  readonly blockingStatus: IssueBlockingStatusFilter;
+  readonly number: Option.Option<IssueNumber>;
+  readonly sort: IssueSort;
+  readonly direction: IssueSortDirection;
+  readonly cursor: Option.Option<IssueCursor>;
+  readonly limit: IssuePageLimit;
+};
+
+/** One exact Project Issue page with opaque bidirectional keyset cursors. */
+export type IssuePage = {
+  readonly issues: ReadonlyArray<Issue>;
+  readonly previousCursor: Option.Option<IssueCursor>;
+  readonly nextCursor: Option.Option<IssueCursor>;
+};
+
 /** Values committed atomically for one Issue creation. */
 export type InsertIssueCreationInput = {
   readonly issue: Issue;
@@ -117,6 +164,9 @@ export type IssueDiscoveryState = {
   readonly findIssue: (
     issueId: IssueId,
   ) => Effect.Effect<Option.Option<Issue>, ProjectPersistenceError>;
+  readonly listIssues: (
+    input: ListIssuesInput,
+  ) => Effect.Effect<IssuePage, IssueCursorInvalid | ProjectPersistenceError>;
   readonly findIssueByNumber: (
     number: IssueNumber,
   ) => Effect.Effect<Option.Option<Issue>, ProjectPersistenceError>;
@@ -154,6 +204,9 @@ export type IssueDiscovery = {
   readonly readIssue: (
     issueId: IssueId,
   ) => Effect.Effect<Issue, IssueNotFound | ProjectPersistenceError>;
+  readonly listIssues: (
+    input: ListIssuesInput,
+  ) => Effect.Effect<IssuePage, IssueCursorInvalid | ProjectPersistenceError>;
   readonly readIssueByNumber: (
     number: IssueNumber,
   ) => Effect.Effect<Issue, IssueNotFound | ProjectPersistenceError>;
@@ -308,6 +361,7 @@ export const make = Effect.gen(function* () {
       );
     }),
     readIssue: Effect.fn("IssueDiscovery.readIssue")(requireIssue),
+    listIssues: Effect.fn("IssueDiscovery.listIssues")((input) => state.listIssues(input)),
     readIssueByNumber: Effect.fn("IssueDiscovery.readIssueByNumber")(function* (number) {
       const found = yield* state.findIssueByNumber(number);
       if (Option.isNone(found)) return yield* new IssueNotFound({ number });
