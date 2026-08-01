@@ -197,6 +197,87 @@ describe("Issue REST interface", () => {
     });
   });
 
+  it("closes and reopens an Issue with current actions, immutable attributed Timeline events, and no-op targets", async () => {
+    const created = Schema.decodeUnknownSync(IssueResponse)(
+      await (await createIssue("Steer state", "issue-steer-create")).json(),
+    );
+    expect(created.links.close).toMatchObject({
+      href: `/api/issues/${created.id}/close`,
+      method: "POST",
+    });
+    expect(created.links).not.toHaveProperty("reopen");
+
+    const close = await api(created.links.close?.href ?? "", {
+      method: "POST",
+      headers: { "content-type": "application/json", "idempotency-key": "issue-steer-close" },
+      body: "{}",
+    });
+    expect(close.status).toBe(200);
+    const closed = Schema.decodeUnknownSync(IssueResponse)(await close.json());
+    expect(closed.state).toBe("closed");
+    expect(closed.updated_at).not.toBe(created.updated_at);
+    expect(closed.links.reopen).toMatchObject({
+      href: `/api/issues/${created.id}/reopen`,
+      method: "POST",
+    });
+    expect(closed.links).not.toHaveProperty("close");
+
+    const noChange = Schema.decodeUnknownSync(IssueResponse)(
+      await (
+        await api(`/api/issues/${created.id}/close`, {
+          method: "POST",
+          headers: {
+            "content-type": "application/json",
+            "idempotency-key": "issue-steer-close-no-change",
+          },
+          body: "{}",
+        })
+      ).json(),
+    );
+    expect(noChange.updated_at).toBe(closed.updated_at);
+
+    const reopened = Schema.decodeUnknownSync(IssueResponse)(
+      await (
+        await api(`/api/issues/${created.id}/reopen`, {
+          method: "POST",
+          headers: { "content-type": "application/json", "idempotency-key": "issue-steer-reopen" },
+          body: "{}",
+        })
+      ).json(),
+    );
+    expect(reopened.state).toBe("open");
+    expect(reopened.updated_at).not.toBe(closed.updated_at);
+
+    const replay = await api(`/api/issues/${created.id}/close`, {
+      method: "POST",
+      headers: { "content-type": "application/json", "idempotency-key": "issue-steer-close" },
+      body: "{}",
+    });
+    expect(replay.headers.get("idempotency-replayed")).toBe("true");
+    expect(await replay.json()).toEqual(closed);
+
+    const timeline = Schema.decodeUnknownSync(IssueTimelineCollection)(
+      await (await api(`/api/issues/${created.id}/timeline?limit=2`)).json(),
+    );
+    expect(timeline.items.map((entry) => entry.position)).toEqual([1, 2]);
+    expect(timeline.items[1]).toMatchObject({
+      event: {
+        kind: "issue_closed",
+        actor: { kind: "human", subject: "issue-human" },
+      },
+    });
+    expect(timeline.links.next?.href).toContain("cursor=");
+    const nextTimeline = Schema.decodeUnknownSync(IssueTimelineCollection)(
+      await (await api(timeline.links.next?.href ?? "")).json(),
+    );
+    expect(nextTimeline.items).toMatchObject([{ position: 3, event: { kind: "issue_reopened" } }]);
+    expect(nextTimeline.links.previous?.href).toContain("cursor=");
+    const previousTimeline = Schema.decodeUnknownSync(IssueTimelineCollection)(
+      await (await api(nextTimeline.links.previous?.href ?? "")).json(),
+    );
+    expect(previousTimeline.items).toEqual(timeline.items);
+  });
+
   it("lists exact Issue pages with bound bidirectional cursors and complete discrete filters", async () => {
     const listed = await Promise.all(
       Array.from({ length: 4 }, (_, index) =>

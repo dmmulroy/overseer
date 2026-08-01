@@ -1,17 +1,27 @@
-import { useAtomRefresh, useAtomValue } from "@effect/atom-react";
+import { useAtomRefresh, useAtomSet, useAtomValue } from "@effect/atom-react";
 import { Link, useNavigate, useParams, useSearch } from "@tanstack/react-router";
 import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
 import { AsyncResult } from "effect/unstable/reactivity";
 import { useCallback, useEffect, useState } from "react";
 import {
+  closeIssueMutation,
   discoveryQuery,
+  invalidateBrowserIssueListPages,
   issueQuery,
+  issueTimelineQuery,
+  reopenIssueMutation,
   projectQuery,
   workspaceQuery,
 } from "../../adapters/web-client/api-resources.ts";
-import type { IssueResponse, ProjectResponse, WorkspaceResponse } from "../../contract/http-api.ts";
+import type {
+  IssueResponse,
+  IssueTimelineCollection,
+  ProjectResponse,
+  WorkspaceResponse,
+} from "../../contract/http-api.ts";
 import { IssueId, type ProjectId, type WorkspaceId } from "../../domain/entity-id.ts";
+import { IdempotencyKey } from "../../domain/idempotency.ts";
 import { ProjectIssueList } from "../features/issues/project-issue-list.tsx";
 import { completeIssueListSearch } from "../issue-list-search.ts";
 import { cn } from "../../lib/ui-classnames.ts";
@@ -244,11 +254,48 @@ function LoadingCard(props: {
 
 function FocusedIssueContent(props: { readonly issueId: IssueId }): React.JSX.Element {
   const state = useAtomValue(issueQuery(props.issueId));
-  const issue = Option.filter(
+  const timelineState = useAtomValue(issueTimelineQuery(props.issueId));
+  const closeCommand = useAtomValue(closeIssueMutation);
+  const reopenCommand = useAtomValue(reopenIssueMutation);
+  const closeIssue = useAtomSet(closeIssueMutation);
+  const reopenIssue = useAtomSet(reopenIssueMutation);
+  const refreshIssue = useAtomRefresh(issueQuery(props.issueId));
+  const refreshTimeline = useAtomRefresh(issueTimelineQuery(props.issueId));
+  const canonicalIssue = Option.filter(
     AsyncResult.value(state),
     (value): value is IssueResponse => value !== undefined,
   );
-  if (Option.isNone(issue)) {
+  const timeline = Option.filter(
+    AsyncResult.value(timelineState),
+    (value): value is IssueTimelineCollection => value !== undefined,
+  );
+  const [visibleIssue, setVisibleIssue] = useState<IssueResponse | undefined>(undefined);
+  const [activeAction, setActiveAction] = useState<"close" | "reopen" | undefined>(undefined);
+  const [lastAction, setLastAction] = useState<"close" | "reopen">("close");
+
+  useEffect(() => {
+    if (Option.isSome(canonicalIssue)) {
+      setVisibleIssue(canonicalIssue.value);
+      invalidateBrowserIssueListPages();
+    }
+  }, [Option.isSome(canonicalIssue) ? canonicalIssue.value.updated_at : undefined]);
+
+  const activeCommand = (activeAction ?? lastAction) === "close" ? closeCommand : reopenCommand;
+  useEffect(() => {
+    if (activeAction === undefined || activeCommand.waiting) return;
+    const committed = AsyncResult.value(activeCommand);
+    if (Option.isSome(committed)) {
+      setVisibleIssue(committed.value);
+      invalidateBrowserIssueListPages();
+      refreshIssue();
+      refreshTimeline();
+    } else if (AsyncResult.isFailure(activeCommand)) {
+      setVisibleIssue(Option.getOrUndefined(canonicalIssue));
+    }
+    setActiveAction(undefined);
+  }, [activeAction, activeCommand, canonicalIssue, refreshIssue, refreshTimeline]);
+
+  if (Option.isNone(canonicalIssue) || visibleIssue === undefined) {
     return state._tag === "Failure" ? (
       <StateCard>
         <div role="alert">
@@ -264,23 +311,115 @@ function FocusedIssueContent(props: { readonly issueId: IssueId }): React.JSX.El
       />
     );
   }
+
+  const runStateAction = (action: "close" | "reopen") => {
+    setActiveAction(action);
+    setLastAction(action);
+    const { close: _close, reopen: _reopen, ...stableLinks } = visibleIssue.links;
+    const optimisticState = action === "close" ? "closed" : "open";
+    setVisibleIssue({
+      ...visibleIssue,
+      state: optimisticState,
+      links: {
+        ...stableLinks,
+        [optimisticState === "closed" ? "reopen" : "close"]: {
+          href: `/api/issues/${props.issueId}/${optimisticState === "closed" ? "reopen" : "close"}`,
+          method: "POST",
+        },
+      },
+    });
+    const request = {
+      params: { issue_id: props.issueId },
+      headers: {
+        "content-type": "application/json",
+        "idempotency-key": IdempotencyKey.make(`browser-issue-state-${crypto.randomUUID()}`),
+      },
+      payload: {},
+    };
+    if (action === "close") closeIssue(request);
+    else reopenIssue(request);
+  };
+  const action =
+    visibleIssue.state === "open" ? visibleIssue.links.close : visibleIssue.links.reopen;
+  const writesDisabled = state._tag === "Failure" || activeAction !== undefined;
+
   return (
-    <StateCard className="issue-focused">
-      <Eyebrow>Issue #{issue.value.number}</Eyebrow>
-      <h1 className="text-3xl font-semibold tracking-tight sm:text-4xl">{issue.value.title}</h1>
-      {issue.value.body === null ? (
-        <p className="mt-5 text-muted-foreground">No body.</p>
-      ) : (
-        <pre className="mt-5 whitespace-pre-wrap font-sans leading-6">{issue.value.body}</pre>
-      )}
-      <Link
-        className="mt-6 inline-flex text-sm font-medium underline underline-offset-4"
-        to="/"
-        search={(previous) => completeIssueListSearch(previous)}
+    <section className="issue-focused grid w-full max-w-5xl items-start gap-4 lg:grid-cols-[minmax(0,1fr)_16rem]">
+      <article className="min-w-0 rounded-md border bg-card p-6 sm:p-10">
+        <Eyebrow>Issue #{visibleIssue.number}</Eyebrow>
+        <h1 className="text-3xl font-semibold tracking-tight sm:text-4xl">{visibleIssue.title}</h1>
+        {visibleIssue.body === null ? (
+          <p className="mt-5 text-muted-foreground">No body.</p>
+        ) : (
+          <pre className="mt-5 whitespace-pre-wrap font-sans leading-6">{visibleIssue.body}</pre>
+        )}
+        <section className="mt-8 border-t pt-6" aria-labelledby="timeline-heading">
+          <h2 className="text-base font-semibold" id="timeline-heading">
+            Timeline
+          </h2>
+          {Option.isNone(timeline) ? (
+            <p className="mt-3 text-sm text-muted-foreground">Loading Timeline…</p>
+          ) : (
+            <ol className="mt-3 grid gap-2" aria-label="Issue Timeline">
+              {timeline.value.items.map((entry) => (
+                <li className="text-sm text-muted-foreground" key={entry.position}>
+                  <span className="font-medium text-foreground">
+                    {entry.event.actor.kind === "human"
+                      ? entry.event.actor.email
+                      : entry.event.actor.agent_id}
+                  </span>{" "}
+                  {entry.event.kind.replaceAll("_", " ")}
+                </li>
+              ))}
+            </ol>
+          )}
+        </section>
+        <Link
+          className="mt-6 inline-flex text-sm font-medium underline underline-offset-4"
+          to="/"
+          search={(previous) => completeIssueListSearch(previous)}
+        >
+          Back to Issues
+        </Link>
+      </article>
+      <aside
+        className="rounded-md border bg-card p-4 lg:sticky lg:top-6"
+        aria-label="Issue steering"
       >
-        Back to Issues
-      </Link>
-    </StateCard>
+        <Eyebrow>Steering</Eyebrow>
+        <dl className="grid gap-3 text-sm">
+          <div>
+            <dt className="text-muted-foreground">State</dt>
+            <dd className="font-medium capitalize">{visibleIssue.state}</dd>
+          </div>
+          <div>
+            <dt className="text-muted-foreground">Identity</dt>
+            <dd>#{visibleIssue.number}</dd>
+          </div>
+        </dl>
+        {action === undefined ? null : (
+          <Button
+            className="mt-5 w-full"
+            disabled={writesDisabled}
+            onClick={() => runStateAction(visibleIssue.state === "open" ? "close" : "reopen")}
+            variant={visibleIssue.state === "open" ? "default" : "outline"}
+          >
+            {activeAction === undefined
+              ? visibleIssue.state === "open"
+                ? "Close Issue"
+                : "Reopen Issue"
+              : activeAction === "close"
+                ? "Closing…"
+                : "Reopening…"}
+          </Button>
+        )}
+        {AsyncResult.isFailure(activeCommand) && activeAction === undefined ? (
+          <p className="mt-3 text-sm text-destructive" role="alert">
+            The Issue state change failed and was rolled back.
+          </p>
+        ) : null}
+      </aside>
+    </section>
   );
 }
 

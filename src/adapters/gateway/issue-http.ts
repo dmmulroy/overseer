@@ -1,6 +1,8 @@
 import * as Effect from "effect/Effect";
+import * as Encoding from "effect/Encoding";
 import * as Option from "effect/Option";
 import * as Result from "effect/Result";
+import * as Schema from "effect/Schema";
 import * as HttpServerResponse from "effect/unstable/http/HttpServerResponse";
 import * as HttpApiBuilder from "effect/unstable/httpapi/HttpApiBuilder";
 import {
@@ -21,9 +23,16 @@ import {
   OverseerApi,
 } from "../../contract/http-api.ts";
 import { CommandAttribution, type Actor, type AgentSession } from "../../domain/actor.ts";
-import type { IssueId, LabelId, ProjectId } from "../../domain/entity-id.ts";
+import { IssueId, type LabelId, type ProjectId } from "../../domain/entity-id.ts";
 import type { IdempotencyKey } from "../../domain/idempotency.ts";
-import type { Assignee, Issue, IssueBody, IssueNumber, IssueTitle } from "../../domain/issue.ts";
+import {
+  TimelinePosition,
+  type Assignee,
+  type Issue,
+  type IssueBody,
+  type IssueNumber,
+  type IssueTitle,
+} from "../../domain/issue.ts";
 import {
   IssuePageLimit,
   type IssueAssigneeStatusFilter,
@@ -35,6 +44,9 @@ import {
   type IssueSort,
   type IssueSortDirection,
   type IssueStateFilter,
+  TimelineCursor,
+  TimelinePageLimit,
+  type TimelinePageLimit as TimelinePageLimitType,
 } from "../../domain/pagination.ts";
 import { gatewayRequestAgentSession, GatewayRequestContext } from "./gateway-request-context.ts";
 import { ProblemResponse } from "./problem-response.ts";
@@ -55,6 +67,18 @@ function apiAgentSession(session: Option.Option<AgentSession>) {
 }
 function issueResponse(issue: Issue): IssueResponse {
   const self = `/api/issues/${issue.id}`;
+  const stateAction =
+    issue.state === "open"
+      ? {
+          close: { href: `${self}/close`, method: "POST" as const, schema: IssueSchemaPaths.close },
+        }
+      : {
+          reopen: {
+            href: `${self}/reopen`,
+            method: "POST" as const,
+            schema: IssueSchemaPaths.reopen,
+          },
+        };
   return IssueResponse.make({
     id: issue.id,
     project_id: issue.projectId,
@@ -72,6 +96,7 @@ function issueResponse(issue: Issue): IssueResponse {
       revisions: { href: `${self}/revisions` },
       timeline: { href: `${self}/timeline` },
       references: { href: `${self}/references` },
+      ...stateAction,
     },
   });
 }
@@ -333,6 +358,29 @@ const createIssueResponse = Effect.fn("Gateway.createIssue")(function* (
   if (result.success.replayed) responseHeaders["idempotency-replayed"] = "true";
   return json(issueResponse(result.success.issue), 201, responseHeaders);
 });
+const steerIssueStateResponse = Effect.fn("Gateway.steerIssueState")(function* (
+  issueId: IssueId,
+  targetState: "open" | "closed",
+  idempotencyKey: IdempotencyKey,
+) {
+  const context = yield* GatewayRequestContext;
+  const operations = yield* ProjectOperationsService;
+  const input = {
+    issueId,
+    idempotencyKey,
+    attribution: CommandAttribution.make({
+      actor: context.actor,
+      agentSession: gatewayRequestAgentSession(context),
+      requestId: context.requestId,
+    }),
+  };
+  const result = yield* Effect.result(
+    targetState === "closed" ? operations.closeIssue(input) : operations.reopenIssue(input),
+  );
+  if (Result.isFailure(result)) return yield* issueFailure(result.failure);
+  const headers = result.success.replayed ? { "idempotency-replayed": "true" } : undefined;
+  return json(issueResponse(result.success.issue), 200, headers);
+});
 const readCanonicalIssueResponse = Effect.fn("Gateway.readIssue")(function* (issueId: IssueId) {
   const operations = yield* ProjectOperationsService;
   const result = yield* Effect.result(operations.readIssue(issueId));
@@ -373,13 +421,95 @@ const revisionsResponse = Effect.fn("Gateway.readIssueRevisions")(function* (iss
     }),
   );
 });
-const timelineResponse = Effect.fn("Gateway.readIssueTimeline")(function* (issueId: IssueId) {
+const TimelineCursorState = Schema.Struct({
+  issueId: IssueId,
+  mode: Schema.Literals(["after", "before"]),
+  position: TimelinePosition,
+});
+const TimelineCursorJson = Schema.fromJsonString(TimelineCursorState);
+
+function encodeTimelineCursor(
+  issueId: IssueId,
+  mode: "after" | "before",
+  position: TimelinePosition,
+): TimelineCursor {
+  return TimelineCursor.make(
+    Encoding.encodeBase64Url(
+      Schema.encodeSync(TimelineCursorJson)(TimelineCursorState.make({ issueId, mode, position })),
+    ),
+  );
+}
+
+const timelineResponse = Effect.fn("Gateway.readIssueTimeline")(function* (
+  issueId: IssueId,
+  query: { readonly cursor?: TimelineCursor; readonly limit?: TimelinePageLimitType },
+) {
+  const context = yield* GatewayRequestContext;
+  const problems = yield* ProblemResponse;
+  const decodedCursor = Option.flatMap(Option.fromNullishOr(query.cursor), (cursor) => {
+    const decoded = Encoding.decodeBase64UrlString(cursor);
+    return Result.isSuccess(decoded)
+      ? Schema.decodeUnknownOption(TimelineCursorJson)(decoded.success)
+      : Option.none();
+  });
+  if (query.cursor !== undefined && Option.isNone(decodedCursor)) {
+    return problems.render({
+      code: "invalid_cursor",
+      detail: "The Timeline cursor is malformed. Restart from the Timeline without a cursor.",
+      requestId: context.requestId,
+    });
+  }
+  if (Option.exists(decodedCursor, (cursor) => cursor.issueId !== issueId)) {
+    return problems.render({
+      code: "invalid_cursor",
+      detail: "The Timeline cursor belongs to another Issue. Follow the complete pagination link.",
+      requestId: context.requestId,
+    });
+  }
   const operations = yield* ProjectOperationsService;
   const result = yield* Effect.result(operations.readIssueTimeline(issueId));
   if (Result.isFailure(result)) return yield* issueFailure(result.failure);
+  const limit = query.limit ?? TimelinePageLimit.make(50);
+  const entries = Option.match(decodedCursor, {
+    onNone: () => result.success.slice(0, limit),
+    onSome: (cursor) => {
+      const remaining = result.success.filter((entry) =>
+        cursor.mode === "after"
+          ? entry.position > cursor.position
+          : entry.position < cursor.position,
+      );
+      return cursor.mode === "after"
+        ? remaining.slice(0, limit)
+        : remaining.slice(Math.max(0, remaining.length - limit));
+    },
+  });
+  const links: Record<string, Link> = {
+    self: {
+      href: `/api/issues/${issueId}/timeline${
+        query.cursor === undefined ? `?limit=${limit}` : `?limit=${limit}&cursor=${query.cursor}`
+      }`,
+    },
+    issue: { href: `/api/issues/${issueId}` },
+  };
+  const first = entries[0];
+  const last = entries.at(-1);
+  if (first !== undefined && result.success.some((entry) => entry.position < first.position)) {
+    links.previous = {
+      href: `/api/issues/${issueId}/timeline?limit=${limit}&cursor=${encodeURIComponent(
+        encodeTimelineCursor(issueId, "before", first.position),
+      )}`,
+    };
+  }
+  if (last !== undefined && result.success.some((entry) => entry.position > last.position)) {
+    links.next = {
+      href: `/api/issues/${issueId}/timeline?limit=${limit}&cursor=${encodeURIComponent(
+        encodeTimelineCursor(issueId, "after", last.position),
+      )}`,
+    };
+  }
   return json(
     IssueTimelineCollection.make({
-      items: result.success.map((entry) =>
+      items: entries.map((entry) =>
         IssueTimelineEntryResponse.make({
           position: entry.position,
           event: {
@@ -387,17 +517,14 @@ const timelineResponse = Effect.fn("Gateway.readIssueTimeline")(function* (issue
             kind: entry.event.kind,
             source_issue_id: entry.event.sourceIssueId,
             target_issue_id:
-              entry.event.kind === "issue_created" ? null : entry.event.targetIssueId,
+              entry.event.kind === "internal_reference_added" ? entry.event.targetIssueId : null,
             actor: apiActor(entry.event.actor),
             agent_session: apiAgentSession(entry.event.agentSession),
             created_at: entry.event.createdAt,
           },
         }),
       ),
-      links: {
-        self: { href: `/api/issues/${issueId}/timeline` },
-        issue: { href: `/api/issues/${issueId}` },
-      },
+      links,
     }),
   );
 });
@@ -436,6 +563,12 @@ export const layer = HttpApiBuilder.group(OverseerApi, "issues", (handlers) =>
         headers["idempotency-key"],
       ),
     )
+    .handle("closeIssue", ({ params, headers }) =>
+      steerIssueStateResponse(params.issue_id, "closed", headers["idempotency-key"]),
+    )
+    .handle("reopenIssue", ({ params, headers }) =>
+      steerIssueStateResponse(params.issue_id, "open", headers["idempotency-key"]),
+    )
     .handle("readIssue", ({ params }) => readCanonicalIssueResponse(params.issue_id))
     .handle("headIssue", ({ params }) => readCanonicalIssueResponse(params.issue_id))
     .handle("readNumberedIssue", ({ params }) =>
@@ -445,6 +578,6 @@ export const layer = HttpApiBuilder.group(OverseerApi, "issues", (handlers) =>
       readNumberedIssueResponse(params.project_id, params.issue_number),
     )
     .handle("readIssueRevisions", ({ params }) => revisionsResponse(params.issue_id))
-    .handle("readIssueTimeline", ({ params }) => timelineResponse(params.issue_id))
+    .handle("readIssueTimeline", ({ params, query }) => timelineResponse(params.issue_id, query))
     .handle("readIssueReferences", ({ params }) => referencesResponse(params.issue_id)),
 );

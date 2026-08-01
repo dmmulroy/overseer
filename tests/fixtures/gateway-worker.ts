@@ -55,6 +55,8 @@ import {
   IssueRevisionsRpcResult,
   ListIssuesRpcInput,
   ListIssuesRpcResult,
+  SteerIssueStateRpcInput,
+  SteerIssueStateRpcResult,
   IssueTimelineRpcResult,
   ProjectClientService,
   ProjectRecordCorrupt,
@@ -127,6 +129,12 @@ const ReadIssueOwnerFailure = Schema.Union([
   WorkspaceRegistryStateUnavailable,
 ]);
 const CreateProjectIssueFailure = Schema.Union([
+  ProjectIdempotencyKeyReused,
+  ProjectRecordCorrupt,
+  ProjectStateUnavailable,
+]);
+const SteerProjectIssueFailure = Schema.Union([
+  IssueNotFound,
   ProjectIdempotencyKeyReused,
   ProjectRecordCorrupt,
   ProjectStateUnavailable,
@@ -351,6 +359,36 @@ function makeHandler(
             return Result.isSuccess(decoded)
               ? decoded.success
               : new ProjectRpcCallFailed({ operation: "createIssue", cause });
+          },
+        }),
+      ),
+      closeIssue: Effect.fn("TestProjectRpc.closeIssue")((projectId, input) =>
+        Effect.tryPromise({
+          try: () =>
+            projectNamespace
+              .getByName(projectId)
+              .closeIssue(Schema.encodeSync(SteerIssueStateRpcInput)(input))
+              .then(Schema.decodeUnknownSync(SteerIssueStateRpcResult)),
+          catch: (cause) => {
+            const decoded = Schema.decodeUnknownResult(SteerProjectIssueFailure)(cause);
+            return Result.isSuccess(decoded)
+              ? decoded.success
+              : new ProjectRpcCallFailed({ operation: "closeIssue", cause });
+          },
+        }),
+      ),
+      reopenIssue: Effect.fn("TestProjectRpc.reopenIssue")((projectId, input) =>
+        Effect.tryPromise({
+          try: () =>
+            projectNamespace
+              .getByName(projectId)
+              .reopenIssue(Schema.encodeSync(SteerIssueStateRpcInput)(input))
+              .then(Schema.decodeUnknownSync(SteerIssueStateRpcResult)),
+          catch: (cause) => {
+            const decoded = Schema.decodeUnknownResult(SteerProjectIssueFailure)(cause);
+            return Result.isSuccess(decoded)
+              ? decoded.success
+              : new ProjectRpcCallFailed({ operation: "reopenIssue", cause });
           },
         }),
       ),

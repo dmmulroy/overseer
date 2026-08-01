@@ -6,6 +6,10 @@ import * as Result from "effect/Result";
 import * as Schema from "effect/Schema";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
 import {
+  IssueSteeringStateService,
+  type InsertIssueStateChangeInput,
+} from "../../application/issues/issue-steering.ts";
+import {
   IssueCursorInvalid,
   IssueDiscoveryStateService,
   ProjectIdempotencyKeyReused,
@@ -16,12 +20,14 @@ import {
 } from "../../application/issues/issue-discovery.ts";
 import { Actor, AgentSession } from "../../domain/actor.ts";
 import { IssueId, LabelId, ProjectId, TimelineEventId } from "../../domain/entity-id.ts";
+import type { IdempotencyKey } from "../../domain/idempotency.ts";
 import {
   Assignee,
   Issue,
   IssueBody,
   IssueNumber,
   IssueRevision,
+  IssueStateChangedTimelineEvent,
   IssueTimestamp,
   IssueTitle,
   RevisionNumber,
@@ -44,6 +50,7 @@ import {
 
 const ActorJson = Schema.fromJsonString(Actor);
 const AgentSessionJson = Schema.fromJsonString(Schema.OptionFromNullOr(AgentSession));
+const IssueJson = Schema.fromJsonString(Issue);
 
 type IssueRow = {
   readonly id: unknown;
@@ -60,6 +67,7 @@ type IssueRow = {
 type NumberRow = { readonly value: unknown };
 
 type IdempotencyRow = { readonly result_type: unknown; readonly issue_id: unknown };
+type SteeringIdempotencyRow = IdempotencyRow & { readonly response_json: unknown };
 
 type RevisionRow = {
   readonly field: unknown;
@@ -89,7 +97,7 @@ const IssueRowSchema = Schema.Struct({
   issue_number: IssueNumber,
   title: IssueTitle,
   body: Schema.OptionFromNullOr(IssueBody),
-  state: Schema.Literal("open"),
+  state: Schema.Literals(["open", "closed"]),
   lifecycle: Schema.Literal("active"),
   created_at: IssueTimestamp,
   updated_at: IssueTimestamp,
@@ -134,6 +142,11 @@ const TimelineRowSchema = Schema.Union([
     ...timelineRowFields,
     kind: Schema.Literal("internal_reference_added"),
     target_issue_id: IssueId,
+  }),
+  Schema.Struct({
+    ...timelineRowFields,
+    kind: Schema.Literals(["issue_closed", "issue_reopened"]),
+    target_issue_id: Schema.Null,
   }),
 ]);
 
@@ -258,13 +271,17 @@ function issueListFilterSql(input: ListIssuesInput): {
 } {
   const clauses: Array<string> = [];
   const parameters: Array<unknown> = [];
-  if (input.state === "closed" || input.lifecycle === "deleted") clauses.push("0 = 1");
+  if (input.state !== "all") {
+    clauses.push("COALESCE(s.state, i.state) = ?");
+    parameters.push(input.state);
+  }
+  if (input.lifecycle === "deleted") clauses.push("0 = 1");
   if (Option.isSome(input.assignee) || input.assigneeStatus === "assigned") clauses.push("0 = 1");
   if (input.labelIds.length > 0) clauses.push("0 = 1");
   if (Option.isSome(input.parent) && input.parent.value !== "root") clauses.push("0 = 1");
   if (input.blockingStatus === "blocked") clauses.push("0 = 1");
   if (Option.isSome(input.number)) {
-    clauses.push("issue_number = ?");
+    clauses.push("i.issue_number = ?");
     parameters.push(input.number.value);
   }
   return { clauses, parameters };
@@ -308,8 +325,10 @@ function issueListSqlQuery(
   const queryDirection = issueListQueryDirection(input, reversePage);
   parameters.push(input.limit + 1);
   return {
-    statement: `SELECT id, project_id, issue_number, title, body, state, lifecycle, created_at, updated_at
-                FROM issues
+    statement: `SELECT i.id, i.project_id, i.issue_number, i.title, i.body,
+                       COALESCE(s.state, i.state) AS state, i.lifecycle, i.created_at, i.updated_at
+                FROM issues i
+                LEFT JOIN issue_states s ON s.issue_id = i.id
                 ${clauses.length === 0 ? "" : `WHERE ${clauses.join(" AND ")}`}
                 ORDER BY ${sort.column} ${queryDirection}, id ${queryDirection}
                 LIMIT ?`,
@@ -385,9 +404,11 @@ export const make = Effect.gen(function* () {
   const findIssue = Effect.fn("ProjectSqliteState.findIssue")(
     function* (issueId) {
       const rows = yield* sql<IssueRow>`
-        SELECT id, project_id, issue_number, title, body, state, lifecycle, created_at, updated_at
-        FROM issues
-        WHERE id = ${issueId}
+        SELECT i.id, i.project_id, i.issue_number, i.title, i.body,
+               COALESCE(s.state, i.state) AS state, i.lifecycle, i.created_at, i.updated_at
+        FROM issues i
+        LEFT JOIN issue_states s ON s.issue_id = i.id
+        WHERE i.id = ${issueId}
       `;
       const row = rows[0];
       return row === undefined ? Option.none() : Option.some(yield* issueFromRow(row));
@@ -397,9 +418,11 @@ export const make = Effect.gen(function* () {
   const findIssueByNumber = Effect.fn("ProjectSqliteState.findIssueByNumber")(
     function* (number) {
       const rows = yield* sql<IssueRow>`
-        SELECT id, project_id, issue_number, title, body, state, lifecycle, created_at, updated_at
-        FROM issues
-        WHERE issue_number = ${number}
+        SELECT i.id, i.project_id, i.issue_number, i.title, i.body,
+               COALESCE(s.state, i.state) AS state, i.lifecycle, i.created_at, i.updated_at
+        FROM issues i
+        LEFT JOIN issue_states s ON s.issue_id = i.id
+        WHERE i.issue_number = ${number}
       `;
       const row = rows[0];
       return row === undefined ? Option.none() : Option.some(yield* issueFromRow(row));
@@ -417,6 +440,10 @@ export const make = Effect.gen(function* () {
         const rows = yield* sql<IdempotencyRow>`
           SELECT result_type, issue_id
           FROM project_idempotency_keys
+          WHERE idempotency_key = ${key}
+          UNION ALL
+          SELECT 'issue_steering' AS result_type, issue_id
+          FROM project_steering_idempotency_keys
           WHERE idempotency_key = ${key}
         `;
         const row = rows[0];
@@ -594,13 +621,24 @@ export const make = Effect.gen(function* () {
     readIssueTimeline: Effect.fn("ProjectSqliteState.readIssueTimeline")(
       function* (issueId) {
         const rows = yield* sql<TimelineRow>`
-          SELECT
-            te.position, ev.id, ev.kind, ev.source_issue_id, ev.target_issue_id,
-            ev.actor_json, ev.agent_session_json, ev.created_at
-          FROM timeline_entries te
-          JOIN timeline_events ev ON ev.id = te.event_id
-          WHERE te.issue_id = ${issueId}
-          ORDER BY te.position
+          SELECT position, id, kind, source_issue_id, target_issue_id,
+                 actor_json, agent_session_json, created_at
+          FROM (
+            SELECT
+              te.position, ev.id, ev.kind, ev.source_issue_id, ev.target_issue_id,
+              ev.actor_json, ev.agent_session_json, ev.created_at
+            FROM timeline_entries te
+            JOIN timeline_events ev ON ev.id = te.event_id
+            WHERE te.issue_id = ${issueId}
+            UNION ALL
+            SELECT
+              te.position, ev.id, ev.kind, ev.source_issue_id, NULL AS target_issue_id,
+              ev.actor_json, ev.agent_session_json, ev.created_at
+            FROM issue_steering_timeline_entries te
+            JOIN issue_steering_events ev ON ev.id = te.event_id
+            WHERE te.issue_id = ${issueId}
+          )
+          ORDER BY position
         `;
         const entries: Array<IssueTimelineEntry> = [];
         for (const row of rows) {
@@ -615,11 +653,16 @@ export const make = Effect.gen(function* () {
           const event: IssueTimelineEvent =
             stored.kind === "issue_created"
               ? { ...eventAttribution, kind: "issue_created" }
-              : {
-                  ...eventAttribution,
-                  kind: "internal_reference_added",
-                  targetIssueId: stored.target_issue_id,
-                };
+              : stored.kind === "internal_reference_added"
+                ? {
+                    ...eventAttribution,
+                    kind: "internal_reference_added",
+                    targetIssueId: stored.target_issue_id,
+                  }
+                : IssueStateChangedTimelineEvent.make({
+                    ...eventAttribution,
+                    kind: stored.kind,
+                  });
           entries.push({ position: stored.position, event });
         }
         return entries;
@@ -659,5 +702,110 @@ export const make = Effect.gen(function* () {
   });
 });
 
-/** SQLite-backed Project Issue persistence layer. */
+/** Construct SQLite-backed Issue close and reopen persistence. */
+export const makeIssueSteeringState = Effect.gen(function* () {
+  const sql = yield* SqlClient.SqlClient;
+
+  const findIssue = Effect.fn("ProjectSqliteState.findSteeringIssue")(
+    function* (issueId) {
+      const rows = yield* sql<IssueRow>`
+        SELECT i.id, i.project_id, i.issue_number, i.title, i.body,
+               COALESCE(s.state, i.state) AS state, i.lifecycle, i.created_at, i.updated_at
+        FROM issues i
+        LEFT JOIN issue_states s ON s.issue_id = i.id
+        WHERE i.id = ${issueId}
+      `;
+      const row = rows[0];
+      return row === undefined ? Option.none() : Option.some(yield* issueFromRow(row));
+    },
+    Effect.catchTag("SqlError", unavailable("findSteeringIssue")),
+  );
+
+  const recordSteeringResult = Effect.fn("ProjectSqliteState.recordSteeringResult")(
+    (issue: IssueType, idempotencyKey: IdempotencyKey) =>
+      sql`
+        INSERT INTO project_steering_idempotency_keys (idempotency_key, issue_id, response_json)
+        VALUES (${idempotencyKey}, ${issue.id}, ${Schema.encodeSync(IssueJson)(issue)})
+      `.pipe(Effect.catchTag("SqlError", unavailable("recordSteeringResult")), Effect.asVoid),
+  );
+
+  return IssueSteeringStateService.of({
+    transaction: Effect.fn("ProjectSqliteState.steeringTransaction")(
+      <A, E, R>(effect: Effect.Effect<A, E, R>) =>
+        sql
+          .withTransaction(effect)
+          .pipe(Effect.catchTag("SqlError", unavailable("steeringTransaction"))),
+    ),
+    findRecordedIssueSteering: Effect.fn("ProjectSqliteState.findRecordedIssueSteering")(
+      function* (key) {
+        const creation = yield* sql<IdempotencyRow>`
+          SELECT result_type, issue_id FROM project_idempotency_keys WHERE idempotency_key = ${key}
+        `;
+        if (creation.length > 0) return yield* new ProjectIdempotencyKeyReused();
+        const rows = yield* sql<SteeringIdempotencyRow>`
+          SELECT 'issue_steering' AS result_type, issue_id, response_json
+          FROM project_steering_idempotency_keys
+          WHERE idempotency_key = ${key}
+        `;
+        const row = rows[0];
+        if (row === undefined) return Option.none();
+        return Option.some(
+          yield* parseStored(IssueJson, row.response_json, "steering_idempotency"),
+        );
+      },
+      Effect.catchTag("SqlError", unavailable("findRecordedIssueSteering")),
+    ),
+    findIssue,
+    allocateTimelinePosition: Effect.fn("ProjectSqliteState.allocateSteeringTimelinePosition")(
+      function* (issueId) {
+        const rows = yield* sql<NumberRow>`
+          UPDATE issues
+          SET next_timeline_position = next_timeline_position + 1
+          WHERE id = ${issueId}
+          RETURNING next_timeline_position - 1 AS value
+        `;
+        const row = rows[0];
+        if (row === undefined)
+          return yield* new ProjectStoredRecordCorrupt({
+            recordType: "timeline_counter",
+            cause: "Timeline owner is missing",
+          });
+        return yield* parseStored(TimelinePosition, row.value, "timeline_counter");
+      },
+      Effect.catchTag("SqlError", unavailable("allocateSteeringTimelinePosition")),
+    ),
+    insertIssueStateChange: Effect.fn("ProjectSqliteState.insertIssueStateChange")(
+      function* (input: InsertIssueStateChangeInput) {
+        yield* sql`
+          INSERT INTO issue_states (issue_id, state) VALUES (${input.issue.id}, ${input.issue.state})
+          ON CONFLICT (issue_id) DO UPDATE SET state = excluded.state
+        `;
+        yield* sql`UPDATE issues SET updated_at = ${input.issue.updatedAt} WHERE id = ${input.issue.id}`;
+        yield* sql`
+          INSERT INTO issue_steering_events (
+            id, kind, source_issue_id, actor_json, agent_session_json, created_at
+          ) VALUES (
+            ${input.event.id}, ${input.event.kind}, ${input.event.sourceIssueId},
+            ${Schema.encodeSync(ActorJson)(input.event.actor)},
+            ${Schema.encodeSync(AgentSessionJson)(input.event.agentSession)}, ${input.event.createdAt}
+          )
+        `;
+        yield* sql`
+          INSERT INTO issue_steering_timeline_entries (issue_id, position, event_id)
+          VALUES (${input.issue.id}, ${input.position}, ${input.event.id})
+        `;
+        yield* recordSteeringResult(input.issue, input.idempotencyKey);
+      },
+      Effect.catchTag("SqlError", unavailable("insertIssueStateChange")),
+    ),
+    insertIssueStateNoChange: Effect.fn("ProjectSqliteState.insertIssueStateNoChange")(
+      recordSteeringResult,
+    ),
+  });
+});
+
+/** SQLite-backed Project Issue discovery persistence layer. */
 export const layer = Layer.effect(IssueDiscoveryStateService, make);
+
+/** SQLite-backed Project Issue close and reopen persistence layer. */
+export const issueSteeringLayer = Layer.effect(IssueSteeringStateService, makeIssueSteeringState);

@@ -7,8 +7,15 @@ import * as Reactivity from "effect/unstable/reactivity/Reactivity";
 import * as Schema from "effect/Schema";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
 import { layer as migrationLayer } from "../adapters/project-sqlite/project-migrations.ts";
-import { layer as sqliteStateLayer } from "../adapters/project-sqlite/project-sqlite-state.ts";
+import {
+  issueSteeringLayer as sqliteSteeringStateLayer,
+  layer as sqliteStateLayer,
+} from "../adapters/project-sqlite/project-sqlite-state.ts";
 import { layer as ulidGeneratorLayer } from "../application/ulid-generator.ts";
+import {
+  IssueSteeringService,
+  layer as issueSteeringLayer,
+} from "../application/issues/issue-steering.ts";
 import {
   type IssueCursorInvalid,
   IssueDiscoveryService,
@@ -26,6 +33,8 @@ import {
   IssueRevisionsRpcResult,
   ListIssuesRpcInput,
   ListIssuesRpcResult,
+  SteerIssueStateRpcInput,
+  SteerIssueStateRpcResult,
   IssueTimelineRpcResult,
   ProjectRecordCorrupt,
   ProjectRpcCallFailed,
@@ -43,6 +52,13 @@ function exposeProjectPersistenceFailure<A>(
   operation: string,
   effect: Effect.Effect<A, IssueNotFound | ProjectPersistenceError>,
 ): Effect.Effect<A, IssueNotFound | ProjectRecordCorrupt | ProjectStateUnavailable>;
+function exposeProjectPersistenceFailure<A>(
+  operation: string,
+  effect: Effect.Effect<A, IssueNotFound | ProjectIdempotencyKeyReused | ProjectPersistenceError>,
+): Effect.Effect<
+  A,
+  IssueNotFound | ProjectIdempotencyKeyReused | ProjectRecordCorrupt | ProjectStateUnavailable
+>;
 function exposeProjectPersistenceFailure<A>(
   operation: string,
   effect: Effect.Effect<A, IssueCursorInvalid | ProjectPersistenceError>,
@@ -96,14 +112,20 @@ const ProjectObjectLive = ProjectObject.make<never>(
         Layer.provide([StateLive, ulidGeneratorLayer]),
         Layer.provide(BrowserCrypto.layer),
       );
-      const issues = yield* IssueDiscoveryService.pipe(
-        Effect.provide([DiscoveryLive, MigrationLive]),
+      const SteeringStateLive = sqliteSteeringStateLayer.pipe(Layer.provide(SqlLive));
+      const SteeringLive = issueSteeringLayer.pipe(
+        Layer.provide([SteeringStateLive, ulidGeneratorLayer]),
+        Layer.provide(BrowserCrypto.layer),
+      );
+      const services = yield* Effect.all([IssueDiscoveryService, IssueSteeringService]).pipe(
+        Effect.provide([DiscoveryLive, SteeringLive, MigrationLive]),
         Effect.catchTag("ProjectMigrationFailed", (error) =>
           Effect.logError(error.message).pipe(
             Effect.andThen(Effect.die(new Error("Project initialization failed"))),
           ),
         ),
       );
+      const [issues, steering] = services;
       return {
         createIssue: (input) =>
           Schema.decodeUnknownEffect(CreateIssueRpcInput)(input).pipe(
@@ -113,6 +135,26 @@ const ProjectObjectLive = ProjectObject.make<never>(
             ),
             Effect.flatMap((result) =>
               Schema.encodeEffect(CreateIssueRpcResult)(result).pipe(Effect.orDie),
+            ),
+          ),
+        closeIssue: (input) =>
+          Schema.decodeUnknownEffect(SteerIssueStateRpcInput)(input).pipe(
+            Effect.orDie,
+            Effect.flatMap((decoded) =>
+              exposeProjectPersistenceFailure("closeIssue", steering.closeIssue(decoded)),
+            ),
+            Effect.flatMap((result) =>
+              Schema.encodeEffect(SteerIssueStateRpcResult)(result).pipe(Effect.orDie),
+            ),
+          ),
+        reopenIssue: (input) =>
+          Schema.decodeUnknownEffect(SteerIssueStateRpcInput)(input).pipe(
+            Effect.orDie,
+            Effect.flatMap((decoded) =>
+              exposeProjectPersistenceFailure("reopenIssue", steering.reopenIssue(decoded)),
+            ),
+            Effect.flatMap((result) =>
+              Schema.encodeEffect(SteerIssueStateRpcResult)(result).pipe(Effect.orDie),
             ),
           ),
         listIssues: (input) =>

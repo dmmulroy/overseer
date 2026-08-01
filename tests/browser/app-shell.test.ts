@@ -28,6 +28,7 @@ let page: Page;
 let gatewayUrl: URL;
 let gatewayOrigin: string;
 let assertion: string;
+let agentAssertion: string;
 let consoleErrors: Array<string>;
 let pageErrors: Array<string>;
 
@@ -113,6 +114,14 @@ beforeAll(async () => {
     .setAudience(audience)
     .setIssuer(issuer)
     .setSubject("browser-human")
+    .setIssuedAt()
+    .setExpirationTime("5 minutes")
+    .sign(keyPair.privateKey);
+  agentAssertion = await new SignJWT({ common_name: "browser-agent.access", type: "app" })
+    .setProtectedHeader({ alg: "RS256", kid: "browser", typ: "JWT" })
+    .setAudience(audience)
+    .setIssuer(issuer)
+    .setSubject("")
     .setIssuedAt()
     .setExpirationTime("5 minutes")
     .sign(keyPair.privateKey);
@@ -520,6 +529,102 @@ describe("authenticated application shell", () => {
     expect(await page.getByText("Issue #1").isVisible()).toBe(true);
     await expectNoAccessibilityViolations(page);
     expect(consoleErrors).toEqual([]);
+  });
+
+  it("steers a focused Issue optimistically, rolls back failure, and presents Timeline context responsively", async () => {
+    const workspaceId = await seedWorkspace("Issue steering", "browser-steer-workspace");
+    const projectId = await seedProject(
+      workspaceId,
+      "Issue steering Project",
+      "browser-steer-project",
+    );
+    const issue = await seedIssue(projectId, "Steer from browser", "browser-steer-issue");
+    await page.goto(
+      new URL(`/issues/${issue.id}?workspace_id=${workspaceId}&project_id=${projectId}`, gatewayUrl)
+        .href,
+    );
+    await page.getByRole("heading", { name: "Steer from browser" }).waitFor();
+    await page.getByRole("heading", { name: "Timeline" }).waitFor();
+
+    let releaseClose: (() => void) | undefined;
+    const closeReleased = new Promise<void>((resolve) => {
+      releaseClose = resolve;
+    });
+    const closePattern = `**/api/issues/${issue.id}/close`;
+    await page.route(closePattern, async (route) => {
+      await closeReleased;
+      await route.continue();
+    });
+    await page.getByRole("button", { name: "Close Issue" }).click();
+    expect(await page.getByText("closed", { exact: true }).isVisible()).toBe(true);
+    expect(await page.getByRole("button", { name: "Closing…" }).isDisabled()).toBe(true);
+    releaseClose?.();
+    await page.getByRole("button", { name: "Reopen Issue" }).waitFor();
+    await page.getByText("issue closed").waitFor();
+    await page.unroute(closePattern);
+
+    const reopenPattern = `**/api/issues/${issue.id}/reopen`;
+    await page.route(reopenPattern, (route) =>
+      route.fulfill({
+        body: JSON.stringify({
+          type: "https://overseer.test/problems/service_unavailable",
+          title: "Service unavailable",
+          status: 503,
+          detail: "Retry the Issue action.",
+          code: "service_unavailable",
+          request_id: "request_01J00000000000000000000000",
+          retryable: true,
+        }),
+        contentType: "application/problem+json",
+        status: 503,
+      }),
+    );
+    await page.getByRole("button", { name: "Reopen Issue" }).click();
+    await page.getByRole("alert").waitFor();
+    expect(await page.getByText("closed", { exact: true }).isVisible()).toBe(true);
+    expect(await page.getByRole("button", { name: "Reopen Issue" }).isVisible()).toBe(true);
+    await page.unroute(reopenPattern);
+
+    await page.getByRole("button", { name: "Reopen Issue" }).click();
+    await page.getByRole("button", { name: "Close Issue" }).waitFor();
+    expect(await page.getByText("open", { exact: true }).isVisible()).toBe(true);
+
+    let pollingValidator: string | undefined;
+    const issuePath = `**/api/issues/${issue.id}`;
+    await page.route(issuePath, (route) => {
+      pollingValidator = route.request().headers()["if-none-match"];
+      return route.continue();
+    });
+    const externalClose = await gateway.dispatchFetch(
+      `http://localhost/api/issues/${issue.id}/close`,
+      {
+        method: "POST",
+        headers: {
+          "cf-access-jwt-assertion": agentAssertion,
+          "content-type": "application/json",
+          "idempotency-key": "browser-agent-external-close",
+          "overseer-session-id": "browser-polling-session",
+        },
+        body: "{}",
+      },
+    );
+    expect(externalClose.status).toBe(200);
+    await page.getByText("closed", { exact: true }).waitFor({ timeout: 18_000 });
+    expect(pollingValidator).toMatch(/^"[A-Za-z0-9_-]+"$/);
+    await page.unroute(issuePath);
+
+    await page.setViewportSize({ width: 390, height: 844 });
+    const brief = await page.locator(".issue-focused article").boundingBox();
+    const steering = await page
+      .getByRole("complementary", { name: "Issue steering" })
+      .boundingBox();
+    expect(brief).not.toBeNull();
+    expect(steering).not.toBeNull();
+    expect(steering?.y ?? 0).toBeGreaterThan(brief?.y ?? 0);
+    expect(
+      await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth),
+    ).toBe(true);
+    await expectNoAccessibilityViolations(page);
   });
 
   it("redirects a moved Project to its current Workspace on desktop and mobile", async () => {

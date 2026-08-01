@@ -61,6 +61,26 @@ export const IssueCursor = Schema.String.pipe(Schema.brand("IssueCursor"));
 /** Opaque keyset cursor bound to one exact filtered and ordered Issue page. */
 export type IssueCursor = typeof IssueCursor.Type;
 
+/** Maximum number of entries returned by one Issue Timeline page. */
+export const TimelinePageLimit = Schema.Number.check(
+  Schema.isInt(),
+  Schema.isBetween({ minimum: 1, maximum: 100 }),
+).pipe(Schema.brand("TimelinePageLimit"));
+
+/** Maximum number of entries returned by one Issue Timeline page. */
+export type TimelinePageLimit = typeof TimelinePageLimit.Type;
+
+/** Parse a decimal query value into a branded Timeline page limit. */
+export const TimelinePageLimitFromString = Schema.NumberFromString.pipe(
+  Schema.decodeTo(TimelinePageLimit, SchemaTransformation.passthrough()),
+);
+
+/** Opaque cursor bound to one Issue Timeline's ascending order. */
+export const TimelineCursor = Schema.String.pipe(Schema.brand("TimelineCursor"));
+
+/** Opaque cursor bound to one Issue Timeline's ascending order. */
+export type TimelineCursor = typeof TimelineCursor.Type;
+
 /** Project Issue state filter. */
 export const IssueStateFilter = Schema.Literals(["open", "closed", "all"]);
 

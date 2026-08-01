@@ -26,6 +26,8 @@ import {
   IssueSort,
   IssueSortDirection,
   IssueStateFilter,
+  TimelineCursor,
+  TimelinePageLimitFromString,
   ProjectCursor,
   ProjectPageLimitFromString,
   WorkspaceCursor,
@@ -45,6 +47,7 @@ import { ProjectName, ProjectTimestamp } from "../domain/project.ts";
 import { WorkspaceName, WorkspaceTimestamp } from "../domain/workspace.ts";
 import {
   CreateIssueRequest,
+  IssueStateActionRequest,
   MoveProjectRequest,
   ProjectNameRequest,
   WorkspaceNameRequest,
@@ -216,6 +219,7 @@ const projectMoveProblems = errorsAtStatuses([400, 403, 404, 409, 413, 415, 422,
 const issueCreateProblems = errorsAtStatuses([400, 403, 404, 409, 413, 415, 422, 500, 503]);
 const issueListProblems = errorsAtStatuses([400, 404, 406, 500, 503]);
 const issueReadProblems = errorsAtStatuses([400, 404, 406, 500, 503]);
+const issueActionProblems = errorsAtStatuses([400, 403, 404, 409, 413, 415, 422, 500, 503]);
 const cacheValidationHeaders = {
   accept: Schema.optionalKey(Schema.String),
   "if-none-match": Schema.optionalKey(Schema.String),
@@ -230,6 +234,7 @@ const JsonSchemaDocument = Schema.Unknown.pipe(
 
 export {
   CreateIssueRequest,
+  IssueStateActionRequest,
   MoveProjectRequest,
   ProjectNameRequest,
   WorkspaceNameRequest,
@@ -298,7 +303,7 @@ export const IssueResponse = Schema.Struct({
   number: IssueNumber,
   title: IssueTitle,
   body: Schema.NullOr(IssueBody),
-  state: Schema.Literal("open"),
+  state: Schema.Literals(["open", "closed"]),
   lifecycle: Schema.Literal("active"),
   created_at: IssueTimestamp,
   updated_at: IssueTimestamp,
@@ -375,7 +380,12 @@ export const IssueTimelineEntryResponse = Schema.Struct({
   position: TimelinePosition,
   event: Schema.Struct({
     id: TimelineEventId,
-    kind: Schema.Literals(["issue_created", "internal_reference_added"]),
+    kind: Schema.Literals([
+      "issue_created",
+      "internal_reference_added",
+      "issue_closed",
+      "issue_reopened",
+    ]),
     source_issue_id: IssueId,
     target_issue_id: Schema.NullOr(IssueId),
     actor: ApiActor,
@@ -680,6 +690,20 @@ const createIssue = HttpApiEndpoint.post("createIssue", "/api/projects/:project_
   success: issueCreated,
   error: issueCreateProblems,
 });
+const closeIssue = HttpApiEndpoint.post("closeIssue", "/api/issues/:issue_id/close", {
+  params: issuePath,
+  headers: idempotentMutationHeaders,
+  payload: IssueStateActionRequest,
+  success: IssueResponse,
+  error: issueActionProblems,
+});
+const reopenIssue = HttpApiEndpoint.post("reopenIssue", "/api/issues/:issue_id/reopen", {
+  params: issuePath,
+  headers: idempotentMutationHeaders,
+  payload: IssueStateActionRequest,
+  success: IssueResponse,
+  error: issueActionProblems,
+});
 const readIssue = HttpApiEndpoint.get("readIssue", "/api/issues/:issue_id", {
   params: issuePath,
   headers: cacheValidationHeaders,
@@ -722,11 +746,25 @@ const readIssueRevisions = HttpApiEndpoint.get(
     error: issueReadProblems,
   },
 );
+const timelineQuery = Schema.Struct({
+  cursor: Schema.optionalKey(TimelineCursor),
+  limit: Schema.optionalKey(TimelinePageLimitFromString),
+}).pipe(
+  Schema.flip,
+  Schema.check(
+    Schema.makeFilter(
+      (query) => Object.keys(query).every((key) => key === "cursor" || key === "limit"),
+      { expected: "an object containing only cursor and limit fields" },
+    ),
+  ),
+  Schema.flip,
+);
 const readIssueTimeline = HttpApiEndpoint.get(
   "readIssueTimeline",
   "/api/issues/:issue_id/timeline",
   {
     params: issuePath,
+    query: timelineQuery,
     headers: cacheValidationHeaders,
     success: [IssueTimelineCollection, NotModified],
     error: issueReadProblems,
@@ -780,6 +818,8 @@ export class IssueGroup extends HttpApiGroup.make("issues")
   .add(listIssues)
   .add(headIssues)
   .add(createIssue)
+  .add(closeIssue)
+  .add(reopenIssue)
   .add(readIssue)
   .add(headIssue)
   .add(readNumberedIssue)

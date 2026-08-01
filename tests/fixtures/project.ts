@@ -9,8 +9,15 @@ import * as ManagedRuntime from "effect/ManagedRuntime";
 import * as Result from "effect/Result";
 import * as Schema from "effect/Schema";
 import { layer as migrationLayer } from "../../src/adapters/project-sqlite/project-migrations.ts";
-import { layer as sqliteStateLayer } from "../../src/adapters/project-sqlite/project-sqlite-state.ts";
+import {
+  issueSteeringLayer as sqliteSteeringStateLayer,
+  layer as sqliteStateLayer,
+} from "../../src/adapters/project-sqlite/project-sqlite-state.ts";
 import { layer as ulidGeneratorLayer } from "../../src/application/ulid-generator.ts";
+import {
+  IssueSteeringService,
+  layer as issueSteeringLayer,
+} from "../../src/application/issues/issue-steering.ts";
 import {
   type IssueCursorInvalid,
   IssueDiscoveryService,
@@ -28,6 +35,8 @@ import {
   IssueRevisionsRpcResult,
   ListIssuesRpcInput,
   ListIssuesRpcResult,
+  SteerIssueStateRpcInput,
+  SteerIssueStateRpcResult,
   IssueTimelineRpcResult,
   ProjectRecordCorrupt,
   ProjectStateUnavailable,
@@ -41,6 +50,12 @@ function exposePersistence<A>(
 function exposePersistence<A>(
   effect: Effect.Effect<A, IssueNotFound | ProjectPersistenceError>,
 ): Effect.Effect<A, IssueNotFound | ProjectRecordCorrupt | ProjectStateUnavailable>;
+function exposePersistence<A>(
+  effect: Effect.Effect<A, IssueNotFound | ProjectIdempotencyKeyReused | ProjectPersistenceError>,
+): Effect.Effect<
+  A,
+  IssueNotFound | ProjectIdempotencyKeyReused | ProjectRecordCorrupt | ProjectStateUnavailable
+>;
 function exposePersistence<A>(
   effect: Effect.Effect<A, IssueCursorInvalid | ProjectPersistenceError>,
 ): Effect.Effect<A, IssueCursorInvalid | ProjectRecordCorrupt | ProjectStateUnavailable>;
@@ -62,7 +77,10 @@ function exposePersistence<A>(
 
 /** Representative SQLite Project Durable Object used by fast Gateway tests. */
 export class TestProject extends DurableObject<Readonly<Record<never, never>>> {
-  readonly #ready: Promise<IssueDiscoveryService["Service"]>;
+  readonly #ready: Promise<{
+    readonly issues: IssueDiscoveryService["Service"];
+    readonly steering: IssueSteeringService["Service"];
+  }>;
   readonly #run: <A, E>(effect: Effect.Effect<A, E>) => Promise<A>;
 
   constructor(ctx: DurableObjectState, env: Readonly<Record<never, never>>) {
@@ -74,60 +92,87 @@ export class TestProject extends DurableObject<Readonly<Record<never, never>>> {
       Layer.provide([StateLive, ulidGeneratorLayer]),
       Layer.provide(BrowserCrypto.layer),
     );
-    const runtime = ManagedRuntime.make(Layer.merge(DiscoveryLive, MigrationLive));
+    const SteeringStateLive = sqliteSteeringStateLayer.pipe(Layer.provide(SqlLive));
+    const SteeringLive = issueSteeringLayer.pipe(
+      Layer.provide([SteeringStateLive, ulidGeneratorLayer]),
+      Layer.provide(BrowserCrypto.layer),
+    );
+    const runtime = ManagedRuntime.make(Layer.mergeAll(DiscoveryLive, SteeringLive, MigrationLive));
     this.#run = (effect) =>
       runtime.runPromise(Effect.result(effect)).then((result) => {
         if (Result.isFailure(result)) throw result.failure;
         return result.success;
       });
-    this.#ready = ctx.blockConcurrencyWhile(() => runtime.runPromise(IssueDiscoveryService));
+    this.#ready = ctx.blockConcurrencyWhile(() =>
+      runtime.runPromise(
+        Effect.all({ issues: IssueDiscoveryService, steering: IssueSteeringService }),
+      ),
+    );
   }
 
   /** Create one Issue through the operation-specific seam. */
   async createIssue(
     input: typeof CreateIssueRpcInput.Encoded,
   ): Promise<typeof CreateIssueRpcResult.Encoded> {
-    const issues = await this.#ready;
+    const { issues } = await this.#ready;
     const decoded = Schema.decodeUnknownSync(CreateIssueRpcInput)(input);
     const result = await this.#run(exposePersistence(issues.createIssue(decoded)));
     return Schema.encodeSync(CreateIssueRpcResult)(result);
+  }
+  /** Close one Issue through its named target-state action. */
+  async closeIssue(
+    input: typeof SteerIssueStateRpcInput.Encoded,
+  ): Promise<typeof SteerIssueStateRpcResult.Encoded> {
+    const { steering } = await this.#ready;
+    const decoded = Schema.decodeUnknownSync(SteerIssueStateRpcInput)(input);
+    const result = await this.#run(exposePersistence(steering.closeIssue(decoded)));
+    return Schema.encodeSync(SteerIssueStateRpcResult)(result);
+  }
+  /** Reopen one Issue through its named target-state action. */
+  async reopenIssue(
+    input: typeof SteerIssueStateRpcInput.Encoded,
+  ): Promise<typeof SteerIssueStateRpcResult.Encoded> {
+    const { steering } = await this.#ready;
+    const decoded = Schema.decodeUnknownSync(SteerIssueStateRpcInput)(input);
+    const result = await this.#run(exposePersistence(steering.reopenIssue(decoded)));
+    return Schema.encodeSync(SteerIssueStateRpcResult)(result);
   }
   /** List one exact filtered and ordered Project Issue page. */
   async listIssues(
     input: typeof ListIssuesRpcInput.Encoded,
   ): Promise<typeof ListIssuesRpcResult.Encoded> {
-    const issues = await this.#ready;
+    const { issues } = await this.#ready;
     const decoded = Schema.decodeUnknownSync(ListIssuesRpcInput)(input);
     const page = await this.#run(exposePersistence(issues.listIssues(decoded)));
     return Schema.encodeSync(ListIssuesRpcResult)(page);
   }
   /** Read one Issue by canonical identity. */
   async readIssue(issueId: IssueId): Promise<typeof Issue.Encoded> {
-    const issues = await this.#ready;
+    const { issues } = await this.#ready;
     const issue = await this.#run(exposePersistence(issues.readIssue(issueId)));
     return Schema.encodeSync(Issue)(issue);
   }
   /** Read one Issue by its immutable Project-local number. */
   async readIssueByNumber(number: IssueNumber): Promise<typeof Issue.Encoded> {
-    const issues = await this.#ready;
+    const { issues } = await this.#ready;
     const issue = await this.#run(exposePersistence(issues.readIssueByNumber(number)));
     return Schema.encodeSync(Issue)(issue);
   }
   /** Read one Issue's immutable text Revisions. */
   async readIssueRevisions(issueId: IssueId): Promise<typeof IssueRevisionsRpcResult.Encoded> {
-    const issues = await this.#ready;
+    const { issues } = await this.#ready;
     const revisions = await this.#run(exposePersistence(issues.readIssueRevisions(issueId)));
     return Schema.encodeSync(IssueRevisionsRpcResult)(revisions);
   }
   /** Read one Issue's structured Timeline. */
   async readIssueTimeline(issueId: IssueId): Promise<typeof IssueTimelineRpcResult.Encoded> {
-    const issues = await this.#ready;
+    const { issues } = await this.#ready;
     const timeline = await this.#run(exposePersistence(issues.readIssueTimeline(issueId)));
     return Schema.encodeSync(IssueTimelineRpcResult)(timeline);
   }
   /** Read one Issue's current reciprocal references. */
   async readIssueReferences(issueId: IssueId): Promise<typeof IssueReferencesRpcResult.Encoded> {
-    const issues = await this.#ready;
+    const { issues } = await this.#ready;
     const references = await this.#run(exposePersistence(issues.readIssueReferences(issueId)));
     return Schema.encodeSync(IssueReferencesRpcResult)(references);
   }

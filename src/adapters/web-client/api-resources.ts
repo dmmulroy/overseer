@@ -11,6 +11,7 @@ import {
   DiscoveryDocument,
   DiscoveryPaths,
   IssueCollection,
+  IssueResponse,
   Link,
   OverseerApi,
   ProblemDocument,
@@ -816,6 +817,11 @@ function issueListExactUrl(projectId: ProjectId, query: BrowserIssueListQuery): 
 
 const retainedIssuePages = new Map<string, CacheEntry<IssueCollection>>();
 
+/** Mark every offscreen Project Issue page stale after a detail representation changes. */
+export function invalidateBrowserIssueListPages(): void {
+  retainedIssuePages.clear();
+}
+
 const readIssuePage = Effect.fn("Browser.readIssuePage")(function* (
   projectId: ProjectId,
   query: BrowserIssueListQuery,
@@ -892,10 +898,82 @@ export function makeIssueListQuery(
 /** Create-Issue command backed by the generated HTTP contract client. */
 export const createIssueMutation = OverseerHttpClient.mutation("issues", "createIssue");
 
-/** Canonical Issue query family with focused-route polling. */
+/** Close-Issue command backed by the generated HTTP contract client. */
+export const closeIssueMutation = OverseerHttpClient.mutation("issues", "closeIssue");
+
+/** Reopen-Issue command backed by the generated HTTP contract client. */
+export const reopenIssueMutation = OverseerHttpClient.mutation("issues", "reopenIssue");
+
+const retainedIssues = new Map<IssueId, CacheEntry<IssueResponse>>();
+
+const readCanonicalIssue = Effect.fn("Browser.readCanonicalIssue")(function* (
+  issueId: IssueId,
+): Effect.fn.Return<IssueResponse, BrowserResourceReadFailed, OverseerHttpClient> {
+  const client = yield* OverseerHttpClient;
+  const previous = retainedIssues.get(issueId);
+  const now = yield* Clock.currentTimeMillis;
+  const response = yield* client.issues
+    .readIssue({
+      params: { issue_id: issueId },
+      headers: previous === undefined ? {} : { "if-none-match": previous.etag },
+      responseMode: "response-only",
+    })
+    .pipe(
+      Effect.mapError((cause) =>
+        HttpClientError.isHttpClientError(cause)
+          ? transportFailure("issues", cause)
+          : readFailure({
+              operation: "issues",
+              reason: "status",
+              message: "Browser canonical Issue client returned a typed API failure",
+              retryable: cause.retryable,
+              cause,
+            }),
+      ),
+    );
+  if (response.status === 304) {
+    if (previous === undefined)
+      return yield* Effect.fail(
+        readFailure({
+          operation: "issues",
+          reason: "not-modified-without-cache",
+          message: "Browser canonical Issue received 304 without cached data",
+          retryable: false,
+          cause: response,
+        }),
+      );
+    retainedIssues.set(issueId, { ...previous, validatedAt: now });
+    return previous.data;
+  }
+  if (response.status !== 200) return yield* classifyStatus("issues", response, now);
+  const modified = yield* decodeModified({
+    operation: "issues",
+    response,
+    schema: IssueResponse,
+    now,
+  });
+  retainedIssues.set(issueId, modified);
+  return modified.data;
+});
+
+/** Canonical Issue query family with focused-route conditional polling. */
 export const issueQuery = Atom.family((issueId: IssueId) =>
-  OverseerHttpClient.query("issues", "readIssue", {
+  OverseerHttpClient.runtime.atom(readCanonicalIssue(issueId)).pipe(
+    Atom.swr({
+      staleTime: "5 seconds",
+      revalidateOnFocus: true,
+      focusSignal: Atom.windowFocusSignal,
+    }),
+    Atom.withRefresh("15 seconds"),
+    Atom.setIdleTTL("5 minutes"),
+  ),
+);
+
+/** Focused Issue Timeline query family with ordinary conditional polling. */
+export const issueTimelineQuery = Atom.family((issueId: IssueId) =>
+  OverseerHttpClient.query("issues", "readIssueTimeline", {
     params: { issue_id: issueId },
+    query: {},
     headers: {},
   }).pipe(
     Atom.swr({

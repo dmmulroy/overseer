@@ -3,6 +3,7 @@ import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import type { IssueId, ProjectId } from "../../domain/entity-id.ts";
 import type { Issue, IssueNumber, IssueRevision, IssueTimelineEntry } from "../../domain/issue.ts";
+import type { SteerIssueStateInput, SteerIssueStateResult } from "../issues/issue-steering.ts";
 import type {
   CreateIssueInput,
   CreateIssueResult,
@@ -47,6 +48,12 @@ export type ProjectOperations = {
   readonly createIssue: (
     input: CreateIssueInput,
   ) => Effect.Effect<CreateIssueResult, ProjectOperationError>;
+  readonly closeIssue: (
+    input: SteerIssueStateInput,
+  ) => Effect.Effect<SteerIssueStateResult, ProjectOperationError>;
+  readonly reopenIssue: (
+    input: SteerIssueStateInput,
+  ) => Effect.Effect<SteerIssueStateResult, ProjectOperationError>;
   readonly listIssues: (input: ListIssuesInput) => Effect.Effect<IssuePage, ProjectOperationError>;
   readonly readIssue: (issueId: IssueId) => Effect.Effect<Issue, ProjectOperationError>;
   readonly readIssueByNumber: (
@@ -84,6 +91,16 @@ export const make = Effect.gen(function* () {
       const created = yield* projects.createIssue(input);
       yield* registry.registerIssueOwner({ issueId: created.issue.id, projectId: input.projectId });
       return created;
+    }),
+    closeIssue: Effect.fn("ProjectOperations.closeIssue")(function* (input) {
+      const projectId = yield* owner(input.issueId);
+      yield* registry.readProject(projectId);
+      return yield* projects.closeIssue(projectId, input);
+    }),
+    reopenIssue: Effect.fn("ProjectOperations.reopenIssue")(function* (input) {
+      const projectId = yield* owner(input.issueId);
+      yield* registry.readProject(projectId);
+      return yield* projects.reopenIssue(projectId, input);
     }),
     listIssues: Effect.fn("ProjectOperations.listIssues")(function* (input) {
       yield* registry.readProject(input.projectId);

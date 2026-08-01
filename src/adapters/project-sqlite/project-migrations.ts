@@ -75,6 +75,35 @@ const migrations = SqliteMigrator.fromRecord({
     ] as const;
     for (const statement of statements) yield* sql.unsafe(statement);
   }),
+  "2_add_issue_close_reopen": Effect.gen(function* () {
+    const sql = yield* SqlClient.SqlClient;
+    const statements = [
+      `CREATE TABLE IF NOT EXISTS issue_states (
+        issue_id TEXT PRIMARY KEY NOT NULL REFERENCES issues(id),
+        state TEXT NOT NULL CHECK (state IN ('open', 'closed'))
+      )`,
+      `CREATE TABLE IF NOT EXISTS issue_steering_events (
+        id TEXT PRIMARY KEY NOT NULL,
+        kind TEXT NOT NULL CHECK (kind IN ('issue_closed', 'issue_reopened')),
+        source_issue_id TEXT NOT NULL REFERENCES issues(id),
+        actor_json TEXT NOT NULL,
+        agent_session_json TEXT NOT NULL,
+        created_at TEXT NOT NULL
+      )`,
+      `CREATE TABLE IF NOT EXISTS issue_steering_timeline_entries (
+        issue_id TEXT NOT NULL REFERENCES issues(id),
+        position INTEGER NOT NULL CHECK (position >= 1),
+        event_id TEXT NOT NULL REFERENCES issue_steering_events(id),
+        PRIMARY KEY (issue_id, position)
+      )`,
+      `CREATE TABLE IF NOT EXISTS project_steering_idempotency_keys (
+        idempotency_key TEXT PRIMARY KEY NOT NULL,
+        issue_id TEXT NOT NULL REFERENCES issues(id),
+        response_json TEXT NOT NULL
+      )`,
+    ] as const;
+    for (const statement of statements) yield* sql.unsafe(statement);
+  }),
 });
 
 /** Project migration layer for one SQLite Durable Object activation. */

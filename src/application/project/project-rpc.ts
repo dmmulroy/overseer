@@ -14,6 +14,7 @@ import {
   IssueTimelineEntry,
   IssueTitle,
 } from "../../domain/issue.ts";
+import type { SteerIssueStateInput, SteerIssueStateResult } from "../issues/issue-steering.ts";
 import {
   IssueCursorInvalid,
   IssueNotFound,
@@ -44,6 +45,26 @@ export const CreateIssueRpcInput = Schema.Struct({
 
 /** Plain input for idempotent Issue creation over private RPC. */
 export interface CreateIssueRpcInput extends Schema.Schema.Type<typeof CreateIssueRpcInput> {}
+
+/** Plain input for one idempotent Issue close or reopen action over private RPC. */
+export const SteerIssueStateRpcInput = Schema.Struct({
+  issueId: IssueId,
+  idempotencyKey: IdempotencyKey,
+  attribution: CommandAttribution,
+});
+
+/** Plain input for one idempotent Issue close or reopen action over private RPC. */
+export interface SteerIssueStateRpcInput extends Schema.Schema.Type<
+  typeof SteerIssueStateRpcInput
+> {}
+
+/** Plain close or reopen result returned over private RPC. */
+export const SteerIssueStateRpcResult = Schema.Struct({ issue: Issue, replayed: Schema.Boolean });
+
+/** Plain close or reopen result returned over private RPC. */
+export interface SteerIssueStateRpcResult extends Schema.Schema.Type<
+  typeof SteerIssueStateRpcResult
+> {}
 
 /** Plain normalized Project Issue page request over private RPC. */
 export const ListIssuesRpcInput = Schema.Struct({
@@ -106,6 +127,8 @@ export class ProjectRpcCallFailed extends Schema.TaggedErrorClass<ProjectRpcCall
   {
     operation: Schema.Literals([
       "createIssue",
+      "closeIssue",
+      "reopenIssue",
       "listIssues",
       "readIssue",
       "readIssueByNumber",
@@ -148,6 +171,18 @@ export type ProjectRpc = {
     typeof CreateIssueRpcResult.Encoded,
     ProjectIdempotencyKeyReused | ProjectRemotePersistenceError
   >;
+  readonly closeIssue: (
+    input: typeof SteerIssueStateRpcInput.Encoded,
+  ) => Effect.Effect<
+    typeof SteerIssueStateRpcResult.Encoded,
+    IssueNotFound | ProjectIdempotencyKeyReused | ProjectRemotePersistenceError
+  >;
+  readonly reopenIssue: (
+    input: typeof SteerIssueStateRpcInput.Encoded,
+  ) => Effect.Effect<
+    typeof SteerIssueStateRpcResult.Encoded,
+    IssueNotFound | ProjectIdempotencyKeyReused | ProjectRemotePersistenceError
+  >;
   readonly listIssues: (
     input: typeof ListIssuesRpcInput.Encoded,
   ) => Effect.Effect<
@@ -187,6 +222,26 @@ export type ProjectClient = {
   ) => Effect.Effect<
     CreateIssueRpcResult,
     ProjectIdempotencyKeyReused | ProjectRemotePersistenceError | ProjectRpcCallFailed
+  >;
+  readonly closeIssue: (
+    projectId: ProjectId,
+    input: SteerIssueStateInput,
+  ) => Effect.Effect<
+    SteerIssueStateResult,
+    | IssueNotFound
+    | ProjectIdempotencyKeyReused
+    | ProjectRemotePersistenceError
+    | ProjectRpcCallFailed
+  >;
+  readonly reopenIssue: (
+    projectId: ProjectId,
+    input: SteerIssueStateInput,
+  ) => Effect.Effect<
+    SteerIssueStateResult,
+    | IssueNotFound
+    | ProjectIdempotencyKeyReused
+    | ProjectRemotePersistenceError
+    | ProjectRpcCallFailed
   >;
   readonly listIssues: (
     input: ListIssuesInput,

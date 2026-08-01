@@ -96,20 +96,20 @@ export const IssueTimestamp = Schema.String.check(
 /** UTC RFC 3339 timestamp used by Issue persistence. */
 export type IssueTimestamp = typeof IssueTimestamp.Type;
 
-/** Live open Issue state returned by the first Issue discovery slice. */
+/** Live open or closed Issue returned by Project-local operations. */
 export const Issue = Schema.Struct({
   id: IssueId,
   projectId: ProjectId,
   number: IssueNumber,
   title: IssueTitle,
   body: Schema.OptionFromNullOr(IssueBody),
-  state: Schema.Literal("open"),
+  state: Schema.Literals(["open", "closed"]),
   lifecycle: Schema.Literal("active"),
   createdAt: IssueTimestamp,
   updatedAt: IssueTimestamp,
 });
 
-/** Live open Issue state returned by the first Issue discovery slice. */
+/** Live open or closed Issue returned by Project-local operations. */
 export interface Issue extends Schema.Schema.Type<typeof Issue> {}
 
 const issueRevisionFields = {
@@ -159,10 +159,20 @@ export const InternalReferenceAddedTimelineEvent = Schema.Struct({
 /** Internal-reference event projected into both affected Issue Timelines. */
 export type InternalReferenceAddedTimelineEvent = typeof InternalReferenceAddedTimelineEvent.Type;
 
+/** Issue state-change event projected into its owning Issue Timeline. */
+export const IssueStateChangedTimelineEvent = Schema.Struct({
+  ...issueTimelineEventFields,
+  kind: Schema.Literals(["issue_closed", "issue_reopened"]),
+});
+
+/** Issue state-change event projected into its owning Issue Timeline. */
+export type IssueStateChangedTimelineEvent = typeof IssueStateChangedTimelineEvent.Type;
+
 /** Structured event projected into one or more Issue Timelines. */
 export const IssueTimelineEvent = Schema.Union([
   IssueCreatedTimelineEvent,
   InternalReferenceAddedTimelineEvent,
+  IssueStateChangedTimelineEvent,
 ]);
 
 /** Structured event projected into one or more Issue Timelines. */

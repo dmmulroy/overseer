@@ -9,6 +9,8 @@ import {
   IssueRevisionsRpcResult,
   ListIssuesRpcInput,
   ListIssuesRpcResult,
+  SteerIssueStateRpcInput,
+  SteerIssueStateRpcResult,
   IssueTimelineRpcResult,
   ProjectClientService,
   ProjectRpcCallFailed,
@@ -64,6 +66,24 @@ export const make = Effect.gen(function* () {
           rpcCall(stub(input.projectId).createIssue(encoded), "createIssue"),
         ),
         Effect.flatMap((result) => decodeRpcResponse(CreateIssueRpcResult, result, "createIssue")),
+      ),
+    ),
+    closeIssue: Effect.fn("ProjectRpc.closeIssue")((projectId, input) =>
+      Schema.encodeEffect(SteerIssueStateRpcInput)(input).pipe(
+        Effect.orDie,
+        Effect.flatMap((encoded) => rpcCall(stub(projectId).closeIssue(encoded), "closeIssue")),
+        Effect.flatMap((result) =>
+          decodeRpcResponse(SteerIssueStateRpcResult, result, "closeIssue"),
+        ),
+      ),
+    ),
+    reopenIssue: Effect.fn("ProjectRpc.reopenIssue")((projectId, input) =>
+      Schema.encodeEffect(SteerIssueStateRpcInput)(input).pipe(
+        Effect.orDie,
+        Effect.flatMap((encoded) => rpcCall(stub(projectId).reopenIssue(encoded), "reopenIssue")),
+        Effect.flatMap((result) =>
+          decodeRpcResponse(SteerIssueStateRpcResult, result, "reopenIssue"),
+        ),
       ),
     ),
     listIssues: Effect.fn("ProjectRpc.listIssues")((input) =>

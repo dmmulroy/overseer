@@ -50,6 +50,22 @@ export const MoveProjectRequest = Schema.Struct({ workspace_id: WorkspaceId }).p
 /** Body accepted when moving a Project to another Workspace. */
 export interface MoveProjectRequest extends Schema.Schema.Type<typeof MoveProjectRequest> {}
 
+/** Empty body accepted by a named Issue target-state action. */
+export const IssueStateActionRequest = Schema.Struct({}).pipe(
+  Schema.flip,
+  Schema.check(
+    Schema.makeFilter((body) => Object.keys(body).length === 0, {
+      expected: "an empty object",
+    }),
+  ),
+  Schema.flip,
+);
+
+/** Empty body accepted by a named Issue target-state action. */
+export interface IssueStateActionRequest extends Schema.Schema.Type<
+  typeof IssueStateActionRequest
+> {}
+
 /** Body accepted when creating an Issue with optional Markdown. */
 export const CreateIssueRequest = Schema.Struct({
   title: IssueTitle,
@@ -100,6 +116,12 @@ const createIssueRequestSchema = Schema.toJsonSchemaDocument(
     body: CreateIssueRequest,
   }),
 ).schema;
+const issueStateActionRequestSchema = Schema.toJsonSchemaDocument(
+  Schema.Struct({
+    headers: Schema.Struct({ "idempotency-key": IdempotencyKey }),
+    body: IssueStateActionRequest,
+  }),
+).schema;
 const JsonString = Schema.fromJsonString(Schema.Json);
 
 function canonicalize(value: Schema.Json): Schema.Json {
@@ -138,6 +160,8 @@ const createProject = requestSchema("create_project", createProjectRequestSchema
 const renameProject = requestSchema("rename_project", renameProjectRequestSchema);
 const moveProject = requestSchema("move_project", moveProjectRequestSchema);
 const createIssue = requestSchema("create_issue", createIssueRequestSchema);
+const closeIssue = requestSchema("close_issue", issueStateActionRequestSchema);
+const reopenIssue = requestSchema("reopen_issue", issueStateActionRequestSchema);
 const requestSchemas = [
   createWorkspace,
   renameWorkspace,
@@ -145,6 +169,8 @@ const requestSchemas = [
   renameProject,
   moveProject,
   createIssue,
+  closeIssue,
+  reopenIssue,
 ] as const;
 
 /** Content-addressed request-schema paths derived from their schema documents. */
@@ -156,6 +182,8 @@ export const WorkspaceSchemaPaths = {
 /** Content-addressed Issue request-schema paths. */
 export const IssueSchemaPaths = {
   create: createIssue.path,
+  close: closeIssue.path,
+  reopen: reopenIssue.path,
 } as const;
 
 /** Content-addressed Project request-schema paths. */
