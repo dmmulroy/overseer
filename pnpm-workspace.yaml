@@ -1,0 +1,23 @@
+packages:
+  - "apps/*"
+  - "packages/*"
+
+allowBuilds:
+  fsevents: true
+  msgpackr-extract: true
+  workerd: true
+
+minimumReleaseAgeExclude:
+  - hono@4.12.34
+
+overrides:
+  "@hono/node-server": "2.0.12"
+  hono: "4.12.34"
+  lodash: "4.18.1"
+  valibot: "1.4.2"
+  vite: "npm:@voidzero-dev/vite-plus-core@0.2.7"
+
+peerDependencyRules:
+  allowedVersions:
+    "@distilled.cloud/cloudflare": "0.30.3"
+    vite: "0.2.7"

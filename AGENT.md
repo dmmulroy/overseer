@@ -1,5 +1,10 @@
 # Agent Instructions
 
+## Coding Standards
+
+Read [`docs/coding-standards.md`](docs/coding-standards.md) before writing any new code. Review
+finished code against those standards before declaring the work complete.
+
 <!-- agent-repos:start -->
 
 ## Vendored Repositories

@@ -9,21 +9,22 @@
   "type": "module",
   "scripts": {
     "check": "vp check && vp run -r test",
-    "ready": "vp run check"
+    "ready": "vp run check",
+    "test": "vp test run tools/oxlint"
   },
   "devDependencies": {
     "@effect/platform-node": "4.0.0-beta.102",
+    "@oxlint/plugins": "1.76.0",
     "alchemy": "2.0.0-beta.67",
     "effect": "4.0.0-beta.102",
+    "oxlint": "1.76.0",
+    "vite": "npm:@voidzero-dev/vite-plus-core@0.2.7",
     "vite-plus": "0.2.7"
-  },
-  "overrides": {
-    "vite": "npm:@voidzero-dev/vite-plus-core@0.2.7"
   },
   "devEngines": {
     "packageManager": {
-      "name": "npm",
-      "version": "12.0.2",
+      "name": "pnpm",
+      "version": "^11.0.0",
       "onFail": "download"
     }
   },
