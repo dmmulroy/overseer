@@ -1,25 +1,9 @@
 {
   "compilerOptions": {
-    "target": "ES2023",
-    "useDefineForClassFields": true,
-    "lib": ["ES2023", "DOM", "DOM.Iterable"],
-    "module": "ESNext",
-    "moduleResolution": "Bundler",
-    "paths": { "@/*": ["./src/*"] },
-    "allowImportingTsExtensions": true,
     "noEmit": true,
-    "verbatimModuleSyntax": true,
-    "resolveJsonModule": true,
-    "jsx": "react-jsx",
-    "strict": true,
-    "noUncheckedIndexedAccess": true,
-    "exactOptionalPropertyTypes": true,
-    "noImplicitOverride": true,
-    "noFallthroughCasesInSwitch": true,
-    "noUnusedLocals": true,
-    "noUnusedParameters": true,
-    "skipLibCheck": true,
-    "types": ["vite-plus/client", "node"]
-  },
-  "include": ["src", "tests", "tooling", "alchemy.run.ts", "vite.config.ts"]
+    "module": "nodenext",
+    "moduleResolution": "nodenext",
+    "allowImportingTsExtensions": true,
+    "esModuleInterop": true
+  }
 }

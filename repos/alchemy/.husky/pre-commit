@@ -1,2 +1,0 @@
-bun format
-git update-index --again
