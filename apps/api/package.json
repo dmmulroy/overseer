@@ -1,0 +1,24 @@
+{
+  "name": "@overseer/api",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "check": "vp check",
+    "deploy": "alchemy deploy --stage production",
+    "destroy:production": "alchemy destroy --stage production",
+    "dev": "alchemy dev --stage local",
+    "test": "vp test run"
+  },
+  "dependencies": {
+    "effect": "4.0.0-beta.102"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "5.20260801.1",
+    "@effect/platform-node": "4.0.0-beta.102",
+    "@effect/vitest": "4.0.0-beta.102",
+    "@types/node": "26.1.2",
+    "alchemy": "2.0.0-beta.67",
+    "typescript": "7.0.2"
+  }
+}

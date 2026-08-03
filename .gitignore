@@ -32,5 +32,5 @@ dist-ssr
 
 # AI agent worktrees
 .claude/worktrees/
-.agent-repos
-repos/
+/.agent-repos
+/repos/

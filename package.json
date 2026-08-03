@@ -8,7 +8,8 @@
   ],
   "type": "module",
   "scripts": {
-    "ready": "vp check"
+    "check": "vp check && vp run -r test",
+    "ready": "vp run check"
   },
   "devDependencies": {
     "@effect/platform-node": "4.0.0-beta.102",

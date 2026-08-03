@@ -29,3 +29,18 @@ vp run -t <app-package-name>#build
 ```
 
 Shared Vite Task caching is enabled in `vite.config.ts`.
+
+## API
+
+Run the API locally in workerd at `http://localhost:8787`:
+
+```bash
+vp run @overseer/api#dev
+```
+
+Deploy or destroy the only remote environment, `production`:
+
+```bash
+vp run @overseer/api#deploy
+vp run @overseer/api#destroy:production
+```
