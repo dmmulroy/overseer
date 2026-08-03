@@ -1,6 +1,7 @@
 # Agent Instructions
 
 <!-- agent-repos:start -->
+
 ## Vendored Repositories
 
 This project vendors external repositories under @repos/ for coding-agent reference.
@@ -11,6 +12,7 @@ This project vendors external repositories under @repos/ for coding-agent refere
 - Do not import from @repos/; application code should continue importing from normal package dependencies.
 
 Vendored repositories currently available:
+
 - @repos/alchemy/ — https://github.com/alchemy-run/alchemy.git (v2.0.0-beta.67)
 
 When working with a related library, inspect its vendored repository for idiomatic usage, tests, module structure, API design, examples, and docs. If the vendored repository contains agent-oriented guidance such as LLMS.md, AGENTS.md, or AGENT.md, read that guidance before making changes.
