@@ -59,7 +59,7 @@ export interface IBookkeeperDatabase {
     issue: BookkeeperIssue,
   ) => Effect.Effect<BookkeeperIssue, RegisterIssueError>;
   readonly deleteIssue: (id: IssueId) => Effect.Effect<BookkeeperIssue, DeleteIssueError>;
-  readonly getCounts: Effect.Effect<BookkeeperCounts, GetBookkeeperCountsError>;
+  readonly getCounts: () => Effect.Effect<BookkeeperCounts, GetBookkeeperCountsError>;
 }
 
 /** Provides parsed Bookkeeper persistence without exposing SQL or table records. */
@@ -187,7 +187,9 @@ export const makeBookkeeperDatabase: Effect.Effect<
 
   const sql = yield* SqlClient.SqlClient;
 
-  const findWorkspaceRow = Effect.fnUntraced(function* (id: WorkspaceId) {
+  const findWorkspaceRow = Effect.fn("BookkeeperDatabase.findWorkspaceRow")(function* (
+    id: WorkspaceId,
+  ) {
     const rows = yield* sql<Record<string, unknown>>`
       SELECT id, created_at, updated_at, deleted_at
       FROM workspaces
@@ -198,7 +200,7 @@ export const makeBookkeeperDatabase: Effect.Effect<
     return Option.fromNullishOr(parsed[0]);
   });
 
-  const findProjectRow = Effect.fnUntraced(function* (id: ProjectId) {
+  const findProjectRow = Effect.fn("BookkeeperDatabase.findProjectRow")(function* (id: ProjectId) {
     const rows = yield* sql<Record<string, unknown>>`
       SELECT id, workspace_id, created_at, updated_at, deleted_at
       FROM projects
@@ -209,7 +211,7 @@ export const makeBookkeeperDatabase: Effect.Effect<
     return Option.fromNullishOr(parsed[0]);
   });
 
-  const findIssueRow = Effect.fnUntraced(function* (id: IssueId) {
+  const findIssueRow = Effect.fn("BookkeeperDatabase.findIssueRow")(function* (id: IssueId) {
     const rows = yield* sql<Record<string, unknown>>`
       SELECT id, project_id, created_at, updated_at, deleted_at
       FROM issues
@@ -274,51 +276,45 @@ export const makeBookkeeperDatabase: Effect.Effect<
           : Option.none<PaginationCursor>();
       return { items: pageRows.map(workspaceFromStoredRow), nextCursor };
     },
-    (effect) =>
-      effect.pipe(
-        Effect.catchTags({
-          ListWorkspacesError: (error) => Effect.fail(error),
-          SchemaError: () =>
-            Effect.fail(
-              new ListWorkspacesError({
-                reason: "StoredDataInvalid",
-                message: "Bookkeeper failed to list Workspaces",
-              }),
-            ),
-          SqlError: () =>
-            Effect.fail(
-              new ListWorkspacesError({
-                reason: "PersistenceFailed",
-                message: "Bookkeeper failed to list Workspaces",
-              }),
-            ),
-        }),
-      ),
+    Effect.catchTags({
+      ListWorkspacesError: (error) => Effect.fail(error),
+      SchemaError: () =>
+        Effect.fail(
+          new ListWorkspacesError({
+            reason: "StoredDataInvalid",
+            message: "Bookkeeper failed to list Workspaces",
+          }),
+        ),
+      SqlError: () =>
+        Effect.fail(
+          new ListWorkspacesError({
+            reason: "PersistenceFailed",
+            message: "Bookkeeper failed to list Workspaces",
+          }),
+        ),
+    }),
   );
 
   const getWorkspace = Effect.fn("BookkeeperDatabase.getWorkspace")(
     function* (id: WorkspaceId) {
       return Option.map(yield* findWorkspaceRow(id), workspaceFromStoredRow);
     },
-    (effect) =>
-      effect.pipe(
-        Effect.catchTags({
-          SchemaError: () =>
-            Effect.fail(
-              new GetWorkspaceError({
-                reason: "StoredDataInvalid",
-                message: "Bookkeeper failed to get Workspace",
-              }),
-            ),
-          SqlError: () =>
-            Effect.fail(
-              new GetWorkspaceError({
-                reason: "PersistenceFailed",
-                message: "Bookkeeper failed to get Workspace",
-              }),
-            ),
-        }),
-      ),
+    Effect.catchTags({
+      SchemaError: () =>
+        Effect.fail(
+          new GetWorkspaceError({
+            reason: "StoredDataInvalid",
+            message: "Bookkeeper failed to get Workspace",
+          }),
+        ),
+      SqlError: () =>
+        Effect.fail(
+          new GetWorkspaceError({
+            reason: "PersistenceFailed",
+            message: "Bookkeeper failed to get Workspace",
+          }),
+        ),
+    }),
   );
 
   const registerWorkspace = Effect.fn("BookkeeperDatabase.registerWorkspace")(
@@ -375,26 +371,23 @@ export const makeBookkeeperDatabase: Effect.Effect<
         }),
       );
     },
-    (effect) =>
-      effect.pipe(
-        Effect.catchTags({
-          RegisterWorkspaceError: (error) => Effect.fail(error),
-          SchemaError: () =>
-            Effect.fail(
-              new RegisterWorkspaceError({
-                reason: "StoredDataInvalid",
-                message: "Bookkeeper failed to register Workspace",
-              }),
-            ),
-          SqlError: () =>
-            Effect.fail(
-              new RegisterWorkspaceError({
-                reason: "PersistenceFailed",
-                message: "Bookkeeper failed to register Workspace",
-              }),
-            ),
-        }),
-      ),
+    Effect.catchTags({
+      RegisterWorkspaceError: (error) => Effect.fail(error),
+      SchemaError: () =>
+        Effect.fail(
+          new RegisterWorkspaceError({
+            reason: "StoredDataInvalid",
+            message: "Bookkeeper failed to register Workspace",
+          }),
+        ),
+      SqlError: () =>
+        Effect.fail(
+          new RegisterWorkspaceError({
+            reason: "PersistenceFailed",
+            message: "Bookkeeper failed to register Workspace",
+          }),
+        ),
+    }),
   );
 
   const deleteWorkspace = Effect.fn("BookkeeperDatabase.deleteWorkspace")(
@@ -440,26 +433,23 @@ export const makeBookkeeperDatabase: Effect.Effect<
         }),
       );
     },
-    (effect) =>
-      effect.pipe(
-        Effect.catchTags({
-          DeleteWorkspaceError: (error) => Effect.fail(error),
-          SchemaError: () =>
-            Effect.fail(
-              new DeleteWorkspaceError({
-                reason: "StoredDataInvalid",
-                message: "Bookkeeper failed to delete Workspace",
-              }),
-            ),
-          SqlError: () =>
-            Effect.fail(
-              new DeleteWorkspaceError({
-                reason: "PersistenceFailed",
-                message: "Bookkeeper failed to delete Workspace",
-              }),
-            ),
-        }),
-      ),
+    Effect.catchTags({
+      DeleteWorkspaceError: (error) => Effect.fail(error),
+      SchemaError: () =>
+        Effect.fail(
+          new DeleteWorkspaceError({
+            reason: "StoredDataInvalid",
+            message: "Bookkeeper failed to delete Workspace",
+          }),
+        ),
+      SqlError: () =>
+        Effect.fail(
+          new DeleteWorkspaceError({
+            reason: "PersistenceFailed",
+            message: "Bookkeeper failed to delete Workspace",
+          }),
+        ),
+    }),
   );
 
   const listProjects = Effect.fn("BookkeeperDatabase.listProjects")(
@@ -517,51 +507,45 @@ export const makeBookkeeperDatabase: Effect.Effect<
           : Option.none<PaginationCursor>();
       return { items: pageRows.map(projectFromStoredRow), nextCursor };
     },
-    (effect) =>
-      effect.pipe(
-        Effect.catchTags({
-          ListProjectsError: (error) => Effect.fail(error),
-          SchemaError: () =>
-            Effect.fail(
-              new ListProjectsError({
-                reason: "StoredDataInvalid",
-                message: "Bookkeeper failed to list Projects",
-              }),
-            ),
-          SqlError: () =>
-            Effect.fail(
-              new ListProjectsError({
-                reason: "PersistenceFailed",
-                message: "Bookkeeper failed to list Projects",
-              }),
-            ),
-        }),
-      ),
+    Effect.catchTags({
+      ListProjectsError: (error) => Effect.fail(error),
+      SchemaError: () =>
+        Effect.fail(
+          new ListProjectsError({
+            reason: "StoredDataInvalid",
+            message: "Bookkeeper failed to list Projects",
+          }),
+        ),
+      SqlError: () =>
+        Effect.fail(
+          new ListProjectsError({
+            reason: "PersistenceFailed",
+            message: "Bookkeeper failed to list Projects",
+          }),
+        ),
+    }),
   );
 
   const getProject = Effect.fn("BookkeeperDatabase.getProject")(
     function* (id: ProjectId) {
       return Option.map(yield* findProjectRow(id), projectFromStoredRow);
     },
-    (effect) =>
-      effect.pipe(
-        Effect.catchTags({
-          SchemaError: () =>
-            Effect.fail(
-              new GetProjectError({
-                reason: "StoredDataInvalid",
-                message: "Bookkeeper failed to get Project",
-              }),
-            ),
-          SqlError: () =>
-            Effect.fail(
-              new GetProjectError({
-                reason: "PersistenceFailed",
-                message: "Bookkeeper failed to get Project",
-              }),
-            ),
-        }),
-      ),
+    Effect.catchTags({
+      SchemaError: () =>
+        Effect.fail(
+          new GetProjectError({
+            reason: "StoredDataInvalid",
+            message: "Bookkeeper failed to get Project",
+          }),
+        ),
+      SqlError: () =>
+        Effect.fail(
+          new GetProjectError({
+            reason: "PersistenceFailed",
+            message: "Bookkeeper failed to get Project",
+          }),
+        ),
+    }),
   );
 
   const registerProject = Effect.fn("BookkeeperDatabase.registerProject")(
@@ -638,26 +622,23 @@ export const makeBookkeeperDatabase: Effect.Effect<
         }),
       );
     },
-    (effect) =>
-      effect.pipe(
-        Effect.catchTags({
-          RegisterProjectError: (error) => Effect.fail(error),
-          SchemaError: () =>
-            Effect.fail(
-              new RegisterProjectError({
-                reason: "StoredDataInvalid",
-                message: "Bookkeeper failed to register Project",
-              }),
-            ),
-          SqlError: () =>
-            Effect.fail(
-              new RegisterProjectError({
-                reason: "PersistenceFailed",
-                message: "Bookkeeper failed to register Project",
-              }),
-            ),
-        }),
-      ),
+    Effect.catchTags({
+      RegisterProjectError: (error) => Effect.fail(error),
+      SchemaError: () =>
+        Effect.fail(
+          new RegisterProjectError({
+            reason: "StoredDataInvalid",
+            message: "Bookkeeper failed to register Project",
+          }),
+        ),
+      SqlError: () =>
+        Effect.fail(
+          new RegisterProjectError({
+            reason: "PersistenceFailed",
+            message: "Bookkeeper failed to register Project",
+          }),
+        ),
+    }),
   );
 
   const deleteProject = Effect.fn("BookkeeperDatabase.deleteProject")(
@@ -703,26 +684,23 @@ export const makeBookkeeperDatabase: Effect.Effect<
         }),
       );
     },
-    (effect) =>
-      effect.pipe(
-        Effect.catchTags({
-          DeleteProjectError: (error) => Effect.fail(error),
-          SchemaError: () =>
-            Effect.fail(
-              new DeleteProjectError({
-                reason: "StoredDataInvalid",
-                message: "Bookkeeper failed to delete Project",
-              }),
-            ),
-          SqlError: () =>
-            Effect.fail(
-              new DeleteProjectError({
-                reason: "PersistenceFailed",
-                message: "Bookkeeper failed to delete Project",
-              }),
-            ),
-        }),
-      ),
+    Effect.catchTags({
+      DeleteProjectError: (error) => Effect.fail(error),
+      SchemaError: () =>
+        Effect.fail(
+          new DeleteProjectError({
+            reason: "StoredDataInvalid",
+            message: "Bookkeeper failed to delete Project",
+          }),
+        ),
+      SqlError: () =>
+        Effect.fail(
+          new DeleteProjectError({
+            reason: "PersistenceFailed",
+            message: "Bookkeeper failed to delete Project",
+          }),
+        ),
+    }),
   );
 
   const listIssues = Effect.fn("BookkeeperDatabase.listIssues")(
@@ -780,51 +758,45 @@ export const makeBookkeeperDatabase: Effect.Effect<
           : Option.none<PaginationCursor>();
       return { items: pageRows.map(issueFromStoredRow), nextCursor };
     },
-    (effect) =>
-      effect.pipe(
-        Effect.catchTags({
-          ListIssuesError: (error) => Effect.fail(error),
-          SchemaError: () =>
-            Effect.fail(
-              new ListIssuesError({
-                reason: "StoredDataInvalid",
-                message: "Bookkeeper failed to list Issues",
-              }),
-            ),
-          SqlError: () =>
-            Effect.fail(
-              new ListIssuesError({
-                reason: "PersistenceFailed",
-                message: "Bookkeeper failed to list Issues",
-              }),
-            ),
-        }),
-      ),
+    Effect.catchTags({
+      ListIssuesError: (error) => Effect.fail(error),
+      SchemaError: () =>
+        Effect.fail(
+          new ListIssuesError({
+            reason: "StoredDataInvalid",
+            message: "Bookkeeper failed to list Issues",
+          }),
+        ),
+      SqlError: () =>
+        Effect.fail(
+          new ListIssuesError({
+            reason: "PersistenceFailed",
+            message: "Bookkeeper failed to list Issues",
+          }),
+        ),
+    }),
   );
 
   const getIssue = Effect.fn("BookkeeperDatabase.getIssue")(
     function* (id: IssueId) {
       return Option.map(yield* findIssueRow(id), issueFromStoredRow);
     },
-    (effect) =>
-      effect.pipe(
-        Effect.catchTags({
-          SchemaError: () =>
-            Effect.fail(
-              new GetIssueError({
-                reason: "StoredDataInvalid",
-                message: "Bookkeeper failed to get Issue",
-              }),
-            ),
-          SqlError: () =>
-            Effect.fail(
-              new GetIssueError({
-                reason: "PersistenceFailed",
-                message: "Bookkeeper failed to get Issue",
-              }),
-            ),
-        }),
-      ),
+    Effect.catchTags({
+      SchemaError: () =>
+        Effect.fail(
+          new GetIssueError({
+            reason: "StoredDataInvalid",
+            message: "Bookkeeper failed to get Issue",
+          }),
+        ),
+      SqlError: () =>
+        Effect.fail(
+          new GetIssueError({
+            reason: "PersistenceFailed",
+            message: "Bookkeeper failed to get Issue",
+          }),
+        ),
+    }),
   );
 
   const registerIssue = Effect.fn("BookkeeperDatabase.registerIssue")(
@@ -901,26 +873,23 @@ export const makeBookkeeperDatabase: Effect.Effect<
         }),
       );
     },
-    (effect) =>
-      effect.pipe(
-        Effect.catchTags({
-          RegisterIssueError: (error) => Effect.fail(error),
-          SchemaError: () =>
-            Effect.fail(
-              new RegisterIssueError({
-                reason: "StoredDataInvalid",
-                message: "Bookkeeper failed to register Issue",
-              }),
-            ),
-          SqlError: () =>
-            Effect.fail(
-              new RegisterIssueError({
-                reason: "PersistenceFailed",
-                message: "Bookkeeper failed to register Issue",
-              }),
-            ),
-        }),
-      ),
+    Effect.catchTags({
+      RegisterIssueError: (error) => Effect.fail(error),
+      SchemaError: () =>
+        Effect.fail(
+          new RegisterIssueError({
+            reason: "StoredDataInvalid",
+            message: "Bookkeeper failed to register Issue",
+          }),
+        ),
+      SqlError: () =>
+        Effect.fail(
+          new RegisterIssueError({
+            reason: "PersistenceFailed",
+            message: "Bookkeeper failed to register Issue",
+          }),
+        ),
+    }),
   );
 
   const deleteIssue = Effect.fn("BookkeeperDatabase.deleteIssue")(
@@ -955,26 +924,23 @@ export const makeBookkeeperDatabase: Effect.Effect<
         }),
       );
     },
-    (effect) =>
-      effect.pipe(
-        Effect.catchTags({
-          DeleteIssueError: (error) => Effect.fail(error),
-          SchemaError: () =>
-            Effect.fail(
-              new DeleteIssueError({
-                reason: "StoredDataInvalid",
-                message: "Bookkeeper failed to delete Issue",
-              }),
-            ),
-          SqlError: () =>
-            Effect.fail(
-              new DeleteIssueError({
-                reason: "PersistenceFailed",
-                message: "Bookkeeper failed to delete Issue",
-              }),
-            ),
-        }),
-      ),
+    Effect.catchTags({
+      DeleteIssueError: (error) => Effect.fail(error),
+      SchemaError: () =>
+        Effect.fail(
+          new DeleteIssueError({
+            reason: "StoredDataInvalid",
+            message: "Bookkeeper failed to delete Issue",
+          }),
+        ),
+      SqlError: () =>
+        Effect.fail(
+          new DeleteIssueError({
+            reason: "PersistenceFailed",
+            message: "Bookkeeper failed to delete Issue",
+          }),
+        ),
+    }),
   );
 
   const getCounts = Effect.fn("BookkeeperDatabase.getCounts")(
@@ -988,25 +954,22 @@ export const makeBookkeeperDatabase: Effect.Effect<
       const row = yield* parseStoredCountsRow(rows[0]);
       return row;
     },
-    (effect) =>
-      effect.pipe(
-        Effect.catchTags({
-          SchemaError: () =>
-            Effect.fail(
-              new GetBookkeeperCountsError({
-                reason: "StoredDataInvalid",
-                message: "Bookkeeper failed to count live entities",
-              }),
-            ),
-          SqlError: () =>
-            Effect.fail(
-              new GetBookkeeperCountsError({
-                reason: "PersistenceFailed",
-                message: "Bookkeeper failed to count live entities",
-              }),
-            ),
-        }),
-      ),
+    Effect.catchTags({
+      SchemaError: () =>
+        Effect.fail(
+          new GetBookkeeperCountsError({
+            reason: "StoredDataInvalid",
+            message: "Bookkeeper failed to count live entities",
+          }),
+        ),
+      SqlError: () =>
+        Effect.fail(
+          new GetBookkeeperCountsError({
+            reason: "PersistenceFailed",
+            message: "Bookkeeper failed to count live entities",
+          }),
+        ),
+    }),
   );
 
   return BookkeeperDatabase.of({
@@ -1022,7 +985,7 @@ export const makeBookkeeperDatabase: Effect.Effect<
     getIssue,
     registerIssue,
     deleteIssue,
-    getCounts: getCounts(),
+    getCounts,
   });
 });
 

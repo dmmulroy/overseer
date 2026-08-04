@@ -83,7 +83,7 @@ const bookkeeperDatabaseHttpTest = BookkeeperDatabase.of({
   getIssue: (id) => Effect.succeed(id === issueId ? Option.some(issue) : Option.none()),
   registerIssue: Effect.succeed,
   deleteIssue: () => Effect.succeed(deletedIssue),
-  getCounts: Effect.succeed({ workspaces: 1, projects: 1, issues: 1 }),
+  getCounts: () => Effect.succeed({ workspaces: 1, projects: 1, issues: 1 }),
 });
 
 const bookkeeperHttpPlatformTestLayer = Layer.succeed(HttpPlatform.HttpPlatform, {

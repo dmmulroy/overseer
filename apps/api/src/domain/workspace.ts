@@ -1,5 +1,5 @@
-import { Schema } from "effect";
-import { Ulid } from "./ulid.ts";
+import { Effect, Schema } from "effect";
+import { generateUlid, Ulid } from "./ulid.ts";
 
 /** Workspace identity composed of the `workspace_` prefix and a canonical ULID. */
 export const WorkspaceId = Schema.TemplateLiteral(["workspace_", Ulid]).pipe(
@@ -9,9 +9,11 @@ export const WorkspaceId = Schema.TemplateLiteral(["workspace_", Ulid]).pipe(
 /** A validated Workspace identity. */
 export type WorkspaceId = typeof WorkspaceId.Type;
 
-/** Construct a Workspace identity from an already validated canonical ULID. */
-export const workspaceIdFromUlid = (ulid: Ulid): WorkspaceId =>
-  WorkspaceId.make(`workspace_${ulid}`);
+/** Generate a Workspace identity from the active Effect clock and random services. */
+export const generateWorkspaceId: Effect.Effect<WorkspaceId> = generateUlid.pipe(
+  Effect.map((ulid) => WorkspaceId.make(`workspace_${ulid}`)),
+  Effect.withSpan("WorkspaceId.generate"),
+);
 
 /** Nonblank, single-line Workspace display name containing at most 200 characters. */
 export const WorkspaceName = Schema.String.check(

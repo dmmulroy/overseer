@@ -75,7 +75,7 @@ export interface IBookkeeperClient {
   /** Idempotently tombstone one Issue projection. */
   readonly deleteIssue: (id: IssueId) => Effect.Effect<BookkeeperIssue, DeleteIssueError>;
   /** Count all live indexed entities without enumerating their collections. */
-  readonly getCounts: Effect.Effect<BookkeeperCounts, GetBookkeeperCountsError>;
+  readonly getCounts: () => Effect.Effect<BookkeeperCounts, GetBookkeeperCountsError>;
 }
 
 /** Provides the application-owned Bookkeeper HTTP client capability. */
@@ -90,375 +90,321 @@ export const makeBookkeeperClient: Effect.Effect<
   Cloudflare.Worker
 > = Effect.gen(function* () {
   const namespace = yield* BookkeeperServer;
-  const makeHttpApiClient = Effect.fnUntraced(function* () {
-    return yield* HttpApiClient.makeWith(BookkeeperHttpApi, {
-      baseUrl: "http://bookkeeper.internal",
-      httpClient: Cloudflare.toHttpClient(namespace.getByName(BOOKKEEPER_ID)),
-    });
+  const client = yield* HttpApiClient.makeWith(BookkeeperHttpApi, {
+    baseUrl: "http://bookkeeper.internal",
+    httpClient: Cloudflare.toHttpClient(namespace.getByName(BOOKKEEPER_ID)),
   });
 
   const listWorkspaces = Effect.fn("BookkeeperClient.listWorkspaces")(
     function* (request: PaginationRequest) {
-      const client = yield* makeHttpApiClient();
       return yield* client.bookkeeper.listWorkspaces({ query: request });
     },
-    (effect) =>
-      effect.pipe(
-        Effect.catchTags({
-          ListWorkspacesError: (error) => Effect.fail(error),
-          SchemaError: () =>
-            Effect.fail(
-              new ListWorkspacesError({
-                reason: "StoredDataInvalid",
-                message: "Bookkeeper client failed to list Workspaces",
-              }),
-            ),
-          HttpClientError: () =>
-            Effect.fail(
-              new ListWorkspacesError({
-                reason: "PersistenceFailed",
-                message: "Bookkeeper client failed to list Workspaces",
-              }),
-            ),
-        }),
-      ),
+    Effect.catchTags({
+      ListWorkspacesError: (error) => Effect.fail(error),
+      SchemaError: () =>
+        Effect.fail(
+          new ListWorkspacesError({
+            reason: "StoredDataInvalid",
+            message: "Bookkeeper client failed to list Workspaces",
+          }),
+        ),
+      HttpClientError: () =>
+        Effect.fail(
+          new ListWorkspacesError({
+            reason: "PersistenceFailed",
+            message: "Bookkeeper client failed to list Workspaces",
+          }),
+        ),
+    }),
   );
 
   const getWorkspace = Effect.fn("BookkeeperClient.getWorkspace")(
     function* (id: WorkspaceId) {
-      const client = yield* makeHttpApiClient();
       return yield* client.bookkeeper.getWorkspace({ params: { workspaceId: id } });
     },
-    (effect) =>
-      effect.pipe(
-        Effect.catchTags({
-          GetWorkspaceError: (error) => Effect.fail(error),
-          SchemaError: () =>
-            Effect.fail(
-              new GetWorkspaceError({
-                reason: "StoredDataInvalid",
-                message: "Bookkeeper client failed to get Workspace",
-              }),
-            ),
-          HttpClientError: () =>
-            Effect.fail(
-              new GetWorkspaceError({
-                reason: "PersistenceFailed",
-                message: "Bookkeeper client failed to get Workspace",
-              }),
-            ),
-        }),
-      ),
+    Effect.catchTags({
+      GetWorkspaceError: (error) => Effect.fail(error),
+      SchemaError: () =>
+        Effect.fail(
+          new GetWorkspaceError({
+            reason: "StoredDataInvalid",
+            message: "Bookkeeper client failed to get Workspace",
+          }),
+        ),
+      HttpClientError: () =>
+        Effect.fail(
+          new GetWorkspaceError({
+            reason: "PersistenceFailed",
+            message: "Bookkeeper client failed to get Workspace",
+          }),
+        ),
+    }),
   );
 
   const registerWorkspace = Effect.fn("BookkeeperClient.registerWorkspace")(
     function* (workspace: BookkeeperWorkspace) {
-      const client = yield* makeHttpApiClient();
       return yield* client.bookkeeper.registerWorkspace({
         params: { workspaceId: workspace.id },
         payload: workspace,
       });
     },
-    (effect) =>
-      effect.pipe(
-        Effect.catchTags({
-          RegisterWorkspaceError: (error) => Effect.fail(error),
-          SchemaError: () =>
-            Effect.fail(
-              new RegisterWorkspaceError({
-                reason: "StoredDataInvalid",
-                message: "Bookkeeper client failed to register Workspace",
-              }),
-            ),
-          HttpClientError: () =>
-            Effect.fail(
-              new RegisterWorkspaceError({
-                reason: "PersistenceFailed",
-                message: "Bookkeeper client failed to register Workspace",
-              }),
-            ),
-        }),
-      ),
+    Effect.catchTags({
+      RegisterWorkspaceError: (error) => Effect.fail(error),
+      SchemaError: () =>
+        Effect.fail(
+          new RegisterWorkspaceError({
+            reason: "StoredDataInvalid",
+            message: "Bookkeeper client failed to register Workspace",
+          }),
+        ),
+      HttpClientError: () =>
+        Effect.fail(
+          new RegisterWorkspaceError({
+            reason: "PersistenceFailed",
+            message: "Bookkeeper client failed to register Workspace",
+          }),
+        ),
+    }),
   );
 
   const deleteWorkspace = Effect.fn("BookkeeperClient.deleteWorkspace")(
     function* (id: WorkspaceId) {
-      const client = yield* makeHttpApiClient();
       return yield* client.bookkeeper.deleteWorkspace({ params: { workspaceId: id } });
     },
-    (effect) =>
-      effect.pipe(
-        Effect.catchTags({
-          DeleteWorkspaceError: (error) => Effect.fail(error),
-          SchemaError: () =>
-            Effect.fail(
-              new DeleteWorkspaceError({
-                reason: "StoredDataInvalid",
-                message: "Bookkeeper client failed to delete Workspace",
-              }),
-            ),
-          HttpClientError: () =>
-            Effect.fail(
-              new DeleteWorkspaceError({
-                reason: "PersistenceFailed",
-                message: "Bookkeeper client failed to delete Workspace",
-              }),
-            ),
-        }),
-      ),
+    Effect.catchTags({
+      DeleteWorkspaceError: (error) => Effect.fail(error),
+      SchemaError: () =>
+        Effect.fail(
+          new DeleteWorkspaceError({
+            reason: "StoredDataInvalid",
+            message: "Bookkeeper client failed to delete Workspace",
+          }),
+        ),
+      HttpClientError: () =>
+        Effect.fail(
+          new DeleteWorkspaceError({
+            reason: "PersistenceFailed",
+            message: "Bookkeeper client failed to delete Workspace",
+          }),
+        ),
+    }),
   );
 
   const listProjects = Effect.fn("BookkeeperClient.listProjects")(
     function* (workspaceId: WorkspaceId, request: PaginationRequest) {
-      const client = yield* makeHttpApiClient();
       return yield* client.bookkeeper.listProjects({
         query: { workspaceId, cursor: request.cursor, limit: request.limit },
       });
     },
-    (effect) =>
-      effect.pipe(
-        Effect.catchTags({
-          ListProjectsError: (error) => Effect.fail(error),
-          SchemaError: () =>
-            Effect.fail(
-              new ListProjectsError({
-                reason: "StoredDataInvalid",
-                message: "Bookkeeper client failed to list Projects",
-              }),
-            ),
-          HttpClientError: () =>
-            Effect.fail(
-              new ListProjectsError({
-                reason: "PersistenceFailed",
-                message: "Bookkeeper client failed to list Projects",
-              }),
-            ),
-        }),
-      ),
+    Effect.catchTags({
+      ListProjectsError: (error) => Effect.fail(error),
+      SchemaError: () =>
+        Effect.fail(
+          new ListProjectsError({
+            reason: "StoredDataInvalid",
+            message: "Bookkeeper client failed to list Projects",
+          }),
+        ),
+      HttpClientError: () =>
+        Effect.fail(
+          new ListProjectsError({
+            reason: "PersistenceFailed",
+            message: "Bookkeeper client failed to list Projects",
+          }),
+        ),
+    }),
   );
 
   const getProject = Effect.fn("BookkeeperClient.getProject")(
     function* (id: ProjectId) {
-      const client = yield* makeHttpApiClient();
       return yield* client.bookkeeper.getProject({ params: { projectId: id } });
     },
-    (effect) =>
-      effect.pipe(
-        Effect.catchTags({
-          GetProjectError: (error) => Effect.fail(error),
-          SchemaError: () =>
-            Effect.fail(
-              new GetProjectError({
-                reason: "StoredDataInvalid",
-                message: "Bookkeeper client failed to get Project",
-              }),
-            ),
-          HttpClientError: () =>
-            Effect.fail(
-              new GetProjectError({
-                reason: "PersistenceFailed",
-                message: "Bookkeeper client failed to get Project",
-              }),
-            ),
-        }),
-      ),
+    Effect.catchTags({
+      GetProjectError: (error) => Effect.fail(error),
+      SchemaError: () =>
+        Effect.fail(
+          new GetProjectError({
+            reason: "StoredDataInvalid",
+            message: "Bookkeeper client failed to get Project",
+          }),
+        ),
+      HttpClientError: () =>
+        Effect.fail(
+          new GetProjectError({
+            reason: "PersistenceFailed",
+            message: "Bookkeeper client failed to get Project",
+          }),
+        ),
+    }),
   );
 
   const registerProject = Effect.fn("BookkeeperClient.registerProject")(
     function* (project: BookkeeperProject) {
-      const client = yield* makeHttpApiClient();
       return yield* client.bookkeeper.registerProject({
         params: { projectId: project.id },
         payload: project,
       });
     },
-    (effect) =>
-      effect.pipe(
-        Effect.catchTags({
-          RegisterProjectError: (error) => Effect.fail(error),
-          SchemaError: () =>
-            Effect.fail(
-              new RegisterProjectError({
-                reason: "StoredDataInvalid",
-                message: "Bookkeeper client failed to register Project",
-              }),
-            ),
-          HttpClientError: () =>
-            Effect.fail(
-              new RegisterProjectError({
-                reason: "PersistenceFailed",
-                message: "Bookkeeper client failed to register Project",
-              }),
-            ),
-        }),
-      ),
+    Effect.catchTags({
+      RegisterProjectError: (error) => Effect.fail(error),
+      SchemaError: () =>
+        Effect.fail(
+          new RegisterProjectError({
+            reason: "StoredDataInvalid",
+            message: "Bookkeeper client failed to register Project",
+          }),
+        ),
+      HttpClientError: () =>
+        Effect.fail(
+          new RegisterProjectError({
+            reason: "PersistenceFailed",
+            message: "Bookkeeper client failed to register Project",
+          }),
+        ),
+    }),
   );
 
   const deleteProject = Effect.fn("BookkeeperClient.deleteProject")(
     function* (id: ProjectId) {
-      const client = yield* makeHttpApiClient();
       return yield* client.bookkeeper.deleteProject({ params: { projectId: id } });
     },
-    (effect) =>
-      effect.pipe(
-        Effect.catchTags({
-          DeleteProjectError: (error) => Effect.fail(error),
-          SchemaError: () =>
-            Effect.fail(
-              new DeleteProjectError({
-                reason: "StoredDataInvalid",
-                message: "Bookkeeper client failed to delete Project",
-              }),
-            ),
-          HttpClientError: () =>
-            Effect.fail(
-              new DeleteProjectError({
-                reason: "PersistenceFailed",
-                message: "Bookkeeper client failed to delete Project",
-              }),
-            ),
-        }),
-      ),
+    Effect.catchTags({
+      DeleteProjectError: (error) => Effect.fail(error),
+      SchemaError: () =>
+        Effect.fail(
+          new DeleteProjectError({
+            reason: "StoredDataInvalid",
+            message: "Bookkeeper client failed to delete Project",
+          }),
+        ),
+      HttpClientError: () =>
+        Effect.fail(
+          new DeleteProjectError({
+            reason: "PersistenceFailed",
+            message: "Bookkeeper client failed to delete Project",
+          }),
+        ),
+    }),
   );
 
   const listIssues = Effect.fn("BookkeeperClient.listIssues")(
     function* (projectId: ProjectId, request: PaginationRequest) {
-      const client = yield* makeHttpApiClient();
       return yield* client.bookkeeper.listIssues({
         query: { projectId, cursor: request.cursor, limit: request.limit },
       });
     },
-    (effect) =>
-      effect.pipe(
-        Effect.catchTags({
-          ListIssuesError: (error) => Effect.fail(error),
-          SchemaError: () =>
-            Effect.fail(
-              new ListIssuesError({
-                reason: "StoredDataInvalid",
-                message: "Bookkeeper client failed to list Issues",
-              }),
-            ),
-          HttpClientError: () =>
-            Effect.fail(
-              new ListIssuesError({
-                reason: "PersistenceFailed",
-                message: "Bookkeeper client failed to list Issues",
-              }),
-            ),
-        }),
-      ),
+    Effect.catchTags({
+      ListIssuesError: (error) => Effect.fail(error),
+      SchemaError: () =>
+        Effect.fail(
+          new ListIssuesError({
+            reason: "StoredDataInvalid",
+            message: "Bookkeeper client failed to list Issues",
+          }),
+        ),
+      HttpClientError: () =>
+        Effect.fail(
+          new ListIssuesError({
+            reason: "PersistenceFailed",
+            message: "Bookkeeper client failed to list Issues",
+          }),
+        ),
+    }),
   );
 
   const getIssue = Effect.fn("BookkeeperClient.getIssue")(
     function* (id: IssueId) {
-      const client = yield* makeHttpApiClient();
       return yield* client.bookkeeper.getIssue({ params: { issueId: id } });
     },
-    (effect) =>
-      effect.pipe(
-        Effect.catchTags({
-          GetIssueError: (error) => Effect.fail(error),
-          SchemaError: () =>
-            Effect.fail(
-              new GetIssueError({
-                reason: "StoredDataInvalid",
-                message: "Bookkeeper client failed to get Issue",
-              }),
-            ),
-          HttpClientError: () =>
-            Effect.fail(
-              new GetIssueError({
-                reason: "PersistenceFailed",
-                message: "Bookkeeper client failed to get Issue",
-              }),
-            ),
-        }),
-      ),
+    Effect.catchTags({
+      GetIssueError: (error) => Effect.fail(error),
+      SchemaError: () =>
+        Effect.fail(
+          new GetIssueError({
+            reason: "StoredDataInvalid",
+            message: "Bookkeeper client failed to get Issue",
+          }),
+        ),
+      HttpClientError: () =>
+        Effect.fail(
+          new GetIssueError({
+            reason: "PersistenceFailed",
+            message: "Bookkeeper client failed to get Issue",
+          }),
+        ),
+    }),
   );
 
   const registerIssue = Effect.fn("BookkeeperClient.registerIssue")(
     function* (issue: BookkeeperIssue) {
-      const client = yield* makeHttpApiClient();
       return yield* client.bookkeeper.registerIssue({
         params: { issueId: issue.id },
         payload: issue,
       });
     },
-    (effect) =>
-      effect.pipe(
-        Effect.catchTags({
-          RegisterIssueError: (error) => Effect.fail(error),
-          SchemaError: () =>
-            Effect.fail(
-              new RegisterIssueError({
-                reason: "StoredDataInvalid",
-                message: "Bookkeeper client failed to register Issue",
-              }),
-            ),
-          HttpClientError: () =>
-            Effect.fail(
-              new RegisterIssueError({
-                reason: "PersistenceFailed",
-                message: "Bookkeeper client failed to register Issue",
-              }),
-            ),
-        }),
-      ),
+    Effect.catchTags({
+      RegisterIssueError: (error) => Effect.fail(error),
+      SchemaError: () =>
+        Effect.fail(
+          new RegisterIssueError({
+            reason: "StoredDataInvalid",
+            message: "Bookkeeper client failed to register Issue",
+          }),
+        ),
+      HttpClientError: () =>
+        Effect.fail(
+          new RegisterIssueError({
+            reason: "PersistenceFailed",
+            message: "Bookkeeper client failed to register Issue",
+          }),
+        ),
+    }),
   );
 
   const deleteIssue = Effect.fn("BookkeeperClient.deleteIssue")(
     function* (id: IssueId) {
-      const client = yield* makeHttpApiClient();
       return yield* client.bookkeeper.deleteIssue({ params: { issueId: id } });
     },
-    (effect) =>
-      effect.pipe(
-        Effect.catchTags({
-          DeleteIssueError: (error) => Effect.fail(error),
-          SchemaError: () =>
-            Effect.fail(
-              new DeleteIssueError({
-                reason: "StoredDataInvalid",
-                message: "Bookkeeper client failed to delete Issue",
-              }),
-            ),
-          HttpClientError: () =>
-            Effect.fail(
-              new DeleteIssueError({
-                reason: "PersistenceFailed",
-                message: "Bookkeeper client failed to delete Issue",
-              }),
-            ),
-        }),
-      ),
+    Effect.catchTags({
+      DeleteIssueError: (error) => Effect.fail(error),
+      SchemaError: () =>
+        Effect.fail(
+          new DeleteIssueError({
+            reason: "StoredDataInvalid",
+            message: "Bookkeeper client failed to delete Issue",
+          }),
+        ),
+      HttpClientError: () =>
+        Effect.fail(
+          new DeleteIssueError({
+            reason: "PersistenceFailed",
+            message: "Bookkeeper client failed to delete Issue",
+          }),
+        ),
+    }),
   );
 
   const getCounts = Effect.fn("BookkeeperClient.getCounts")(
     function* () {
-      const client = yield* makeHttpApiClient();
       return yield* client.bookkeeper.getCounts();
     },
-    (effect) =>
-      effect.pipe(
-        Effect.catchTags({
-          GetBookkeeperCountsError: (error) => Effect.fail(error),
-          SchemaError: () =>
-            Effect.fail(
-              new GetBookkeeperCountsError({
-                reason: "StoredDataInvalid",
-                message: "Bookkeeper client failed to count live entities",
-              }),
-            ),
-          HttpClientError: () =>
-            Effect.fail(
-              new GetBookkeeperCountsError({
-                reason: "PersistenceFailed",
-                message: "Bookkeeper client failed to count live entities",
-              }),
-            ),
-        }),
-      ),
+    Effect.catchTags({
+      GetBookkeeperCountsError: (error) => Effect.fail(error),
+      SchemaError: () =>
+        Effect.fail(
+          new GetBookkeeperCountsError({
+            reason: "StoredDataInvalid",
+            message: "Bookkeeper client failed to count live entities",
+          }),
+        ),
+      HttpClientError: () =>
+        Effect.fail(
+          new GetBookkeeperCountsError({
+            reason: "PersistenceFailed",
+            message: "Bookkeeper client failed to count live entities",
+          }),
+        ),
+    }),
   );
 
   return BookkeeperClient.of({
@@ -474,7 +420,7 @@ export const makeBookkeeperClient: Effect.Effect<
     getIssue,
     registerIssue,
     deleteIssue,
-    getCounts: getCounts(),
+    getCounts,
   });
 });
 

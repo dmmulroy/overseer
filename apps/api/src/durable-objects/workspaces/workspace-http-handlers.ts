@@ -16,7 +16,7 @@ export const workspaceHttpHandlersLayer = HttpApiBuilder.group(
         .handle("createWorkspace", ({ payload }) => database.createWorkspace(payload))
         .handle("getWorkspace", () =>
           Effect.gen(function* () {
-            const workspace = yield* database.getWorkspace;
+            const workspace = yield* database.getWorkspace();
             // Absence is ordinary for application clients, but this instance-scoped route requires initialization.
             return yield* Effect.fromOption(
               workspace,
@@ -25,7 +25,7 @@ export const workspaceHttpHandlersLayer = HttpApiBuilder.group(
           }),
         )
         .handle("renameWorkspace", ({ payload }) => database.renameWorkspace(payload.name))
-        .handle("archiveWorkspace", () => database.archiveWorkspace)
-        .handle("unarchiveWorkspace", () => database.unarchiveWorkspace);
+        .handle("archiveWorkspace", () => database.archiveWorkspace())
+        .handle("unarchiveWorkspace", () => database.unarchiveWorkspace());
     }),
 );

@@ -70,7 +70,7 @@ const workspaceDatabaseTestLayer = Layer.effect(
         yield* Ref.set(storedWorkspace, Option.some(workspace));
         return workspace;
       }),
-      getWorkspace: Ref.get(storedWorkspace),
+      getWorkspace: () => Ref.get(storedWorkspace),
       renameWorkspace: Effect.fn("WorkspaceDatabase.Test.renameWorkspace")(function* (name) {
         const current = yield* Ref.get(storedWorkspace);
         const renamed = yield* updateWorkspace({
@@ -82,28 +82,30 @@ const workspaceDatabaseTestLayer = Layer.effect(
           () => new RenameWorkspaceError({ reason: "workspace_not_found" }),
         );
       }),
-      archiveWorkspace: Effect.gen(function* () {
-        const current = yield* Ref.get(storedWorkspace);
-        const archived = yield* updateWorkspace({
-          name: Option.isSome(current) ? current.value.name : initialName,
-          state: "archived",
-        });
-        return yield* Effect.fromOption(
-          archived,
-          () => new ArchiveWorkspaceError({ reason: "workspace_not_found" }),
-        );
-      }),
-      unarchiveWorkspace: Effect.gen(function* () {
-        const current = yield* Ref.get(storedWorkspace);
-        const active = yield* updateWorkspace({
-          name: Option.isSome(current) ? current.value.name : initialName,
-          state: "active",
-        });
-        return yield* Effect.fromOption(
-          active,
-          () => new UnarchiveWorkspaceError({ reason: "workspace_not_found" }),
-        );
-      }),
+      archiveWorkspace: () =>
+        Effect.gen(function* () {
+          const current = yield* Ref.get(storedWorkspace);
+          const archived = yield* updateWorkspace({
+            name: Option.isSome(current) ? current.value.name : initialName,
+            state: "archived",
+          });
+          return yield* Effect.fromOption(
+            archived,
+            () => new ArchiveWorkspaceError({ reason: "workspace_not_found" }),
+          );
+        }),
+      unarchiveWorkspace: () =>
+        Effect.gen(function* () {
+          const current = yield* Ref.get(storedWorkspace);
+          const active = yield* updateWorkspace({
+            name: Option.isSome(current) ? current.value.name : initialName,
+            state: "active",
+          });
+          return yield* Effect.fromOption(
+            active,
+            () => new UnarchiveWorkspaceError({ reason: "workspace_not_found" }),
+          );
+        }),
     });
   }),
 );

@@ -107,6 +107,9 @@ class WorkspaceServer extends Cloudflare.DurableObject<WorkspaceServer>()(
 - Apply the same convention to `ProjectServer`/`IProjectClient` and `IssueServer`/`IIssueClient`.
 - Durable Object bindings, namespaces, and stubs remain implementation details of the client and
   server modules.
+- Client constructors yield their corresponding Alchemy Durable Object service directly and close
+  over its namespace. Do not introduce a hand-written namespace interface or pass a namespace into
+  the constructor or Layer.
 
 ### Durable Object Identity
 
@@ -178,6 +181,25 @@ an unhandled tag in the inferred error channel is intentional: a newly introduce
 produce a type error until its translation policy is chosen. `Effect.mapError` remains appropriate
 when the complete error channel intentionally has one meaning and no tag-specific policy is being
 lost.
+
+When an `Effect.fn` whole-function transform is already a pipeable combinator, pass it directly.
+Do not wrap it in `(effect) => effect.pipe(...)`:
+
+```ts
+const registerWorkspace = Effect.fn("BookkeeperClient.registerWorkspace")(
+  function* (workspace: BookkeeperWorkspace) {
+    return yield* client.registerWorkspace(workspace);
+  },
+  Effect.catchTags({
+    RegisterWorkspaceError: (error) => Effect.fail(error),
+    SchemaError: () => Effect.fail(new RegisterWorkspaceError({ reason: "StoredDataInvalid" })),
+    HttpClientError: () => Effect.fail(new RegisterWorkspaceError({ reason: "PersistenceFailed" })),
+  }),
+);
+```
+
+Use a callback transform only when composing multiple combinators or when the transform needs the
+original function arguments.
 
 ## Effect Service Modules
 
