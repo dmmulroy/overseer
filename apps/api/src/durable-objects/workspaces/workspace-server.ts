@@ -31,4 +31,4 @@ export class WorkspaceServer extends Cloudflare.DurableObject<WorkspaceServer>()
       return { fetch };
     }).pipe(Effect.orDie);
   }),
-) {}
+) { }
