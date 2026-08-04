@@ -572,6 +572,10 @@ Handlers yield `CurrentActor` directly. They do not perform the repeated `Cloudf
 
 Production uses the real Access verifier and Access policies. Local development uses a separate fixed local-human authentication Layer and does not provision or emulate Cloudflare Access. The local Layer is a composition-root substitution, not a claim that local workerd reproduces production Access admission.
 
+Production serves the future web application at `overseer.mulroy.ai` and the API at `api.overseer.mulroy.ai`. The API Worker custom domain and Cloudflare Access application always use the same hostname. Production disables the Worker's `workers.dev` URL.
+
+Remote non-production stages derive an isolated API hostname from the Alchemy stage. For example, stage `pr-42` uses `api-pr-42.overseer.mulroy.ai`, while Alchemy's default developer stage `dev_dmmulroy` uses the DNS-safe hostname `api-dev-dmmulroy.overseer.mulroy.ai`. This gives every cloud test stack its own Worker custom domain, DNS record, certificate, Access application, policies, and service token. Local workerd stages attach no custom domain and continue to use their localhost URL.
+
 ### Durable Object Identity
 
 **Decision:** Every Durable Object instance is keyed and accessed by its canonical domain ID.
@@ -774,6 +778,11 @@ When the detailed protocol is designed, explore Effect `Scope`, `Effect.acquireR
 `BookkeeperDatabase` follows the same composition pattern as `WorkspaceDatabase`: its Layer depends on the generic Effect `SqlClient`, and `BookkeeperServer` provides `SqliteClient.layer({ storage: state.raw.storage })` inside the Durable Object runtime composition.
 
 `makeBookkeeperDatabase` owns and runs its bundled `SqliteMigrator` loader before it returns the database service implementation. Migration definitions remain private to the database module. The database Layer cannot complete until all pending migrations finish, so the HTTP handler cannot become available against an old schema. Migration failures reject Durable Object construction and are never ignored or moved into operation error types. Migration execution never occurs during Alchemy's planning pass, is not launched through `state.waitUntil`, and is not deferred until an arbitrary request.
+
+
+# Testing
+
+
 
 # To-dos
 

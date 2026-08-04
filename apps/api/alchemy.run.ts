@@ -2,6 +2,7 @@ import * as Alchemy from "alchemy";
 import * as Cloudflare from "alchemy/Cloudflare";
 import { Config, ConfigProvider, Effect } from "effect";
 import ApiWorkerLive, { ApiWorker } from "./src/api-worker.ts";
+import { OverseerApiHostname } from "./src/overseer-api-hostname.ts";
 
 /** Service token provisioned for authenticated Agent requests. */
 export const OverseerApiAgentAccessToken = Cloudflare.Access.ServiceToken("OverseerApiAgent", {
@@ -9,7 +10,7 @@ export const OverseerApiAgentAccessToken = Cloudflare.Access.ServiceToken("Overs
 });
 
 const makeOverseerApiAccessApplication = Effect.gen(function* () {
-  const hostname = yield* Config.string("OVERSEER_HOSTNAME");
+  const hostname = yield* OverseerApiHostname;
   const ownerEmail = yield* Config.string("OVERSEER_OWNER_EMAIL");
   const agentToken = yield* OverseerApiAgentAccessToken;
 

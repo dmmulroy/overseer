@@ -8,6 +8,7 @@ export default defineConfig({
       { name: "overseer", specifier: "./tools/oxlint/overseer-option-plugin.ts" },
     ],
     rules: {
+      "overseer/no-conditional-empty-object-spread": "error",
       "overseer/no-shape-in-symbol-names": "error",
       "overseer/require-option-for-optional-values": "error",
       "vite-plus/prefer-vite-plus-imports": "error",

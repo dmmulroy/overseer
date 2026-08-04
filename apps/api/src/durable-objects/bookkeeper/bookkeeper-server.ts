@@ -6,7 +6,6 @@ import { HttpApiBuilder } from "effect/unstable/httpapi";
 import {
   BookkeeperDatabase,
   bookkeeperDatabaseLayerWithoutDependencies,
-  type IBookkeeperDatabase,
 } from "./bookkeeper-database.ts";
 import { durableObjectBaseHttpServerLayer } from "../durable-object-base-http-server-layer.ts";
 import {
@@ -16,54 +15,60 @@ import {
   RegisterWorkspaceError,
 } from "./bookkeeper-http-api.ts";
 
-/** Build Bookkeeper HTTP handlers around one already-initialized database capability. */
-export const makeBookkeeperHttpHandlersLayer = (database: IBookkeeperDatabase) =>
-  HttpApiBuilder.group(BookkeeperHttpApi, "bookkeeper", (handlers) =>
-    handlers
-      .handle("listWorkspaces", ({ query }) => database.listWorkspaces(query))
-      .handle("getWorkspace", ({ params }) => database.getWorkspace(params.workspaceId))
-      .handle("registerWorkspace", ({ params, payload }) => {
-        if (params.workspaceId !== payload.id) {
-          return Effect.fail(
-            new RegisterWorkspaceError({
-              reason: "IdentityMismatch",
-              message: "Bookkeeper Workspace path and payload identities must match",
-            }),
-          );
-        }
-        return database.registerWorkspace(payload);
-      })
-      .handle("deleteWorkspace", ({ params }) => database.deleteWorkspace(params.workspaceId))
-      .handle("listProjects", ({ query }) => database.listProjects(query.workspaceId, query))
-      .handle("getProject", ({ params }) => database.getProject(params.projectId))
-      .handle("registerProject", ({ params, payload }) => {
-        if (params.projectId !== payload.id) {
-          return Effect.fail(
-            new RegisterProjectError({
-              reason: "IdentityMismatch",
-              message: "Bookkeeper Project path and payload identities must match",
-            }),
-          );
-        }
-        return database.registerProject(payload);
-      })
-      .handle("deleteProject", ({ params }) => database.deleteProject(params.projectId))
-      .handle("listIssues", ({ query }) => database.listIssues(query.projectId, query))
-      .handle("getIssue", ({ params }) => database.getIssue(params.issueId))
-      .handle("registerIssue", ({ params, payload }) => {
-        if (params.issueId !== payload.id) {
-          return Effect.fail(
-            new RegisterIssueError({
-              reason: "IdentityMismatch",
-              message: "Bookkeeper Issue path and payload identities must match",
-            }),
-          );
-        }
-        return database.registerIssue(payload);
-      })
-      .handle("deleteIssue", ({ params }) => database.deleteIssue(params.issueId))
-      .handle("getCounts", () => database.getCounts()),
-  );
+/** Bookkeeper HTTP handlers that delegate parsed requests to Bookkeeper persistence. */
+export const bookkeeperHttpHandlersLayer = HttpApiBuilder.group(
+  BookkeeperHttpApi,
+  "bookkeeper",
+  (handlers) =>
+    Effect.gen(function* () {
+      const database = yield* BookkeeperDatabase;
+
+      return handlers
+        .handle("listWorkspaces", ({ query }) => database.listWorkspaces(query))
+        .handle("getWorkspace", ({ params }) => database.getWorkspace(params.workspaceId))
+        .handle("registerWorkspace", ({ params, payload }) => {
+          if (params.workspaceId !== payload.id) {
+            return Effect.fail(
+              new RegisterWorkspaceError({
+                reason: "IdentityMismatch",
+                message: "Bookkeeper Workspace path and payload identities must match",
+              }),
+            );
+          }
+          return database.registerWorkspace(payload);
+        })
+        .handle("deleteWorkspace", ({ params }) => database.deleteWorkspace(params.workspaceId))
+        .handle("listProjects", ({ query }) => database.listProjects(query.workspaceId, query))
+        .handle("getProject", ({ params }) => database.getProject(params.projectId))
+        .handle("registerProject", ({ params, payload }) => {
+          if (params.projectId !== payload.id) {
+            return Effect.fail(
+              new RegisterProjectError({
+                reason: "IdentityMismatch",
+                message: "Bookkeeper Project path and payload identities must match",
+              }),
+            );
+          }
+          return database.registerProject(payload);
+        })
+        .handle("deleteProject", ({ params }) => database.deleteProject(params.projectId))
+        .handle("listIssues", ({ query }) => database.listIssues(query.projectId, query))
+        .handle("getIssue", ({ params }) => database.getIssue(params.issueId))
+        .handle("registerIssue", ({ params, payload }) => {
+          if (params.issueId !== payload.id) {
+            return Effect.fail(
+              new RegisterIssueError({
+                reason: "IdentityMismatch",
+                message: "Bookkeeper Issue path and payload identities must match",
+              }),
+            );
+          }
+          return database.registerIssue(payload);
+        })
+        .handle("deleteIssue", ({ params }) => database.deleteIssue(params.issueId))
+        .handle("getCounts", () => database.getCounts());
+    }),
+);
 
 /** Singleton Durable Object HTTP server for Bookkeeper registration and directory operations. */
 export class BookkeeperServer extends Cloudflare.DurableObject<BookkeeperServer>()(
@@ -73,15 +78,17 @@ export class BookkeeperServer extends Cloudflare.DurableObject<BookkeeperServer>
     const bookkeeperDatabaseLayer = bookkeeperDatabaseLayerWithoutDependencies.pipe(
       Layer.provide(SqliteClient.layer({ storage: state.raw.storage })),
     );
+    const bookkeeperHandlersLayer = bookkeeperHttpHandlersLayer.pipe(
+      Layer.provide(bookkeeperDatabaseLayer),
+    );
 
     return Effect.gen(function* () {
-      const database = yield* BookkeeperDatabase;
       const httpLayer = HttpApiBuilder.layer(BookkeeperHttpApi).pipe(
-        Layer.provide(makeBookkeeperHttpHandlersLayer(database)),
+        Layer.provide(bookkeeperHandlersLayer),
         Layer.provide(durableObjectBaseHttpServerLayer),
       );
       const fetch = yield* HttpRouter.toHttpEffect(httpLayer);
       return { fetch };
-    }).pipe(Effect.provide(bookkeeperDatabaseLayer), Effect.orDie);
+    }).pipe(Effect.orDie);
   }),
 ) {}

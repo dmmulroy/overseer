@@ -6,16 +6,17 @@ import {
   AccessAuthenticationMiddleware,
   accessAuthenticationMiddlewareLayer,
 } from "./access-authentication-middleware.ts";
+import { OverseerApiHostname } from "./overseer-api-hostname.ts";
 
 const apiIdentityEndpoint = HttpApiEndpoint.get("getApiIdentity", "/", {
   success: Schema.String,
 }).middleware(AccessAuthenticationMiddleware);
 
 /** Public HTTP operations exposed by the Overseer API Worker. */
-export class ApiHttpGroup extends HttpApiGroup.make("api").add(apiIdentityEndpoint) {}
+export class ApiHttpGroup extends HttpApiGroup.make("api").add(apiIdentityEndpoint) { }
 
 /** Authenticated HTTP contract served by the Overseer API Worker. */
-export class ApiHttpApi extends HttpApi.make("ApiHttpApi").add(ApiHttpGroup) {}
+export class ApiHttpApi extends HttpApi.make("ApiHttpApi").add(ApiHttpGroup) { }
 
 const apiHttpHandlersLayer = HttpApiBuilder.group(ApiHttpApi, "api", (handlers) =>
   handlers.handle("getApiIdentity", () => Effect.succeed("Overseer API")),
@@ -34,17 +35,23 @@ const apiHttpServerLayer = Layer.mergeAll(
 );
 
 /** Effect-native API Worker shared by local development and every deployed stage. */
-export class ApiWorker extends Cloudflare.Worker<ApiWorker, {}>()("Api") {}
+export class ApiWorker extends Cloudflare.Worker<ApiWorker, {}>()("Api") { }
 
-/** Run the authenticated Overseer HTTP API in workerd. */
+/** Run the authenticated Overseer HTTP API locally or on its Access-protected custom domain. */
 export default ApiWorker.make(
-  {
-    main: import.meta.url,
-    dev: {
-      port: 8787,
-      strictPort: true,
-    },
-  },
+  Effect.gen(function* () {
+    const hostname = yield* OverseerApiHostname;
+
+    return {
+      main: import.meta.url,
+      dev: {
+        port: 8787,
+        strictPort: true,
+      },
+      domain: { name: hostname },
+      workersDev: false,
+    };
+  }),
   Effect.gen(function* () {
     // Materialize once per Worker isolate so production reuses its remote JWKS cache;
     // the middleware still verifies each request and provides a request-scoped CurrentActor.

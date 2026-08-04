@@ -201,6 +201,43 @@ const registerWorkspace = Effect.fn("BookkeeperClient.registerWorkspace")(
 Use a callback transform only when composing multiple combinators or when the transform needs the
 original function arguments.
 
+## Effect Service Dependencies in Layers
+
+When a Layer or framework builder depends on a contextual Effect service, yield that service inside
+the Effect that constructs the Layer's implementation. Keep the service in the Layer requirement
+channel until the composition root selects its implementation with `Layer.provide`.
+
+Export a Layer value with the dependency requirement instead of a factory that accepts the service
+as a plain function argument:
+
+```ts
+/** Bookkeeper HTTP handlers backed by the contextual Bookkeeper database. */
+export const bookkeeperHttpHandlersLayer = HttpApiBuilder.group(
+  BookkeeperHttpApi,
+  "bookkeeper",
+  (handlers) =>
+    Effect.gen(function* () {
+      const database = yield* BookkeeperDatabase;
+
+      return handlers.handle("getWorkspace", ({ params }) =>
+        database.getWorkspace(params.workspaceId),
+      );
+    }),
+);
+
+const configuredBookkeeperHttpHandlersLayer = bookkeeperHttpHandlersLayer.pipe(
+  Layer.provide(bookkeeperDatabaseLayer),
+);
+```
+
+Do not manually yield a contextual service in an outer Effect solely to pass it into a
+`make<CapabilityName>Layer(service)` function. Plain arguments remain appropriate for parsed request
+or domain values, external constructor options, and capabilities whose behavior is genuinely
+higher-order rather than an Effect service.
+
+Tests follow the same requirement channel: provide a faithful implementation with `Layer.succeed`
+or a test Layer, then provide that Layer to the dependency-preserving Layer under test.
+
 ## Effect Service Modules
 
 Put each new Effect service in a file named for its capability. Keep the service declaration and
