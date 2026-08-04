@@ -1,26 +1,7 @@
 import * as Alchemy from "alchemy";
 import * as Cloudflare from "alchemy/Cloudflare";
 import { Config, ConfigProvider, Effect } from "effect";
-
-const apiWorkerProps = Effect.gen(function* () {
-  const environment = yield* Config.string("OVERSEER_ENVIRONMENT");
-
-  return {
-    main: "./src/api-worker.ts",
-    dev: {
-      port: 8787,
-      strictPort: true,
-    },
-    env:
-      environment === "development"
-        ? { OVERSEER_ENVIRONMENT: environment }
-        : {
-            OVERSEER_ENVIRONMENT: environment,
-            ACCESS_AUDIENCE: yield* Config.string("ACCESS_AUDIENCE"),
-            CLOUDFLARE_ACCESS_TEAM_DOMAIN: yield* Config.string("CLOUDFLARE_ACCESS_TEAM_DOMAIN"),
-          },
-  };
-});
+import ApiWorkerLive, { ApiWorker } from "./src/api-worker.ts";
 
 /** Service token provisioned for authenticated Agent requests. */
 export const OverseerApiAgentAccessToken = Cloudflare.Access.ServiceToken("OverseerApiAgent", {
@@ -61,7 +42,8 @@ export default Alchemy.Stack(
     const { dev } = yield* Alchemy.AlchemyContext;
 
     if (dev === true) {
-      const api = yield* Cloudflare.Worker("Api", apiWorkerProps).pipe(
+      const api = yield* ApiWorker.pipe(
+        Effect.provide(ApiWorkerLive),
         Effect.provide(
           ConfigProvider.layer(ConfigProvider.fromUnknown({ OVERSEER_ENVIRONMENT: "development" })),
         ),
@@ -72,7 +54,8 @@ export default Alchemy.Stack(
     const agentToken = yield* OverseerApiAgentAccessToken;
     const accessApplication = yield* makeOverseerApiAccessApplication;
     const accessTeamDomain = yield* Config.string("CLOUDFLARE_ACCESS_TEAM_DOMAIN");
-    const api = yield* Cloudflare.Worker("Api", apiWorkerProps).pipe(
+    const api = yield* ApiWorker.pipe(
+      Effect.provide(ApiWorkerLive),
       Effect.provide(
         ConfigProvider.layer(
           ConfigProvider.fromUnknown({
