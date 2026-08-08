@@ -145,6 +145,62 @@ class WorkspaceServer extends Cloudflare.DurableObject<WorkspaceServer>()(
   over its namespace. Do not introduce a hand-written namespace interface or pass a namespace into
   the constructor or Layer.
 
+### Execution-Scoped Durable Object HTTP Clients
+
+A Durable Object namespace may be resolved during Alchemy Init, but a stub and its generated HTTP
+client must be constructed within the current Worker or Durable Object invocation. Never retain a
+stub-backed client across invocation scopes: the canonical Durable Object ID selects the remote
+instance, but it does not extend the caller-side Cloudflare I/O context.
+
+Use Alchemy's execution memo together with an Effect `Cache` when one invocation may call multiple
+Durable Object instances. The execution memo owns the request lifetime; the cache keys clients by
+the canonical domain ID, joins concurrent first lookups, and reuses each generated client only
+within that invocation. Use an unbounded cache because the invocation scope itself bounds its
+lifetime. Suspend namespace lookup so Alchemy planning can construct the service without touching
+a runtime-only binding:
+
+```ts
+const workspaceHttpClients =
+  yield *
+  makeExecutionMemo(
+    Cache.make<WorkspaceId, WorkspaceHttpClient>({
+      capacity: Number.POSITIVE_INFINITY,
+      lookup: (id) =>
+        Effect.suspend(() =>
+          HttpApiClient.makeWith(WorkspaceHttpApi, {
+            baseUrl: "http://workspace.internal",
+            httpClient: Cloudflare.toHttpClient(namespace.getByName(id)),
+          }),
+        ),
+    }),
+  );
+```
+
+Keep keyed HTTP client selection private to the client constructor. Callers yield the contextual
+application client and invoke domain operations with canonical IDs; they never select, retain, or
+manage Durable Object stubs, generated HTTP clients, caches, or instance-bound facades. The
+contextual service exposes only its application-facing interface:
+
+```ts
+class WorkspaceClient extends Context.Service<WorkspaceClient, IWorkspaceClient>()(
+  "@overseer/WorkspaceClient",
+) {}
+```
+
+The private client resolver reads the cache for the current invocation and ID. Public service
+operations call that resolver internally before invoking the generated protocol client. Do not
+expose this resolver through the service interface or as a static method on the service tag:
+
+```ts
+const workspaceHttpClient = (id: WorkspaceId) =>
+  Effect.flatMap(workspaceHttpClients, (clients) => Cache.get(clients, id));
+```
+
+Use the same pattern without `Cache` when a client has exactly one fixed target per invocation:
+`makeExecutionMemo` can memoize the single suspended client Effect directly. Do not substitute
+`Layer.suspend`, `Layer.unwrap`, an isolate-scoped Layer, or a global cache; those lifetimes still
+allow planning-time binding access or cross-invocation I/O reuse.
+
 ### Durable Object Identity
 
 Every Durable Object instance must be keyed and accessed by its canonical domain ID.

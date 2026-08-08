@@ -3,10 +3,7 @@ import * as Cloudflare from "alchemy/Cloudflare";
 import { Effect, Layer } from "effect";
 import { HttpRouter } from "effect/unstable/http";
 import { HttpApiBuilder } from "effect/unstable/httpapi";
-import {
-  BookkeeperClient,
-  bookkeeperClientLayer,
-} from "../bookkeeper/bookkeeper-client.ts";
+import { BookkeeperClient, bookkeeperClientLayer } from "../bookkeeper/bookkeeper-client.ts";
 import { durableObjectBaseHttpServerLayer } from "../durable-object-base-http-server-layer.ts";
 import { workspaceDatabaseLayerWithoutDependencies } from "./workspace-database.ts";
 import { workspaceHttpHandlersLayer } from "./workspace-http-handlers.ts";
@@ -37,5 +34,4 @@ export class WorkspaceServer extends Cloudflare.DurableObject<WorkspaceServer>()
       return { fetch };
     }).pipe(Effect.orDie);
   }).pipe(Effect.provide(bookkeeperClientLayer)),
-) { }
-
+) {}

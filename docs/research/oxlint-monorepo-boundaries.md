@@ -14,13 +14,13 @@ Do not use `no-restricted-imports` as the primary enforcement mechanism. It is u
 The invariant should be represented as this decision table:
 
 | Importer workspace | Target workspace | Result |
-| --- | --- | --- |
-| `apps/A` | `apps/A` | allow |
-| `apps/A` | `apps/B` | reject |
-| `apps/A` | `packages/P` | allow |
-| `packages/P` | any `apps/A` | reject |
-| `packages/P` | `packages/Q` | allow |
-| app/package | external | allow |
+| ------------------ | ---------------- | ------ |
+| `apps/A`           | `apps/A`         | allow  |
+| `apps/A`           | `apps/B`         | reject |
+| `apps/A`           | `packages/P`     | allow  |
+| `packages/P`       | any `apps/A`     | reject |
+| `packages/P`       | `packages/Q`     | allow  |
+| app/package        | external         | allow  |
 
 Apply the same table to source references and manifest edges. Type-only references are dependencies for architecture purposes and should not be exempt.
 
@@ -90,7 +90,7 @@ type WorkspaceKind = "app" | "package";
 type Workspace = {
   kind: WorkspaceKind;
   directory: string; // normalized absolute real path
-  name: string;      // package.json name
+  name: string; // package.json name
 };
 ```
 

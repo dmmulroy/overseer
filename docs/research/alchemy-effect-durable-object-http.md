@@ -120,9 +120,9 @@ There are two verified forms:
 
 ```ts
 // Raw request-shaped forwarding; useful for WebSockets and pass-through APIs.
-const request = yield* HttpServerRequest;
+const request = yield * HttpServerRequest;
 const room = rooms.getByName(roomId);
-return yield* room.fetch(request);
+return yield * room.fetch(request);
 ```
 
 This is the documented Alchemy pattern (`DurableObject.ts:628-638, 849-857`) and is used by the real example for WebSocket rooms (`repos/alchemy/examples/cloudflare-worker/src/Api.ts:218-235`). `Room.ts` implements the corresponding DO `fetch` with `Cloudflare.upgrade()` and returns WebSocket handlers (`examples/cloudflare-worker/src/Room.ts:11-81`).
@@ -147,10 +147,7 @@ The correct composition is an `HttpEffect`:
 const group = HttpApiBuilder.group(TaskDOApi, "TasksDO", (handlers) =>
   handlers
     .handle("getTask", ({ params }) =>
-      state.storage.get<Task>(params.id).pipe(
-        Effect.flatMap(decodeTask),
-        Effect.orDie,
-      ),
+      state.storage.get<Task>(params.id).pipe(Effect.flatMap(decodeTask), Effect.orDie),
     )
     .handle("createTask", ({ payload }) => {
       const task = new Task(/* ... */);
@@ -205,7 +202,7 @@ const program = Effect.gen(function* () {
 The existing Alchemy adapter is the important seam:
 
 ```ts
-const tasksDO = yield* TasksObject;
+const tasksDO = yield * TasksObject;
 
 const getTaskDO = (id = "default") =>
   HttpApiClient.makeWith(TaskDOApi, {

@@ -48,15 +48,18 @@ It is **not exported as the `Cloudflare.Access` resource namespace**, is not an 
 At Stack plan time:
 
 ```ts
-const { dev } = yield* Alchemy.AlchemyContext;
+const { dev } = yield * Alchemy.AlchemyContext;
 
 if (dev) {
   // Select a local-only entry that provides FixedLocalPrincipalLayer.
   // Do not yield Access.Application, Access.Policy, or Access.ServiceToken.
-  return yield* Cloudflare.Worker("Api", {
-    main: "./src/api-worker.local.ts",
-    dev: { port: 8787, strictPort: true },
-  });
+  return (
+    yield *
+    Cloudflare.Worker("Api", {
+      main: "./src/api-worker.local.ts",
+      dev: { port: 8787, strictPort: true },
+    })
+  );
 }
 ```
 
@@ -67,35 +70,45 @@ The local entry should provide a fixed, visibly synthetic principal such as `loc
 A deployed stage is not `alchemy dev`; `dev` is false even if its stage is named `dev_dana`. Create Access before the production Worker so its `aud` can become a Worker env binding:
 
 ```ts
-const stack = yield* Alchemy.Stack;
+const stack = yield * Alchemy.Stack;
 const hostname = hostnameForStage(stack.stage); // exact, stable FQDN
 
-const agentToken = yield* Cloudflare.Access.ServiceToken("AgentToken", {
-  duration: "2160h",
-});
-const human = yield* Cloudflare.Access.Policy("Human", {
-  decision: "allow",
-  include: [{ email: { email: ownerEmail } }],
-});
-const agent = yield* Cloudflare.Access.Policy("Agent", {
-  decision: "non_identity", // Cloudflare UI: Service Auth
-  include: [{ serviceToken: { tokenId: agentToken.serviceTokenId } }],
-});
-const access = yield* Cloudflare.Access.Application("ApiAccess", {
-  type: "self_hosted",
-  domain: hostname,
-  policies: [human.policyId, agent.policyId],
-  sessionDuration: "1w",
-});
-const api = yield* Cloudflare.Worker("Api", {
-  main: "./src/api-worker.ts",
-  domain: hostname,
-  workersDev: false,
-  env: {
-    ACCESS_AUDIENCE: access.aud,
-    ACCESS_ISSUER: `https://${teamDomain}`,
-  },
-});
+const agentToken =
+  yield *
+  Cloudflare.Access.ServiceToken("AgentToken", {
+    duration: "2160h",
+  });
+const human =
+  yield *
+  Cloudflare.Access.Policy("Human", {
+    decision: "allow",
+    include: [{ email: { email: ownerEmail } }],
+  });
+const agent =
+  yield *
+  Cloudflare.Access.Policy("Agent", {
+    decision: "non_identity", // Cloudflare UI: Service Auth
+    include: [{ serviceToken: { tokenId: agentToken.serviceTokenId } }],
+  });
+const access =
+  yield *
+  Cloudflare.Access.Application("ApiAccess", {
+    type: "self_hosted",
+    domain: hostname,
+    policies: [human.policyId, agent.policyId],
+    sessionDuration: "1w",
+  });
+const api =
+  yield *
+  Cloudflare.Worker("Api", {
+    main: "./src/api-worker.ts",
+    domain: hostname,
+    workersDev: false,
+    env: {
+      ACCESS_AUDIENCE: access.aud,
+      ACCESS_ISSUER: `https://${teamDomain}`,
+    },
+  });
 ```
 
 This is a pattern, not a claim that the current file already has this shape. The current worktree creates the Worker before Access and does not attach `OVERSEER_HOSTNAME` to the Worker; an Access application's `domain` declares what Access protects but does not itself route that hostname to the Worker. Alchemy's Worker `domain` prop creates the custom-domain attachment/DNS/certificate, while `workersDev` defaults to enabled ([Worker domain and env props](../../repos/alchemy/packages/alchemy/src/Cloudflare/Workers/Worker.ts#L700-L762), [custom-domain guide](../../repos/alchemy/website/src/content/docs/cloudflare/networking/custom-domains.mdx#L64-L101)).
@@ -106,11 +119,11 @@ Stages isolate Alchemy state and physical resource names, but Access policy/appl
 
 ## Three honest local-authentication options
 
-| Option | What it proves | What it does not prove | Cost/risk | Verdict |
-|---|---|---|---|---|
-| **Fixed local Layer** | Application behavior after authentication; human/Agent authorization when tests inject either typed principal | JWT crypto, JWKS, Access policies, redirects, token exchange | Fastest. Catastrophic only if the bypass can enter a deployment | **Default loop**, with a separate local entry and no production toggle |
-| **Local JWT/JWKS fixture** | Verifier contract: RS256 signature/`kid`, exact issuer/audience, times, claim schema, rotation/error cases | Cloudflare issuance, policy selection, cookies, service-token exchange, edge headers | More test plumbing; checked-in test private key must never be accepted by production | **Required verifier test layer**, not the default browser workflow |
-| **Live Access hostname** (deployed stage or Tunnel to local workerd) | Real IdP/Service Auth, hostname matching, Access-generated assertion, real remote JWKS, redirects/cookies | A deployed stage lacks local hot reload; a Tunnel adds connector/DNS lifecycle and machine availability | Real cloud resources, credentials, possible Access seats/cost, cleanup and collisions | **Required smoke test**; deployed stage preferred, Tunnel optional |
+| Option                                                               | What it proves                                                                                                | What it does not prove                                                                                  | Cost/risk                                                                             | Verdict                                                                |
+| -------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------- | ---------------------------------------------------------------------- |
+| **Fixed local Layer**                                                | Application behavior after authentication; human/Agent authorization when tests inject either typed principal | JWT crypto, JWKS, Access policies, redirects, token exchange                                            | Fastest. Catastrophic only if the bypass can enter a deployment                       | **Default loop**, with a separate local entry and no production toggle |
+| **Local JWT/JWKS fixture**                                           | Verifier contract: RS256 signature/`kid`, exact issuer/audience, times, claim schema, rotation/error cases    | Cloudflare issuance, policy selection, cookies, service-token exchange, edge headers                    | More test plumbing; checked-in test private key must never be accepted by production  | **Required verifier test layer**, not the default browser workflow     |
+| **Live Access hostname** (deployed stage or Tunnel to local workerd) | Real IdP/Service Auth, hostname matching, Access-generated assertion, real remote JWKS, redirects/cookies     | A deployed stage lacks local hot reload; a Tunnel adds connector/DNS lifecycle and machine availability | Real cloud resources, credentials, possible Access seats/cost, cleanup and collisions | **Required smoke test**; deployed stage preferred, Tunnel optional     |
 
 ### Local JWT/JWKS fixture details
 

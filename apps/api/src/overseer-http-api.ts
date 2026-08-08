@@ -288,15 +288,17 @@ const addOverseerOpenApiResponseHeaders = (
                           )
                         : response.content;
 
+                      const headers = isOpenApiRecord(response.headers)
+                        ? { ...response.headers }
+                        : {};
+                      headers[OVERSEER_REQUEST_ID_HEADER] = overseerRequestIdOpenApiHeader;
+
                       return [
                         status,
                         {
                           ...response,
                           content,
-                          headers: {
-                            ...(isOpenApiRecord(response.headers) ? response.headers : {}),
-                            [OVERSEER_REQUEST_ID_HEADER]: overseerRequestIdOpenApiHeader,
-                          },
+                          headers,
                         },
                       ];
                     }),

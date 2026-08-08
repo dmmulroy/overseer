@@ -196,19 +196,17 @@ interface IOverseerSdk {
   // readonly issue: IIssueClient;
 }
 
-class OverseerSdk extends Context.Service<OverseerSdk, IOverseerSdk>()(
-  "@overseer/OverseerSdk",
-) {}
+class OverseerSdk extends Context.Service<OverseerSdk, IOverseerSdk>()("@overseer/OverseerSdk") {}
 ```
 
 The resource-oriented call site is:
 
 ```ts
-const overseer = yield* OverseerSdk;
+const overseer = yield * OverseerSdk;
 
-const workspace = yield* overseer.workspace.createWorkspace({ name });
-const current = yield* overseer.workspace.getWorkspace(workspaceId);
-const renamed = yield* overseer.workspace.renameWorkspace({ id: workspaceId, name });
+const workspace = yield * overseer.workspace.createWorkspace({ name });
+const current = yield * overseer.workspace.getWorkspace(workspaceId);
+const renamed = yield * overseer.workspace.renameWorkspace({ id: workspaceId, name });
 ```
 
 The SDK begins as one app-local capability because the API Worker is its only consumer:
@@ -362,45 +360,38 @@ class WorkspaceHttpApi extends HttpApi.make("WorkspaceHttpApi")
 ### Workspace Server and Client
 
 ```ts
-class WorkspacesServer extends Cloudflare.DurableObject<WorkspacesServer>()(
-  "WorkspacesServer",
-  Effect.gen(function* () {
-    const state = yield* Cloudflare.DurableObjectState;
-
-    return Effect.gen(function* () {
-      // Build the versioned Workspace HTTP API with state.storage.
-      return {
-        fetch: workspaceHttpApi,
-      };
-    });
-  }),
+class WorkspaceServer extends Cloudflare.DurableObject<WorkspaceServer>()(
+  "WorkspaceServer",
+  workspaceServerImplementation,
 ) {}
 
-interface IWorkspacesClient {
+interface IWorkspaceClient {
   readonly getWorkspace: (
     id: WorkspaceId,
   ) => Effect.Effect<Option.Option<Workspace>, GetWorkspaceError>;
-  readonly createWorkspace: (
-    input: { readonly name: WorkspaceName },
-  ) => Effect.Effect<Workspace, CreateWorkspaceError>;
+  readonly createWorkspace: (input: {
+    readonly name: WorkspaceName;
+  }) => Effect.Effect<Workspace, CreateWorkspaceError>;
   readonly renameWorkspace: (input: {
     readonly id: WorkspaceId;
     readonly name: WorkspaceName;
   }) => Effect.Effect<Workspace, RenameWorkspaceError>;
-  readonly archiveWorkspace: (
-    id: WorkspaceId,
-  ) => Effect.Effect<Workspace, ArchiveWorkspaceError>;
+  readonly archiveWorkspace: (id: WorkspaceId) => Effect.Effect<Workspace, ArchiveWorkspaceError>;
   readonly unarchiveWorkspace: (
     id: WorkspaceId,
   ) => Effect.Effect<Workspace, UnarchiveWorkspaceError>;
 }
 
-class WorkspacesClient extends Context.Service<WorkspacesClient, IWorkspacesClient>()(
-  "@overseer/WorkspacesClient",
+class WorkspaceClient extends Context.Service<WorkspaceClient, IWorkspaceClient>()(
+  "@overseer/WorkspaceClient",
 ) {}
 ```
 
-`WorkspacesServer` is the Alchemy Durable Object class. Its public shape is inferred from the object returned by the inner `Effect`; it does not need a separate server interface or named implementation value. `IWorkspacesClient` is the application-facing capability, and `WorkspacesClient` is its Effect service tag. The client implementation owns Durable Object namespace lookup, stub creation, `Cloudflare.toHttpClient`, and HTTP request and response translation.
+`WorkspaceServer` is the Alchemy Durable Object class. Its public shape is inferred from the object returned by the inner `Effect`; it does not need a separate server interface or named implementation value. `IWorkspaceClient` is the application-facing capability, and `WorkspaceClient` is its Effect service tag. The client implementation owns Durable Object namespace lookup, stub creation, `Cloudflare.toHttpClient`, and HTTP request and response translation.
+
+The client resolves the `WorkspaceServer` namespace during Alchemy Init without resolving a stub. It uses `makeExecutionMemo` to create one Effect `Cache` per API Worker invocation, keys that cache by `WorkspaceId`, and suspends `namespace.getByName(id)` until the first lookup for that ID. Calls for the same Workspace ID in one API request share the stub-backed `HttpApiClient`; another request receives a fresh cache and client because its Cloudflare I/O context is different.
+
+This lifecycle machinery is entirely private to `makeWorkspaceClient`. Callers yield `WorkspaceClient` or use `OverseerSdk.workspace` and invoke domain operations with canonical Workspace IDs. They never select, retain, or manage Durable Object stubs, generated HTTP clients, caches, or instance facades. `IWorkspaceClient` remains the complete public surface, including collection-level `createWorkspace` and ID-addressed instance operations; there is no public or static `for` method.
 
 Listing Workspaces remains a Bookkeeper operation because no individual Workspace Durable Object owns the collection.
 
@@ -415,9 +406,7 @@ interface IWorkspaceDatabase {
     readonly name: WorkspaceName;
   }) => Effect.Effect<Workspace, CreateWorkspaceError>;
   readonly getWorkspace: Effect.Effect<Option.Option<Workspace>, GetWorkspaceError>;
-  readonly renameWorkspace: (
-    name: WorkspaceName,
-  ) => Effect.Effect<Workspace, RenameWorkspaceError>;
+  readonly renameWorkspace: (name: WorkspaceName) => Effect.Effect<Workspace, RenameWorkspaceError>;
   readonly archiveWorkspace: Effect.Effect<Workspace, ArchiveWorkspaceError>;
   readonly unarchiveWorkspace: Effect.Effect<Workspace, UnarchiveWorkspaceError>;
 }
@@ -549,16 +538,16 @@ const WorkspaceNotFoundApiError = Schema.Struct({
 
 Initial status contracts are:
 
-| Status | Code | Contract |
-| --- | --- | --- |
-| `400` | `invalid_request` | The path, query, headers, or payload could not be parsed. `details` identifies each invalid field and its constraint so the caller can correct it. |
-| `401` | `unauthorized` | The Worker could not authenticate the request. The message directs the caller to provide valid Access credentials. Cloudflare Access may reject a request at the edge before this Worker contract is reached. |
-| `404` | `workspace_not_found` | A syntactically valid Workspace ID is unknown. The response includes the requested `workspaceId` and tells the caller to check it. |
-| `405` | `method_not_allowed` | The route exists but does not support the HTTP method. The response identifies the allowed methods. |
-| `409` | `workspace_state_conflict` | Reserved for a rejected Workspace lifecycle transition if the domain chooses non-idempotent transitions or forbids rename while archived. It is not emitted while those operations remain permitted or idempotent. |
-| `415` | `unsupported_media_type` | A body-bearing operation did not receive a supported JSON media type. |
-| `500` | `workspace_operation_failed` | Overseer could not complete the named Workspace operation because of an internal invariant or invalid stored data. The response does not expose internals and directs the caller to contact support with `requestId`; retry is false unless the specific cause is known to be transient. |
-| `503` | `workspace_service_unavailable` | A required Overseer service is temporarily unavailable. The response identifies the operation, describes only state effects that are known with certainty, and indicates whether the same logical operation is safe to retry. |
+| Status | Code                            | Contract                                                                                                                                                                                                                                                                                 |
+| ------ | ------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `400`  | `invalid_request`               | The path, query, headers, or payload could not be parsed. `details` identifies each invalid field and its constraint so the caller can correct it.                                                                                                                                       |
+| `401`  | `unauthorized`                  | The Worker could not authenticate the request. The message directs the caller to provide valid Access credentials. Cloudflare Access may reject a request at the edge before this Worker contract is reached.                                                                            |
+| `404`  | `workspace_not_found`           | A syntactically valid Workspace ID is unknown. The response includes the requested `workspaceId` and tells the caller to check it.                                                                                                                                                       |
+| `405`  | `method_not_allowed`            | The route exists but does not support the HTTP method. The response identifies the allowed methods.                                                                                                                                                                                      |
+| `409`  | `workspace_state_conflict`      | Reserved for a rejected Workspace lifecycle transition if the domain chooses non-idempotent transitions or forbids rename while archived. It is not emitted while those operations remain permitted or idempotent.                                                                       |
+| `415`  | `unsupported_media_type`        | A body-bearing operation did not receive a supported JSON media type.                                                                                                                                                                                                                    |
+| `500`  | `workspace_operation_failed`    | Overseer could not complete the named Workspace operation because of an internal invariant or invalid stored data. The response does not expose internals and directs the caller to contact support with `requestId`; retry is false unless the specific cause is known to be transient. |
+| `503`  | `workspace_service_unavailable` | A required Overseer service is temporarily unavailable. The response identifies the operation, describes only state effects that are known with certainty, and indicates whether the same logical operation is safe to retry.                                                            |
 
 Messages must name the failed operation and relevant safe identity. For example: `Workspace workspace_… was not found. Check the Workspace ID and try again.` Avoid `Something went wrong`, raw reason literals, and claims such as “no changes were made” unless the operation protocol proves that statement.
 
@@ -629,7 +618,7 @@ Remote non-production stages derive an isolated API hostname from the Alchemy st
 
 **Decision:** Every Durable Object instance is keyed and accessed by its canonical domain ID.
 
-- `WorkspacesServer` instances use `WorkspaceId`.
+- `WorkspaceServer` instances use `WorkspaceId`.
 - `ProjectServer` instances use `ProjectId`.
 - `IssueServer` instances use `IssueId`.
 - Use the stable branded ID as the deterministic namespace key, never a display name or arbitrary caller-provided label.
@@ -720,23 +709,17 @@ interface IBookkeeperClient {
   readonly registerProject: (
     project: BookkeeperProject,
   ) => Effect.Effect<BookkeeperProject, RegisterProjectError>;
-  readonly deleteProject: (
-    id: ProjectId,
-  ) => Effect.Effect<BookkeeperProject, DeleteProjectError>;
+  readonly deleteProject: (id: ProjectId) => Effect.Effect<BookkeeperProject, DeleteProjectError>;
 
   readonly listIssues: (
     projectId: ProjectId,
     request: PaginationRequest,
   ) => Effect.Effect<PaginationPage<BookkeeperIssue>, ListIssuesError>;
-  readonly getIssue: (
-    id: IssueId,
-  ) => Effect.Effect<Option.Option<BookkeeperIssue>, GetIssueError>;
+  readonly getIssue: (id: IssueId) => Effect.Effect<Option.Option<BookkeeperIssue>, GetIssueError>;
   readonly registerIssue: (
     issue: BookkeeperIssue,
   ) => Effect.Effect<BookkeeperIssue, RegisterIssueError>;
-  readonly deleteIssue: (
-    id: IssueId,
-  ) => Effect.Effect<BookkeeperIssue, DeleteIssueError>;
+  readonly deleteIssue: (id: IssueId) => Effect.Effect<BookkeeperIssue, DeleteIssueError>;
 
   readonly getCounts: Effect.Effect<BookkeeperCounts, GetBookkeeperCountsError>;
 }
@@ -747,6 +730,8 @@ class BookkeeperClient extends Context.Service<BookkeeperClient, IBookkeeperClie
 ```
 
 The application-facing operations use `register` and `delete`; the HTTP adapter maps them to `PUT` and `DELETE`. `BookkeeperServer` is an Alchemy Durable Object with an inferred `{ fetch }` shape and no separate server interface.
+
+`BookkeeperClient` resolves the singleton namespace during Alchemy Init but suspends `getByName(BOOKKEEPER_ID)` inside `makeExecutionMemo`. The first Bookkeeper operation in a Workspace Durable Object invocation constructs the stub-backed `HttpApiClient`; later Bookkeeper operations in that same invocation reuse it. A later invocation receives a fresh client for its new Cloudflare I/O context. Because Bookkeeper has one fixed target, this client does not need the keyed Effect `Cache` used by `WorkspaceClient`.
 
 #### Initial Bookkeeper DDL
 
@@ -829,7 +814,6 @@ When the detailed protocol is designed, explore Effect `Scope`, `Effect.acquireR
 `BookkeeperDatabase` follows the same composition pattern as `WorkspaceDatabase`: its Layer depends on the generic Effect `SqlClient`, and `BookkeeperServer` provides `SqliteClient.layer({ storage: state.raw.storage })` inside the Durable Object runtime composition.
 
 `makeBookkeeperDatabase` owns and runs its bundled `SqliteMigrator` loader before it returns the database service implementation. Migration definitions remain private to the database module. The database Layer cannot complete until all pending migrations finish, so the HTTP handler cannot become available against an old schema. Migration failures reject Durable Object construction and are never ignored or moved into operation error types. Migration execution never occurs during Alchemy's planning pass, is not launched through `state.waitUntil`, and is not deferred until an arbitrary request.
-
 
 # Testing
 
@@ -934,7 +918,6 @@ Supporting tests exist only where they provide faster diagnosis, exercise otherw
 Use `@effect/vitest` throughout Effect tests. Ordinary `it` owns synchronous pure tests; `it.effect` owns scoped programs using test services such as `TestClock`; Alchemy's harness uses live runtime services. Use `layer(...)` only when sharing one acquired Layer for a block is intentional; otherwise provide a fresh Layer per test. Assert expected failures through public error or protocol contracts, never through implementation spies or `vi.mock`.
 
 The default local and automated `test` command runs the complete uncached production-Stack endpoint matrix against a newly created stage. There is no reduced PR suite, main-only suite, nightly-only suite, or cost-based coverage split. A narrower fast or workerd command may exist for an explicit inner-loop choice, but it is not named or treated as the project's full test suite. Cloud tests use explicit timeouts, bounded polling schedules, complete Stack configuration, and credentials for every Cloudflare and Alchemy state resource they provision.
-
 
 # To-dos
 

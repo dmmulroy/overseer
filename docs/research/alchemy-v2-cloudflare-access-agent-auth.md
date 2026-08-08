@@ -48,12 +48,12 @@ The current `main` branch uses:
 Cloudflare.Access.Policy("Human", {
   decision: "allow",
   include: [{ email: { email: accessConfiguration.ownerEmail } }],
-})
+});
 
 Cloudflare.Access.Policy("Agent", {
   decision: "non_identity",
   include: [{ serviceToken: { tokenId: agentToken.serviceTokenId } }],
-})
+});
 ```
 
 ([`main:src/infra/gateway.ts#L59-L68`](../../src/infra/gateway.ts#L59-L68)). This is the correct Access policy shape. Whether one owner email is sufficient is a product authorization decision; for a real team, replace it with an organization domain/group plus any required MFA/device posture, while preserving a distinct Service Auth path for Agents.
@@ -205,13 +205,13 @@ The current parser does most of this: it requires `type: "app"`; treats string `
 
 ## 6. Service token versus mTLS versus other mechanisms
 
-| Mechanism | Strengths | Costs/risks | Overseer fit |
-|---|---|---|---|
-| **Access service token** | First-class headless Agent flow; simple HTTP clients; exact policy selector; Access supplies the same signed JWT Gateway already verifies; per-token revocation and rotation | Static secret pair is exportable; leakage grants the token's policy; needs distribution/rotation | **Recommended default** for production Agents |
-| **Access mTLS** | Private-key possession at TLS handshake; no bearer secret in HTTP; can use `common_name`/valid-certificate policy; strong for managed devices | PKI issuance, renewal, revocation, client configuration, and debugging; current Alchemy mTLS resource uploads account certificates but does not provision the Access hostname association/policy as one composition | Use for high-assurance managed infrastructure or as an additional policy factor, not the first Agent path |
-| `cloudflared access curl` / reusable user token | Convenient interactive development under a human identity | Agent actions become human-attributed; browser login/session lifecycle; poor headless identity separation | Good for interactive local diagnostics, not production Agent attribution |
-| Managed OAuth | Standard Agent/client flow and delegated human authorization where supported | Access application OAuth configuration is beta/compatibility-dependent; more moving parts than this API needs | Revisit if Agents must act explicitly on behalf of a human |
-| A custom API key/Bearer token | Easy to implement | Duplicates Access, requires another issuer/revocation system, and would bypass the desired human/Agent edge boundary | Reject |
+| Mechanism                                       | Strengths                                                                                                                                                                    | Costs/risks                                                                                                                                                                                                         | Overseer fit                                                                                              |
+| ----------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------- |
+| **Access service token**                        | First-class headless Agent flow; simple HTTP clients; exact policy selector; Access supplies the same signed JWT Gateway already verifies; per-token revocation and rotation | Static secret pair is exportable; leakage grants the token's policy; needs distribution/rotation                                                                                                                    | **Recommended default** for production Agents                                                             |
+| **Access mTLS**                                 | Private-key possession at TLS handshake; no bearer secret in HTTP; can use `common_name`/valid-certificate policy; strong for managed devices                                | PKI issuance, renewal, revocation, client configuration, and debugging; current Alchemy mTLS resource uploads account certificates but does not provision the Access hostname association/policy as one composition | Use for high-assurance managed infrastructure or as an additional policy factor, not the first Agent path |
+| `cloudflared access curl` / reusable user token | Convenient interactive development under a human identity                                                                                                                    | Agent actions become human-attributed; browser login/session lifecycle; poor headless identity separation                                                                                                           | Good for interactive local diagnostics, not production Agent attribution                                  |
+| Managed OAuth                                   | Standard Agent/client flow and delegated human authorization where supported                                                                                                 | Access application OAuth configuration is beta/compatibility-dependent; more moving parts than this API needs                                                                                                       | Revisit if Agents must act explicitly on behalf of a human                                                |
+| A custom API key/Bearer token                   | Easy to implement                                                                                                                                                            | Duplicates Access, requires another issuer/revocation system, and would bypass the desired human/Agent edge boundary                                                                                                | Reject                                                                                                    |
 
 Cloudflare documents mTLS as Service Auth for automated systems and IoT, with a CA associated to the protected FQDN and a policy selecting a common name or valid certificate ([mTLS](https://developers.cloudflare.com/cloudflare-one/access-controls/service-credentials/mutual-tls-authentication/)). Alchemy's vendored `Cloudflare.MtlsCertificate` is an account-level certificate-store resource for certificate-authority associations/Hyperdrive or Worker mTLS bindings, not an end-to-end Access mTLS application resource ([`MtlsCertificate` docs](../../repos/alchemy/packages/alchemy/src/Cloudflare/MtlsCertificate/MtlsCertificate.ts#L109-L170)). This is a compatibility gap, not a reason to put certificate types into the domain.
 

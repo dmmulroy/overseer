@@ -59,9 +59,9 @@ Tracing is enabled by Worker metadata, not by a binding or a runtime exporter ca
       "enabled": true,
       "head_sampling_rate": 0.05,
       "persist": true,
-      "destinations": ["my-otlp-destination"]
-    }
-  }
+      "destinations": ["my-otlp-destination"],
+    },
+  },
 }
 ```
 

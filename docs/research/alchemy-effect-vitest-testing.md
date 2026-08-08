@@ -117,10 +117,7 @@ const { test, beforeAll, afterAll, deploy, destroy } = Test.make({
 
 const stack = beforeAll(deploy(Stack), { timeout: 300_000 });
 
-afterAll.skipIf(process.env.NO_DESTROY === "1")(
-  destroy(Stack),
-  { timeout: 300_000 },
-);
+afterAll.skipIf(process.env.NO_DESTROY === "1")(destroy(Stack), { timeout: 300_000 });
 
 test(
   "an Agent reaches the Access-protected Overseer API",
@@ -169,18 +166,21 @@ const { test, beforeAll, afterAll, deploy, destroy } = Test.make({
 const stack = beforeAll(deploy(Stack), { timeout: 120_000 });
 afterAll(destroy(Stack), { timeout: 120_000 });
 
-test("serves the authenticated API in local workerd", Effect.gen(function* () {
-  const { url } = yield* stack;
-  if (url === undefined) {
-    assert.fail("local Stack did not return its workerd URL");
-  }
-  const request = HttpClientRequest.get(url).pipe(
-    HttpClientRequest.setHeader("Cf-Access-Jwt-Assertion", "local-test"),
-  );
-  const response = yield* Test.executeWhenReady(request);
-  assert.strictEqual(response.status, 200);
-  assert.strictEqual(yield* response.json, "Overseer API");
-}));
+test(
+  "serves the authenticated API in local workerd",
+  Effect.gen(function* () {
+    const { url } = yield* stack;
+    if (url === undefined) {
+      assert.fail("local Stack did not return its workerd URL");
+    }
+    const request = HttpClientRequest.get(url).pipe(
+      HttpClientRequest.setHeader("Cf-Access-Jwt-Assertion", "local-test"),
+    );
+    const response = yield* Test.executeWhenReady(request);
+    assert.strictEqual(response.status, 200);
+    assert.strictEqual(yield* response.json, "Overseer API");
+  }),
+);
 ```
 
 Do not pass the documented `localState({ path: ... })` sketch: in the pinned beta, `Alchemy.localState()` takes no arguments and always uses `.alchemy/state`; stack name and stage provide the namespace ([pinned `LocalState`](../../repos/alchemy/packages/alchemy/src/State/LocalState.ts)).

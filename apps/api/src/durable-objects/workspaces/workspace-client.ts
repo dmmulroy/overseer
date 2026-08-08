@@ -1,5 +1,6 @@
 import * as Cloudflare from "alchemy/Cloudflare";
-import { Context, Effect, Layer, Option } from "effect";
+import { makeExecutionMemo } from "alchemy/Runtime/ExecutionMemo";
+import { Cache, Context, Effect, Layer, Option } from "effect";
 import { HttpApiClient } from "effect/unstable/httpapi";
 import {
   ArchiveWorkspaceError,
@@ -42,6 +43,8 @@ export interface IWorkspaceClient {
   ) => Effect.Effect<Workspace, UnarchiveWorkspaceError>;
 }
 
+type WorkspaceHttpClient = HttpApiClient.ForApi<typeof WorkspaceHttpApi>;
+
 /** Application-owned client capability for Workspace Durable Objects. */
 export class WorkspaceClient extends Context.Service<WorkspaceClient, IWorkspaceClient>()(
   "@overseer/WorkspaceClient",
@@ -54,15 +57,24 @@ export const makeWorkspaceClient: Effect.Effect<
   Cloudflare.Worker
 > = Effect.gen(function* () {
   const namespace = yield* WorkspaceServer;
-  const httpClientForWorkspace = (id: WorkspaceId) =>
-    HttpApiClient.makeWith(WorkspaceHttpApi, {
-      baseUrl: "http://workspace.internal",
-      httpClient: Cloudflare.toHttpClient(namespace.getByName(id)),
-    });
+  const workspaceHttpClients = yield* makeExecutionMemo(
+    Cache.make<WorkspaceId, WorkspaceHttpClient>({
+      capacity: Number.POSITIVE_INFINITY,
+      lookup: (id) =>
+        Effect.suspend(() =>
+          HttpApiClient.makeWith(WorkspaceHttpApi, {
+            baseUrl: "http://workspace.internal",
+            httpClient: Cloudflare.toHttpClient(namespace.getByName(id)),
+          }),
+        ),
+    }),
+  );
+  const workspaceHttpClient = (id: WorkspaceId) =>
+    Effect.flatMap(workspaceHttpClients, (clients) => Cache.get(clients, id));
 
   return WorkspaceClient.of({
     getWorkspace: Effect.fn("WorkspaceClient.getWorkspace")(function* (id) {
-      const client = yield* httpClientForWorkspace(id);
+      const client = yield* workspaceHttpClient(id);
       return yield* client.workspace.getWorkspace().pipe(
         Effect.map(Option.some),
         Effect.catchTag("GetWorkspaceError", (error) =>
@@ -81,7 +93,7 @@ export const makeWorkspaceClient: Effect.Effect<
 
     createWorkspace: Effect.fn("WorkspaceClient.createWorkspace")(function* (input) {
       const id = yield* generateWorkspaceId;
-      const client = yield* httpClientForWorkspace(id);
+      const client = yield* workspaceHttpClient(id);
       return yield* client.workspace.createWorkspace({ payload: { id, name: input.name } }).pipe(
         Effect.catchTags({
           HttpClientError: () =>
@@ -93,7 +105,7 @@ export const makeWorkspaceClient: Effect.Effect<
     }),
 
     renameWorkspace: Effect.fn("WorkspaceClient.renameWorkspace")(function* (input) {
-      const client = yield* httpClientForWorkspace(input.id);
+      const client = yield* workspaceHttpClient(input.id);
       return yield* client.workspace.renameWorkspace({ payload: { name: input.name } }).pipe(
         Effect.catchTags({
           HttpClientError: () =>
@@ -105,7 +117,7 @@ export const makeWorkspaceClient: Effect.Effect<
     }),
 
     archiveWorkspace: Effect.fn("WorkspaceClient.archiveWorkspace")(function* (id) {
-      const client = yield* httpClientForWorkspace(id);
+      const client = yield* workspaceHttpClient(id);
       return yield* client.workspace.archiveWorkspace().pipe(
         Effect.catchTags({
           HttpClientError: () =>
@@ -117,7 +129,7 @@ export const makeWorkspaceClient: Effect.Effect<
     }),
 
     unarchiveWorkspace: Effect.fn("WorkspaceClient.unarchiveWorkspace")(function* (id) {
-      const client = yield* httpClientForWorkspace(id);
+      const client = yield* workspaceHttpClient(id);
       return yield* client.workspace.unarchiveWorkspace().pipe(
         Effect.catchTags({
           HttpClientError: () =>
