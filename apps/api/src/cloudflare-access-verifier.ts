@@ -1,5 +1,5 @@
-import { createRemoteJWKSet, errors as JoseErrors, jwtVerify } from "jose";
-import { Config, Context, Effect, Layer, Redacted, Schema } from "effect";
+import { createRemoteJWKSet, errors as JoseErrors, jwtVerify, type JWTPayload } from "jose";
+import { Config, Context, Effect, Layer, Option, Redacted, Schema } from "effect";
 import { AgentId, CloudflareAccessSubject, EmailAddress } from "./domain/actor.ts";
 
 const AccessAudience = Schema.String.check(Schema.isMinLength(1)).pipe(
@@ -63,13 +63,12 @@ const AccessVerificationFailureReason = Schema.Literals([
 
 type AccessVerificationFailureReason = typeof AccessVerificationFailureReason.Type;
 
-const accessVerificationFailureMessages: Readonly<Record<AccessVerificationFailureReason, string>> =
-  {
-    missing_assertion: "Cloudflare Access assertion is missing",
-    invalid_assertion: "Cloudflare Access assertion is invalid",
-    invalid_identity: "Cloudflare Access assertion identity is invalid",
-    verification_unavailable: "Cloudflare Access verification is unavailable",
-  };
+const accessVerificationFailureMessages = {
+  missing_assertion: "Cloudflare Access assertion is missing",
+  invalid_assertion: "Cloudflare Access assertion is invalid",
+  invalid_identity: "Cloudflare Access assertion identity is invalid",
+  verification_unavailable: "Cloudflare Access verification is unavailable",
+} as const;
 
 /** Classified failure to verify a Cloudflare Access assertion. */
 export class CloudflareAccessVerificationFailed extends Schema.TaggedErrorClass<CloudflareAccessVerificationFailed>()(
@@ -120,7 +119,7 @@ const invalidIdentity = (): CloudflareAccessVerificationFailed =>
 
 const parseCloudflareAccessPrincipal = Effect.fn(
   "CloudflareAccessVerifier.parseCloudflareAccessPrincipal",
-)(function* (claims: Record<string, unknown>) {
+)(function* (claims: JWTPayload) {
   if (claims.type !== "app") {
     return yield* Effect.fail(invalidIdentity());
   }
@@ -149,16 +148,9 @@ const parseCloudflareAccessPrincipal = Effect.fn(
   return yield* Effect.fail(invalidIdentity());
 });
 
-const classifyJoseVerificationFailure = (cause: unknown): CloudflareAccessVerificationFailed => {
-  const reason =
-    cause instanceof JoseErrors.JWKSTimeout ||
-    (cause instanceof JoseErrors.JOSEError && cause.code === "ERR_JOSE_GENERIC") ||
-    !(cause instanceof JoseErrors.JOSEError)
-      ? "verification_unavailable"
-      : "invalid_assertion";
-
-  return new CloudflareAccessVerificationFailed(reason);
-};
+const parseJoseVerificationError = Schema.decodeUnknownOption(
+  Schema.instanceOf(JoseErrors.JOSEError),
+);
 
 /** Construct the production Cloudflare Access verifier with one isolate-scoped remote JWKS cache. */
 export const makeCloudflareAccessVerifier: Effect.Effect<
@@ -186,7 +178,16 @@ export const makeCloudflareAccessVerifier: Effect.Effect<
               requiredClaims: ["exp", "iat"],
               typ: "JWT",
             }),
-          catch: classifyJoseVerificationFailure,
+          catch: (cause) =>
+            Option.match(parseJoseVerificationError(cause), {
+              onNone: () => new CloudflareAccessVerificationFailed("verification_unavailable"),
+              onSome: (error) =>
+                new CloudflareAccessVerificationFailed(
+                  error instanceof JoseErrors.JWKSTimeout || error.code === "ERR_JOSE_GENERIC"
+                    ? "verification_unavailable"
+                    : "invalid_assertion",
+                ),
+            }),
         });
 
         return yield* parseCloudflareAccessPrincipal(verified.payload);

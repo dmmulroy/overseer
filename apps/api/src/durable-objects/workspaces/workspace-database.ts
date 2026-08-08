@@ -48,6 +48,7 @@ const StoredWorkspaceRow = Schema.Struct({
 });
 
 type StoredWorkspaceRow = typeof StoredWorkspaceRow.Type;
+type EncodedStoredWorkspaceRow = typeof StoredWorkspaceRow.Encoded;
 
 const parseStoredWorkspaceRows = Schema.decodeUnknownEffect(Schema.Array(StoredWorkspaceRow));
 
@@ -93,7 +94,7 @@ export const makeWorkspaceDatabase: Effect.Effect<
   const sql = yield* SqlClient.SqlClient;
 
   const findWorkspaceRow = Effect.fn("WorkspaceDatabase.findWorkspaceRow")(function* () {
-    const rows = yield* sql<Record<string, unknown>>`
+    const rows = yield* sql<EncodedStoredWorkspaceRow>`
       SELECT id, name, state, created_at, updated_at
       FROM workspaces
       WHERE singleton = 1

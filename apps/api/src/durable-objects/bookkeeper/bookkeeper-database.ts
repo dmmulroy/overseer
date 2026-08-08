@@ -92,15 +92,29 @@ const StoredCountsRow = Schema.Struct({
   projects: Schema.Number.check(Schema.isInt(), Schema.isGreaterThanOrEqualTo(0)),
   issues: Schema.Number.check(Schema.isInt(), Schema.isGreaterThanOrEqualTo(0)),
 });
+const StoredProjectIdentityRow = Schema.Struct({ id: ProjectId });
+const StoredIssueIdentityRow = Schema.Struct({ id: IssueId });
 
 type StoredWorkspaceRow = typeof StoredWorkspaceRow.Type;
 type StoredProjectRow = typeof StoredProjectRow.Type;
 type StoredIssueRow = typeof StoredIssueRow.Type;
+type EncodedStoredWorkspaceRow = typeof StoredWorkspaceRow.Encoded;
+type EncodedStoredProjectRow = typeof StoredProjectRow.Encoded;
+type EncodedStoredIssueRow = typeof StoredIssueRow.Encoded;
+type EncodedStoredCountsRow = typeof StoredCountsRow.Encoded;
+type EncodedStoredProjectIdentityRow = typeof StoredProjectIdentityRow.Encoded;
+type EncodedStoredIssueIdentityRow = typeof StoredIssueIdentityRow.Encoded;
 
 const parseStoredWorkspaceRows = Schema.decodeUnknownEffect(Schema.Array(StoredWorkspaceRow));
 const parseStoredProjectRows = Schema.decodeUnknownEffect(Schema.Array(StoredProjectRow));
 const parseStoredIssueRows = Schema.decodeUnknownEffect(Schema.Array(StoredIssueRow));
 const parseStoredCountsRow = Schema.decodeUnknownEffect(StoredCountsRow);
+const parseStoredProjectIdentityRows = Schema.decodeUnknownEffect(
+  Schema.Array(StoredProjectIdentityRow),
+);
+const parseStoredIssueIdentityRows = Schema.decodeUnknownEffect(
+  Schema.Array(StoredIssueIdentityRow),
+);
 const parseWorkspaceId = Schema.decodeUnknownEffect(WorkspaceId);
 const parseProjectId = Schema.decodeUnknownEffect(ProjectId);
 const parseIssueId = Schema.decodeUnknownEffect(IssueId);
@@ -190,7 +204,7 @@ export const makeBookkeeperDatabase: Effect.Effect<
   const findWorkspaceRow = Effect.fn("BookkeeperDatabase.findWorkspaceRow")(function* (
     id: WorkspaceId,
   ) {
-    const rows = yield* sql<Record<string, unknown>>`
+    const rows = yield* sql<EncodedStoredWorkspaceRow>`
       SELECT id, created_at, updated_at, deleted_at
       FROM workspaces
       WHERE id = ${id}
@@ -201,7 +215,7 @@ export const makeBookkeeperDatabase: Effect.Effect<
   });
 
   const findProjectRow = Effect.fn("BookkeeperDatabase.findProjectRow")(function* (id: ProjectId) {
-    const rows = yield* sql<Record<string, unknown>>`
+    const rows = yield* sql<EncodedStoredProjectRow>`
       SELECT id, workspace_id, created_at, updated_at, deleted_at
       FROM projects
       WHERE id = ${id}
@@ -212,7 +226,7 @@ export const makeBookkeeperDatabase: Effect.Effect<
   });
 
   const findIssueRow = Effect.fn("BookkeeperDatabase.findIssueRow")(function* (id: IssueId) {
-    const rows = yield* sql<Record<string, unknown>>`
+    const rows = yield* sql<EncodedStoredIssueRow>`
       SELECT id, project_id, created_at, updated_at, deleted_at
       FROM issues
       WHERE id = ${id}
@@ -251,14 +265,14 @@ export const makeBookkeeperDatabase: Effect.Effect<
       });
       const rowLimit = request.limit + 1;
       const rows = yield* Option.match(cursor, {
-        onNone: () => sql<Record<string, unknown>>`
+        onNone: () => sql<EncodedStoredWorkspaceRow>`
         SELECT id, created_at, updated_at, deleted_at
         FROM workspaces
         WHERE deleted_at IS NULL
         ORDER BY id ASC
         LIMIT ${rowLimit}
       `,
-        onSome: (id) => sql<Record<string, unknown>>`
+        onSome: (id) => sql<EncodedStoredWorkspaceRow>`
         SELECT id, created_at, updated_at, deleted_at
         FROM workspaces
         WHERE deleted_at IS NULL AND id > ${id}
@@ -404,12 +418,13 @@ export const makeBookkeeperDatabase: Effect.Effect<
           if (Option.isSome(existing.value.deleted_at)) {
             return workspaceFromStoredRow(existing.value);
           }
-          const children = yield* sql<Record<string, unknown>>`
+          const children = yield* sql<EncodedStoredProjectIdentityRow>`
           SELECT id FROM projects
           WHERE workspace_id = ${id} AND deleted_at IS NULL
           LIMIT 1
         `;
-          if (children.length > 0) {
+          const parsedChildren = yield* parseStoredProjectIdentityRows(children);
+          if (parsedChildren.length > 0) {
             return yield* new DeleteWorkspaceError({
               reason: "LiveChildren",
               message: "Bookkeeper cannot delete a Workspace with live Projects",
@@ -482,14 +497,14 @@ export const makeBookkeeperDatabase: Effect.Effect<
       });
       const rowLimit = request.limit + 1;
       const rows = yield* Option.match(cursor, {
-        onNone: () => sql<Record<string, unknown>>`
+        onNone: () => sql<EncodedStoredProjectRow>`
         SELECT id, workspace_id, created_at, updated_at, deleted_at
         FROM projects
         WHERE workspace_id = ${workspaceId} AND deleted_at IS NULL
         ORDER BY id ASC
         LIMIT ${rowLimit}
       `,
-        onSome: (id) => sql<Record<string, unknown>>`
+        onSome: (id) => sql<EncodedStoredProjectRow>`
         SELECT id, workspace_id, created_at, updated_at, deleted_at
         FROM projects
         WHERE workspace_id = ${workspaceId} AND deleted_at IS NULL AND id > ${id}
@@ -655,12 +670,13 @@ export const makeBookkeeperDatabase: Effect.Effect<
           if (Option.isSome(existing.value.deleted_at)) {
             return projectFromStoredRow(existing.value);
           }
-          const children = yield* sql<Record<string, unknown>>`
+          const children = yield* sql<EncodedStoredIssueIdentityRow>`
           SELECT id FROM issues
           WHERE project_id = ${id} AND deleted_at IS NULL
           LIMIT 1
         `;
-          if (children.length > 0) {
+          const parsedChildren = yield* parseStoredIssueIdentityRows(children);
+          if (parsedChildren.length > 0) {
             return yield* new DeleteProjectError({
               reason: "LiveChildren",
               message: "Bookkeeper cannot delete a Project with live Issues",
@@ -733,14 +749,14 @@ export const makeBookkeeperDatabase: Effect.Effect<
       });
       const rowLimit = request.limit + 1;
       const rows = yield* Option.match(cursor, {
-        onNone: () => sql<Record<string, unknown>>`
+        onNone: () => sql<EncodedStoredIssueRow>`
         SELECT id, project_id, created_at, updated_at, deleted_at
         FROM issues
         WHERE project_id = ${projectId} AND deleted_at IS NULL
         ORDER BY id ASC
         LIMIT ${rowLimit}
       `,
-        onSome: (id) => sql<Record<string, unknown>>`
+        onSome: (id) => sql<EncodedStoredIssueRow>`
         SELECT id, project_id, created_at, updated_at, deleted_at
         FROM issues
         WHERE project_id = ${projectId} AND deleted_at IS NULL AND id > ${id}
@@ -945,7 +961,7 @@ export const makeBookkeeperDatabase: Effect.Effect<
 
   const getCounts = Effect.fn("BookkeeperDatabase.getCounts")(
     function* () {
-      const rows = yield* sql<Record<string, unknown>>`
+      const rows = yield* sql<EncodedStoredCountsRow>`
       SELECT
         (SELECT COUNT(*) FROM workspaces WHERE deleted_at IS NULL) AS workspaces,
         (SELECT COUNT(*) FROM projects WHERE deleted_at IS NULL) AS projects,

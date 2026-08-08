@@ -86,16 +86,20 @@ type information and later reconstructs it with `as`, redesign the boundary.
 
 Reserve `unknown` for values that genuinely cross an untrusted runtime boundary, such as parsed
 JSON, HTTP or RPC input, persistence, configuration, files, queues, platform APIs, or untyped
-third-party callbacks. Every `unknown` parameter or return type must have an identifiable external
-source. Values created by our code, returned by a typed API, or already parsed are not unknown. Do
-not widen them because the receiving API has an inconvenient signature.
+third-party callbacks. Do not expose application-owned functions with explicit `unknown`
+parameters. Define the expected Effect Schema and expose its decoder directly with
+`Schema.decodeUnknownEffect(ExpectedSchema)` so the unknown input exists only in the schema-owned
+boundary function. Values created by our code, returned by a typed API, or already parsed are not
+unknown. Do not widen them because the receiving API has an inconvenient signature.
 
 Parse genuinely unknown input once, at the nearest Adapter, I/O boundary, or composition root, into
-the strongest meaningful type. Inner modules receive the parsed type and must not repeatedly
-narrow, inspect, or assert the same external representation. A generic object check such as
-`typeof value === "object" && value !== null` proves only that a value is object-like; it is not a
-parser for the expected domain or library contract. When the expected contract is known, parse that
-contract directly with its schema, decoder, smart constructor, or equivalent parser.
+the strongest meaningful type. Convert every generic record into a strongly typed domain,
+application, protocol, or persistence type at the earliest possible point, as close as possible to
+the I/O boundary where the data originated. Inner modules receive the parsed type and must not
+repeatedly narrow, inspect, or assert the same external representation. Runtime `typeof` checks and
+generic object checks prove only incidental JavaScript representation facts; they do not parse the
+expected contract. Parse that contract directly with its schema, decoder, smart constructor, or
+other owning parser.
 
 Before introducing `unknown`, `object`, a generic record, a hand-written structural type, or a type
 assertion:
@@ -143,6 +147,12 @@ Enforce this policy with generic Oxlint rules rather than framework- or project-
   caller to preserve the original type or parse at the boundary.
 - `type-provenance/no-known-value-widening` conservatively detects syntactically established values
   assigned or returned through explicit `unknown`, `object`, or generic-record annotations.
+- `type-provenance/no-record-type` rejects TypeScript `Record` utility types so each data shape keeps
+  an owner-provided or schema-derived type.
+- `type-provenance/no-runtime-typeof` rejects runtime `typeof` narrowing in favor of parsing the
+  expected contract.
+- `type-provenance/no-unknown-parameters` rejects explicit `unknown` function parameters and directs
+  I/O adapters to expose `Schema.decodeUnknownEffect(ExpectedSchema)` instead.
 - `type-provenance/no-widen-then-assert` detects immutable local flows that erase a known type and
   later reconstruct it with an assertion.
 

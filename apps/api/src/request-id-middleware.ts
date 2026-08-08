@@ -14,16 +14,26 @@ const CloudflareRayId = Schema.String.check(
   Schema.isPattern(/^[!-~]+$/),
 ).pipe(Schema.brand("CloudflareRayId"));
 
+type CloudflareRayId = typeof CloudflareRayId.Type;
+
 const parseCloudflareRayId = Schema.decodeUnknownOption(CloudflareRayId);
 
-type RequestIdentityAnnotations = Readonly<Record<string, string>>;
+type RequestIdentityAnnotations =
+  | { readonly kind: "generic" }
+  | {
+      readonly kind: "cloudflare";
+      readonly "cf-ray": CloudflareRayId | "invalid";
+    };
 
 const runWithCurrentRequestId = Effect.fnUntraced(function* <A, E, R>(
   endpointEffect: Effect.Effect<A, E, R>,
   providerAnnotations: RequestIdentityAnnotations,
 ) {
   const requestId = yield* generateOverseerRequestId;
-  const annotations = { requestId, ...providerAnnotations };
+  const annotations =
+    providerAnnotations.kind === "generic"
+      ? { requestId }
+      : { requestId, "cf-ray": providerAnnotations["cf-ray"] };
 
   yield* Effect.annotateCurrentSpan(annotations);
   yield* HttpEffect.appendPreResponseHandler((_request, response) =>
@@ -44,12 +54,12 @@ const cloudflareRequestIdentityAnnotations: Effect.Effect<
 > = Effect.map(HttpServerRequest.HttpServerRequest, (request) => {
   const header = request.headers["cf-ray"];
   if (header === undefined) {
-    return {};
+    return { kind: "generic" };
   }
 
   return Option.match(parseCloudflareRayId(header), {
-    onNone: () => ({ "cf-ray": "invalid" }),
-    onSome: (cfRay) => ({ "cf-ray": cfRay }),
+    onNone: () => ({ kind: "cloudflare", "cf-ray": "invalid" }),
+    onSome: (cfRay) => ({ kind: "cloudflare", "cf-ray": cfRay }),
   });
 });
 
@@ -62,7 +72,9 @@ export class RequestIdMiddleware extends HttpApiMiddleware.Service<
 /** Provides generic request ID middleware for local and provider-neutral runtimes. */
 export const requestIdMiddlewareLayer = Layer.succeed(
   RequestIdMiddleware,
-  RequestIdMiddleware.of((endpointEffect) => runWithCurrentRequestId(endpointEffect, {})),
+  RequestIdMiddleware.of((endpointEffect) =>
+    runWithCurrentRequestId(endpointEffect, { kind: "generic" }),
+  ),
 );
 
 /** Provides request ID middleware enriched with Cloudflare Ray ID observability context. */
