@@ -1,5 +1,5 @@
 import { Context, Effect, Layer, Schema } from "effect";
-import { HttpApiMiddleware, HttpApiSecurity } from "effect/unstable/httpapi";
+import { HttpApiMiddleware, HttpApiSecurity, OpenApi } from "effect/unstable/httpapi";
 import {
   CloudflareAccessPrincipal,
   CloudflareAccessVerifier,
@@ -17,6 +17,17 @@ export class AccessUnauthorized extends Schema.TaggedErrorClass<AccessUnauthoriz
   },
   { httpApiStatus: 401 },
 ) {}
+
+const AccessUnauthorizedApiResponse = AccessUnauthorized.pipe(
+  Schema.annotateEncoded({
+    examples: [
+      {
+        _tag: "AccessUnauthorized",
+        message: "A valid Cf-Access-Jwt-Assertion header is required.",
+      },
+    ],
+  }),
+);
 
 /** Provides the immutable Actor authenticated for the current HTTP request. */
 export class CurrentActor extends Context.Service<CurrentActor, Actor>()(
@@ -42,12 +53,18 @@ export class AccessAuthenticationMiddleware extends HttpApiMiddleware.Service<
   AccessAuthenticationMiddleware,
   { provides: CurrentActor }
 >()("@overseer/AccessAuthenticationMiddleware", {
-  error: AccessUnauthorized,
+  error: AccessUnauthorizedApiResponse,
   security: {
     accessAssertion: HttpApiSecurity.apiKey({
       in: "header",
       key: "Cf-Access-Jwt-Assertion",
-    }),
+    }).pipe(
+      HttpApiSecurity.annotateMerge(
+        OpenApi.annotations({
+          description: "Cloudflare Access assertion sent in the Cf-Access-Jwt-Assertion header.",
+        }),
+      ),
+    ),
   },
 }) {}
 
