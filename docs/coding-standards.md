@@ -54,6 +54,106 @@ payloads, database rows, environment strings, vendor records, or other boundary 
 When data leaves the application, encode rich values back into the exact external representation
 required by that boundary.
 
+## Preserve Established Type Information
+
+Treat types as evidence about where a value came from and which invariants have already been
+established. Preserve the strongest meaningful domain, application, library, or platform type
+available. A broader type is not safer when the value is already known; it discards evidence and
+moves mistakes from the compiler into runtime assumptions.
+
+Never widen a known value to `unknown`, `object`, a primitive, or `Record<string, unknown>` merely
+because a downstream implementation is easier to write against a broad type. This applies equally
+to project-owned domain values and values returned by typed libraries. Function parameters and
+return values state what the function actually accepts and produces, not the broadest structure its
+implementation could inspect:
+
+```ts
+// Wrong: discards the library's established operation contract.
+const transformOperation = (value: Record<string, unknown>): Record<string, unknown> => {
+  // ...
+};
+
+// Correct: preserves the type supplied by the owning library.
+const transformOperation = (operation: OpenApiOperation): OpenApiOperation => {
+  // ...
+};
+```
+
+Never erase a type and assert it back later. Chained assertions such as `value as unknown as T`,
+`value as any as T`, and equivalent multi-statement widening-and-casting sequences are prohibited.
+A type assertion does not parse, validate, or establish an invariant. If code deliberately loses
+type information and later reconstructs it with `as`, redesign the boundary.
+
+Reserve `unknown` for values that genuinely cross an untrusted runtime boundary, such as parsed
+JSON, HTTP or RPC input, persistence, configuration, files, queues, platform APIs, or untyped
+third-party callbacks. Every `unknown` parameter or return type must have an identifiable external
+source. Values created by our code, returned by a typed API, or already parsed are not unknown. Do
+not widen them because the receiving API has an inconvenient signature.
+
+Parse genuinely unknown input once, at the nearest Adapter, I/O boundary, or composition root, into
+the strongest meaningful type. Inner modules receive the parsed type and must not repeatedly
+narrow, inspect, or assert the same external representation. A generic object check such as
+`typeof value === "object" && value !== null` proves only that a value is object-like; it is not a
+parser for the expected domain or library contract. When the expected contract is known, parse that
+contract directly with its schema, decoder, smart constructor, or equivalent parser.
+
+Before introducing `unknown`, `object`, a generic record, a hand-written structural type, or a type
+assertion:
+
+1. Identify the value's provenance and whether it is actually untrusted at runtime.
+2. Search the owning domain module or library for its public type, schema, decoder, constructor, or
+   generic parameter.
+3. Preserve that type through function boundaries and use `satisfies`, explicit return types, or
+   typed constructors to check newly constructed values without widening them.
+4. If the source is genuinely untrusted, parse it at the boundary and pass only the parsed result
+   inward.
+5. If a library API is typed more broadly than the value it supplies, do not hide the mismatch with
+   a cast. Prefer a first-class API, a typed upstream fix or upgrade, an explicitly parsed boundary
+   adapter, or omission of unsupported behavior.
+
+A type assertion is permitted only at the smallest unavoidable platform boundary when the runtime
+invariant has already been established but TypeScript cannot express it. The value must not have
+been widened by our own code; the assertion must not chain through `unknown` or `any`; and the
+upstream limitation, runtime evidence, and focused verification must be documented. Convenience,
+framework folklore, and "this callback always passes that type" are not evidence.
+
+Treat the following as review blockers:
+
+- `as unknown as` or `as any as`;
+- a known domain or library value accepted or returned as `unknown`, `object`, or a generic record;
+- an assertion immediately following an explicit widening assignment;
+- repeated parsing or narrowing of a value that already crossed its owning boundary;
+- a generic record guard used in place of parsing the expected contract;
+- a local approximation of an available domain or library type;
+- an internal function returning `unknown` without introducing a new external boundary.
+
+The governing rule is: **preserve evidence already established, create evidence by parsing truly
+unknown input at its boundary, and never fabricate evidence with an assertion after throwing it
+away.**
+
+Enforce this policy with generic Oxlint rules rather than framework- or project-specific names:
+
+- `typescript/consistent-type-assertions` with `assertionStyle: "never"` rejects ordinary `as T`
+  and angle-bracket assertions while permitting `as const` and `satisfies`.
+- `typescript/no-unsafe-type-assertion` and `typescript/no-unnecessary-type-assertion` provide
+  type-aware diagnostics for unsafe narrowing and redundant assertions.
+- `typescript/no-explicit-any` and `typescript/no-non-null-assertion` reject common type-system
+  escape hatches.
+- `type-provenance/no-chained-type-assertions` identifies nested assertion chains and directs the
+  caller to preserve the original type or parse at the boundary.
+- `type-provenance/no-known-value-widening` conservatively detects syntactically established values
+  assigned or returned through explicit `unknown`, `object`, or generic-record annotations.
+- `type-provenance/no-widen-then-assert` detects immutable local flows that erase a known type and
+  later reconstruct it with an assertion.
+
+Diagnostics for these rules must be agent-friendly: identify the lost type evidence or binding when
+available, explain why the operation is invalid, and state whether the correction is to preserve the
+precise type or parse genuinely unknown input at its boundary. JavaScript Oxlint plugins currently
+receive the Oxc AST and scope manager but not Oxlint's native type-checker results. Keep custom rules
+conservative: do not report imported values, typed call results, parser arguments, or cross-function
+flows when their provenance cannot be proven syntactically. A clean custom-lint result does not
+prove that library types were preserved; type-aware native rules and review still own semantic cases.
+
 ## OpenAPI Contract Generation
 
 Effect HTTP API contracts are the source of truth for checked-in OpenAPI specifications. Annotate the contract before generation; never hand-edit generated OpenAPI JSON.
@@ -61,7 +161,7 @@ Effect HTTP API contracts are the source of truth for checked-in OpenAPI specifi
 - Add a safe, realistic schema example for every value a generated client must supply, especially branded IDs, names, request bodies, and lifecycle states. Never rely on importer placeholders such as `<string>`.
 - Add concise operation summaries and descriptions that explain identifier provenance and request ordering. When one operation creates an ID used by another, say that the ID comes from the create response; clients can then use request chaining instead of persisting an instance-specific ID.
 - Include representative success and public error examples for each operation state transition. Examples must conform to the same domain schema and stable error envelope that production serves.
-- Declare every response correlation header, including error responses. `X-Overseer-Request-Id` is required on matched endpoint responses and its OpenAPI description must identify it as the support, log, and trace correlation ID.
+- Declare every response correlation header, including error responses, when the contract library supports response-header metadata. `X-Overseer-Request-Id` remains required at runtime and its API description must identify it as the support, log, and trace correlation ID. Do not widen or cast generated contract types to inject metadata the library does not model; omit that generated metadata, isolate an honestly parsed boundary adapter, or fix the capability upstream.
 - Document authentication schemes with their real header names and purpose. Verify a generated client import rather than assuming its authentication mapping is lossless.
 - Add only truthful server URLs. A local server URL is appropriate when stable; do not invent a production hostname.
 - Regenerate the specification with `vp run generate:openapi`, format it, and inspect the diff after every contract change.

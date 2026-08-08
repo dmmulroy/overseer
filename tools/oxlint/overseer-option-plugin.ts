@@ -150,8 +150,7 @@ function isParameterAnnotation(annotation: ESTree.TSTypeAnnotation): boolean {
     const parent = current.parent;
     if (parent === null) return false;
     if (functionLikeTypes.has(parent.type) && "params" in parent) {
-      const parameters = parent.params as readonly ESTree.Node[];
-      return parameters.includes(current);
+      return parent.params.some((parameter) => parameter === current);
     }
     if (parent.type === "TSTypeAnnotation" || parent.type === "TSTypeAliasDeclaration") {
       return false;
