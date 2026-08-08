@@ -17,5 +17,17 @@ export default defineConfig({
   },
   run: {
     cache: true,
+    tasks: {
+      "generate:openapi": {
+        command: ["node apps/api/scripts/generate-openapi.ts", "vp fmt apps/api/openapi.json"],
+        output: ["apps/api/openapi.json"],
+      },
+      "sync:yaak": {
+        command: "node apps/api/scripts/sync-yaak-openapi.ts",
+        dependsOn: ["generate:openapi"],
+        input: ["apps/api/openapi.json", "apps/api/scripts/sync-yaak-openapi.ts"],
+        output: [],
+      },
+    },
   },
 });

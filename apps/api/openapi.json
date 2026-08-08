@@ -1,0 +1,1336 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "Overseer API",
+    "version": "0.0.0",
+    "description": "Authenticated API for managing Overseer Workspaces. Every response includes X-Overseer-Request-Id for support, logs, and traces."
+  },
+  "paths": {
+    "/": {
+      "get": {
+        "tags": ["Overseer"],
+        "operationId": "overseer.getApiIdentity",
+        "parameters": [],
+        "security": [
+          {
+            "accessAssertion": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "string",
+                  "examples": ["Overseer API"]
+                }
+              }
+            },
+            "headers": {
+              "X-Overseer-Request-Id": {
+                "description": "Application request correlation ID for support, logs, and traces.",
+                "required": true,
+                "schema": {
+                  "type": "string",
+                  "pattern": "^request_[A-Z0-9]{26}$",
+                  "example": "request_01KZGWMQ4054AXZGW9RR1VJ3JM"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "AccessUnauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AccessUnauthorizedJsonEncoding"
+                },
+                "examples": {
+                  "example": {
+                    "value": {
+                      "message": "A valid Cf-Access-Jwt-Assertion header is required."
+                    }
+                  }
+                }
+              }
+            },
+            "headers": {
+              "X-Overseer-Request-Id": {
+                "description": "Application request correlation ID for support, logs, and traces.",
+                "required": true,
+                "schema": {
+                  "type": "string",
+                  "pattern": "^request_[A-Z0-9]{26}$",
+                  "example": "request_01KZGWMQ4054AXZGW9RR1VJ3JM"
+                }
+              }
+            }
+          }
+        },
+        "description": "Confirms that the authenticated Overseer API is reachable.",
+        "summary": "Get API identity"
+      }
+    },
+    "/v1/workspaces": {
+      "post": {
+        "tags": ["Overseer"],
+        "operationId": "overseer.createWorkspace",
+        "parameters": [],
+        "security": [
+          {
+            "accessAssertion": []
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": "Workspace state after the requested operation completes.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "string",
+                      "pattern": "^workspace_[\\s\\S]*?$",
+                      "description": "Stable Workspace identity returned by the create Workspace operation.",
+                      "examples": ["workspace_01KZGWRATYFXD8QCG7QTKG5C3S"]
+                    },
+                    "name": {
+                      "type": "string",
+                      "allOf": [
+                        {
+                          "minLength": 1
+                        },
+                        {
+                          "maxLength": 200
+                        },
+                        {
+                          "pattern": "\\S"
+                        },
+                        {
+                          "pattern": "^[^\\p{Cc}\\p{Zl}\\p{Zp}]*$",
+                          "description": "Human-readable Workspace display name.",
+                          "examples": ["Product Engineering"]
+                        }
+                      ]
+                    },
+                    "state": {
+                      "type": "string",
+                      "enum": ["active", "archived"]
+                    },
+                    "createdAt": {
+                      "type": "string"
+                    },
+                    "updatedAt": {
+                      "type": "string"
+                    }
+                  },
+                  "required": ["id", "name", "state", "createdAt", "updatedAt"],
+                  "additionalProperties": false,
+                  "description": "Workspace state after the requested operation completes.",
+                  "examples": [
+                    {
+                      "id": "workspace_01KZGWRATYFXD8QCG7QTKG5C3S",
+                      "name": "Product Engineering",
+                      "state": "active",
+                      "createdAt": "2026-08-08T14:34:41.913Z",
+                      "updatedAt": "2026-08-08T14:34:41.913Z"
+                    }
+                  ]
+                },
+                "examples": {
+                  "example": {
+                    "value": {
+                      "id": "workspace_01KZGWRATYFXD8QCG7QTKG5C3S",
+                      "name": "Product Engineering",
+                      "state": "active",
+                      "createdAt": "2026-08-08T14:34:41.913Z",
+                      "updatedAt": "2026-08-08T14:34:41.913Z"
+                    }
+                  }
+                }
+              }
+            },
+            "headers": {
+              "X-Overseer-Request-Id": {
+                "description": "Application request correlation ID for support, logs, and traces.",
+                "required": true,
+                "schema": {
+                  "type": "string",
+                  "pattern": "^request_[A-Z0-9]{26}$",
+                  "example": "request_01KZGWMQ4054AXZGW9RR1VJ3JM"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "AccessUnauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AccessUnauthorizedJsonEncoding"
+                },
+                "examples": {
+                  "example": {
+                    "value": {
+                      "message": "A valid Cf-Access-Jwt-Assertion header is required."
+                    }
+                  }
+                }
+              }
+            },
+            "headers": {
+              "X-Overseer-Request-Id": {
+                "description": "Application request correlation ID for support, logs, and traces.",
+                "required": true,
+                "schema": {
+                  "type": "string",
+                  "pattern": "^request_[A-Z0-9]{26}$",
+                  "example": "request_01KZGWMQ4054AXZGW9RR1VJ3JM"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "WorkspaceOperationFailedApiError",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WorkspaceOperationFailedApiErrorJsonEncoding"
+                },
+                "examples": {
+                  "example": {
+                    "value": {
+                      "code": "workspace_operation_failed",
+                      "message": "Workspace operation failed: the requested Workspace read could not be completed because Overseer encountered an internal consistency problem. Contact support with request ID request_01KZGWMQ4054AXZGW9RR1VJ3JM.",
+                      "requestId": "request_01KZGWMQ4054AXZGW9RR1VJ3JM",
+                      "retryable": false,
+                      "details": {
+                        "workspaceId": null,
+                        "operation": "create"
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            "headers": {
+              "X-Overseer-Request-Id": {
+                "description": "Application request correlation ID for support, logs, and traces.",
+                "required": true,
+                "schema": {
+                  "type": "string",
+                  "pattern": "^request_[A-Z0-9]{26}$",
+                  "example": "request_01KZGWMQ4054AXZGW9RR1VJ3JM"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "WorkspaceServiceUnavailableApiError",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WorkspaceServiceUnavailableApiErrorJsonEncoding"
+                },
+                "examples": {
+                  "example": {
+                    "value": {
+                      "code": "workspace_service_unavailable",
+                      "message": "Workspace service unavailable: the requested Workspace creation could not be completed because a required Overseer service is temporarily unavailable. Do not retry this operation automatically; contact support with request ID request_01KZGWMQ4054AXZGW9RR1VJ3JM.",
+                      "requestId": "request_01KZGWMQ4054AXZGW9RR1VJ3JM",
+                      "retryable": false,
+                      "details": {
+                        "workspaceId": null,
+                        "operation": "create"
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            "headers": {
+              "X-Overseer-Request-Id": {
+                "description": "Application request correlation ID for support, logs, and traces.",
+                "required": true,
+                "schema": {
+                  "type": "string",
+                  "pattern": "^request_[A-Z0-9]{26}$",
+                  "example": "request_01KZGWMQ4054AXZGW9RR1VJ3JM"
+                }
+              }
+            }
+          }
+        },
+        "description": "Creates a Workspace and returns its canonical ID for subsequent Workspace operations.",
+        "summary": "Create Workspace",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "name": {
+                    "type": "string",
+                    "allOf": [
+                      {
+                        "minLength": 1
+                      },
+                      {
+                        "maxLength": 200
+                      },
+                      {
+                        "pattern": "\\S"
+                      },
+                      {
+                        "pattern": "^[^\\p{Cc}\\p{Zl}\\p{Zp}]*$",
+                        "description": "Human-readable Workspace display name.",
+                        "examples": ["Product Engineering"]
+                      }
+                    ]
+                  }
+                },
+                "required": ["name"],
+                "additionalProperties": false,
+                "description": "Input required to create a Workspace.",
+                "examples": [
+                  {
+                    "name": "Product Engineering"
+                  }
+                ]
+              },
+              "example": {
+                "name": "Product Engineering"
+              }
+            }
+          },
+          "required": true
+        }
+      }
+    },
+    "/v1/workspaces/{workspaceId}": {
+      "get": {
+        "tags": ["Overseer"],
+        "operationId": "overseer.getWorkspace",
+        "parameters": [
+          {
+            "name": "workspaceId",
+            "in": "path",
+            "schema": {
+              "type": "string",
+              "pattern": "^workspace_[\\s\\S]*?$",
+              "description": "Stable Workspace identity returned by the create Workspace operation.",
+              "examples": ["workspace_01KZGWRATYFXD8QCG7QTKG5C3S"]
+            },
+            "required": true
+          }
+        ],
+        "security": [
+          {
+            "accessAssertion": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Workspace state after the requested operation completes.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Objects_1"
+                },
+                "examples": {
+                  "example": {
+                    "value": {
+                      "id": "workspace_01KZGWRATYFXD8QCG7QTKG5C3S",
+                      "name": "Product Engineering",
+                      "state": "active",
+                      "createdAt": "2026-08-08T14:34:41.913Z",
+                      "updatedAt": "2026-08-08T14:34:41.913Z"
+                    }
+                  }
+                }
+              }
+            },
+            "headers": {
+              "X-Overseer-Request-Id": {
+                "description": "Application request correlation ID for support, logs, and traces.",
+                "required": true,
+                "schema": {
+                  "type": "string",
+                  "pattern": "^request_[A-Z0-9]{26}$",
+                  "example": "request_01KZGWMQ4054AXZGW9RR1VJ3JM"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "AccessUnauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AccessUnauthorizedJsonEncoding"
+                },
+                "examples": {
+                  "example": {
+                    "value": {
+                      "message": "A valid Cf-Access-Jwt-Assertion header is required."
+                    }
+                  }
+                }
+              }
+            },
+            "headers": {
+              "X-Overseer-Request-Id": {
+                "description": "Application request correlation ID for support, logs, and traces.",
+                "required": true,
+                "schema": {
+                  "type": "string",
+                  "pattern": "^request_[A-Z0-9]{26}$",
+                  "example": "request_01KZGWMQ4054AXZGW9RR1VJ3JM"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "WorkspaceNotFoundApiError",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WorkspaceNotFoundApiErrorJsonEncoding"
+                },
+                "examples": {
+                  "example": {
+                    "value": {
+                      "code": "workspace_not_found",
+                      "message": "Workspace not found: Workspace workspace_01KZGWRATYFXD8QCG7QTKG5C3S was not found. Check the Workspace ID and try again.",
+                      "requestId": "request_01KZGWMQ4054AXZGW9RR1VJ3JM",
+                      "retryable": false,
+                      "details": {
+                        "workspaceId": "workspace_01KZGWRATYFXD8QCG7QTKG5C3S",
+                        "operation": "get"
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            "headers": {
+              "X-Overseer-Request-Id": {
+                "description": "Application request correlation ID for support, logs, and traces.",
+                "required": true,
+                "schema": {
+                  "type": "string",
+                  "pattern": "^request_[A-Z0-9]{26}$",
+                  "example": "request_01KZGWMQ4054AXZGW9RR1VJ3JM"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "WorkspaceOperationFailedApiError",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WorkspaceOperationFailedApiErrorJsonEncoding"
+                },
+                "examples": {
+                  "example": {
+                    "value": {
+                      "code": "workspace_operation_failed",
+                      "message": "Workspace operation failed: the requested Workspace read could not be completed because Overseer encountered an internal consistency problem. Contact support with request ID request_01KZGWMQ4054AXZGW9RR1VJ3JM.",
+                      "requestId": "request_01KZGWMQ4054AXZGW9RR1VJ3JM",
+                      "retryable": false,
+                      "details": {
+                        "workspaceId": null,
+                        "operation": "create"
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            "headers": {
+              "X-Overseer-Request-Id": {
+                "description": "Application request correlation ID for support, logs, and traces.",
+                "required": true,
+                "schema": {
+                  "type": "string",
+                  "pattern": "^request_[A-Z0-9]{26}$",
+                  "example": "request_01KZGWMQ4054AXZGW9RR1VJ3JM"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "WorkspaceServiceUnavailableApiError",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WorkspaceServiceUnavailableApiErrorJsonEncoding"
+                },
+                "examples": {
+                  "example": {
+                    "value": {
+                      "code": "workspace_service_unavailable",
+                      "message": "Workspace service unavailable: the requested Workspace creation could not be completed because a required Overseer service is temporarily unavailable. Do not retry this operation automatically; contact support with request ID request_01KZGWMQ4054AXZGW9RR1VJ3JM.",
+                      "requestId": "request_01KZGWMQ4054AXZGW9RR1VJ3JM",
+                      "retryable": false,
+                      "details": {
+                        "workspaceId": null,
+                        "operation": "create"
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            "headers": {
+              "X-Overseer-Request-Id": {
+                "description": "Application request correlation ID for support, logs, and traces.",
+                "required": true,
+                "schema": {
+                  "type": "string",
+                  "pattern": "^request_[A-Z0-9]{26}$",
+                  "example": "request_01KZGWMQ4054AXZGW9RR1VJ3JM"
+                }
+              }
+            }
+          }
+        },
+        "description": "Returns a Workspace by the canonical ID returned from create Workspace.",
+        "summary": "Get Workspace"
+      }
+    },
+    "/v1/workspaces/{workspaceId}/rename": {
+      "post": {
+        "tags": ["Overseer"],
+        "operationId": "overseer.renameWorkspace",
+        "parameters": [
+          {
+            "name": "workspaceId",
+            "in": "path",
+            "schema": {
+              "type": "string",
+              "pattern": "^workspace_[\\s\\S]*?$",
+              "description": "Stable Workspace identity returned by the create Workspace operation.",
+              "examples": ["workspace_01KZGWRATYFXD8QCG7QTKG5C3S"]
+            },
+            "required": true
+          }
+        ],
+        "security": [
+          {
+            "accessAssertion": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Workspace state after the requested operation completes.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Objects_1"
+                },
+                "examples": {
+                  "example": {
+                    "value": {
+                      "id": "workspace_01KZGWRATYFXD8QCG7QTKG5C3S",
+                      "name": "Platform Engineering",
+                      "state": "active",
+                      "createdAt": "2026-08-08T14:34:41.913Z",
+                      "updatedAt": "2026-08-08T14:35:11.913Z"
+                    }
+                  }
+                }
+              }
+            },
+            "headers": {
+              "X-Overseer-Request-Id": {
+                "description": "Application request correlation ID for support, logs, and traces.",
+                "required": true,
+                "schema": {
+                  "type": "string",
+                  "pattern": "^request_[A-Z0-9]{26}$",
+                  "example": "request_01KZGWMQ4054AXZGW9RR1VJ3JM"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "AccessUnauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AccessUnauthorizedJsonEncoding"
+                },
+                "examples": {
+                  "example": {
+                    "value": {
+                      "message": "A valid Cf-Access-Jwt-Assertion header is required."
+                    }
+                  }
+                }
+              }
+            },
+            "headers": {
+              "X-Overseer-Request-Id": {
+                "description": "Application request correlation ID for support, logs, and traces.",
+                "required": true,
+                "schema": {
+                  "type": "string",
+                  "pattern": "^request_[A-Z0-9]{26}$",
+                  "example": "request_01KZGWMQ4054AXZGW9RR1VJ3JM"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "WorkspaceNotFoundApiError",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WorkspaceNotFoundApiErrorJsonEncoding"
+                },
+                "examples": {
+                  "example": {
+                    "value": {
+                      "code": "workspace_not_found",
+                      "message": "Workspace not found: Workspace workspace_01KZGWRATYFXD8QCG7QTKG5C3S was not found. Check the Workspace ID and try again.",
+                      "requestId": "request_01KZGWMQ4054AXZGW9RR1VJ3JM",
+                      "retryable": false,
+                      "details": {
+                        "workspaceId": "workspace_01KZGWRATYFXD8QCG7QTKG5C3S",
+                        "operation": "get"
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            "headers": {
+              "X-Overseer-Request-Id": {
+                "description": "Application request correlation ID for support, logs, and traces.",
+                "required": true,
+                "schema": {
+                  "type": "string",
+                  "pattern": "^request_[A-Z0-9]{26}$",
+                  "example": "request_01KZGWMQ4054AXZGW9RR1VJ3JM"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "WorkspaceOperationFailedApiError",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WorkspaceOperationFailedApiErrorJsonEncoding"
+                },
+                "examples": {
+                  "example": {
+                    "value": {
+                      "code": "workspace_operation_failed",
+                      "message": "Workspace operation failed: the requested Workspace read could not be completed because Overseer encountered an internal consistency problem. Contact support with request ID request_01KZGWMQ4054AXZGW9RR1VJ3JM.",
+                      "requestId": "request_01KZGWMQ4054AXZGW9RR1VJ3JM",
+                      "retryable": false,
+                      "details": {
+                        "workspaceId": null,
+                        "operation": "create"
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            "headers": {
+              "X-Overseer-Request-Id": {
+                "description": "Application request correlation ID for support, logs, and traces.",
+                "required": true,
+                "schema": {
+                  "type": "string",
+                  "pattern": "^request_[A-Z0-9]{26}$",
+                  "example": "request_01KZGWMQ4054AXZGW9RR1VJ3JM"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "WorkspaceServiceUnavailableApiError",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WorkspaceServiceUnavailableApiErrorJsonEncoding"
+                },
+                "examples": {
+                  "example": {
+                    "value": {
+                      "code": "workspace_service_unavailable",
+                      "message": "Workspace service unavailable: the requested Workspace creation could not be completed because a required Overseer service is temporarily unavailable. Do not retry this operation automatically; contact support with request ID request_01KZGWMQ4054AXZGW9RR1VJ3JM.",
+                      "requestId": "request_01KZGWMQ4054AXZGW9RR1VJ3JM",
+                      "retryable": false,
+                      "details": {
+                        "workspaceId": null,
+                        "operation": "create"
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            "headers": {
+              "X-Overseer-Request-Id": {
+                "description": "Application request correlation ID for support, logs, and traces.",
+                "required": true,
+                "schema": {
+                  "type": "string",
+                  "pattern": "^request_[A-Z0-9]{26}$",
+                  "example": "request_01KZGWMQ4054AXZGW9RR1VJ3JM"
+                }
+              }
+            }
+          }
+        },
+        "description": "Replaces a Workspace display name using the canonical Workspace ID returned from create Workspace.",
+        "summary": "Rename Workspace",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "name": {
+                    "type": "string",
+                    "allOf": [
+                      {
+                        "minLength": 1
+                      },
+                      {
+                        "maxLength": 200
+                      },
+                      {
+                        "pattern": "\\S"
+                      },
+                      {
+                        "pattern": "^[^\\p{Cc}\\p{Zl}\\p{Zp}]*$",
+                        "description": "Human-readable Workspace display name.",
+                        "examples": ["Product Engineering"]
+                      }
+                    ]
+                  }
+                },
+                "required": ["name"],
+                "additionalProperties": false,
+                "description": "Input required to replace a Workspace display name.",
+                "examples": [
+                  {
+                    "name": "Platform Engineering"
+                  }
+                ]
+              },
+              "example": {
+                "name": "Platform Engineering"
+              }
+            }
+          },
+          "required": true
+        }
+      }
+    },
+    "/v1/workspaces/{workspaceId}/archive": {
+      "post": {
+        "tags": ["Overseer"],
+        "operationId": "overseer.archiveWorkspace",
+        "parameters": [
+          {
+            "name": "workspaceId",
+            "in": "path",
+            "schema": {
+              "type": "string",
+              "pattern": "^workspace_[\\s\\S]*?$",
+              "description": "Stable Workspace identity returned by the create Workspace operation.",
+              "examples": ["workspace_01KZGWRATYFXD8QCG7QTKG5C3S"]
+            },
+            "required": true
+          }
+        ],
+        "security": [
+          {
+            "accessAssertion": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Workspace state after the requested operation completes.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Objects_1"
+                },
+                "examples": {
+                  "example": {
+                    "value": {
+                      "id": "workspace_01KZGWRATYFXD8QCG7QTKG5C3S",
+                      "name": "Product Engineering",
+                      "state": "archived",
+                      "createdAt": "2026-08-08T14:34:41.913Z",
+                      "updatedAt": "2026-08-08T14:35:41.913Z"
+                    }
+                  }
+                }
+              }
+            },
+            "headers": {
+              "X-Overseer-Request-Id": {
+                "description": "Application request correlation ID for support, logs, and traces.",
+                "required": true,
+                "schema": {
+                  "type": "string",
+                  "pattern": "^request_[A-Z0-9]{26}$",
+                  "example": "request_01KZGWMQ4054AXZGW9RR1VJ3JM"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "AccessUnauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AccessUnauthorizedJsonEncoding"
+                },
+                "examples": {
+                  "example": {
+                    "value": {
+                      "message": "A valid Cf-Access-Jwt-Assertion header is required."
+                    }
+                  }
+                }
+              }
+            },
+            "headers": {
+              "X-Overseer-Request-Id": {
+                "description": "Application request correlation ID for support, logs, and traces.",
+                "required": true,
+                "schema": {
+                  "type": "string",
+                  "pattern": "^request_[A-Z0-9]{26}$",
+                  "example": "request_01KZGWMQ4054AXZGW9RR1VJ3JM"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "WorkspaceNotFoundApiError",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WorkspaceNotFoundApiErrorJsonEncoding"
+                },
+                "examples": {
+                  "example": {
+                    "value": {
+                      "code": "workspace_not_found",
+                      "message": "Workspace not found: Workspace workspace_01KZGWRATYFXD8QCG7QTKG5C3S was not found. Check the Workspace ID and try again.",
+                      "requestId": "request_01KZGWMQ4054AXZGW9RR1VJ3JM",
+                      "retryable": false,
+                      "details": {
+                        "workspaceId": "workspace_01KZGWRATYFXD8QCG7QTKG5C3S",
+                        "operation": "get"
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            "headers": {
+              "X-Overseer-Request-Id": {
+                "description": "Application request correlation ID for support, logs, and traces.",
+                "required": true,
+                "schema": {
+                  "type": "string",
+                  "pattern": "^request_[A-Z0-9]{26}$",
+                  "example": "request_01KZGWMQ4054AXZGW9RR1VJ3JM"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "WorkspaceOperationFailedApiError",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WorkspaceOperationFailedApiErrorJsonEncoding"
+                },
+                "examples": {
+                  "example": {
+                    "value": {
+                      "code": "workspace_operation_failed",
+                      "message": "Workspace operation failed: the requested Workspace read could not be completed because Overseer encountered an internal consistency problem. Contact support with request ID request_01KZGWMQ4054AXZGW9RR1VJ3JM.",
+                      "requestId": "request_01KZGWMQ4054AXZGW9RR1VJ3JM",
+                      "retryable": false,
+                      "details": {
+                        "workspaceId": null,
+                        "operation": "create"
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            "headers": {
+              "X-Overseer-Request-Id": {
+                "description": "Application request correlation ID for support, logs, and traces.",
+                "required": true,
+                "schema": {
+                  "type": "string",
+                  "pattern": "^request_[A-Z0-9]{26}$",
+                  "example": "request_01KZGWMQ4054AXZGW9RR1VJ3JM"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "WorkspaceServiceUnavailableApiError",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WorkspaceServiceUnavailableApiErrorJsonEncoding"
+                },
+                "examples": {
+                  "example": {
+                    "value": {
+                      "code": "workspace_service_unavailable",
+                      "message": "Workspace service unavailable: the requested Workspace creation could not be completed because a required Overseer service is temporarily unavailable. Do not retry this operation automatically; contact support with request ID request_01KZGWMQ4054AXZGW9RR1VJ3JM.",
+                      "requestId": "request_01KZGWMQ4054AXZGW9RR1VJ3JM",
+                      "retryable": false,
+                      "details": {
+                        "workspaceId": null,
+                        "operation": "create"
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            "headers": {
+              "X-Overseer-Request-Id": {
+                "description": "Application request correlation ID for support, logs, and traces.",
+                "required": true,
+                "schema": {
+                  "type": "string",
+                  "pattern": "^request_[A-Z0-9]{26}$",
+                  "example": "request_01KZGWMQ4054AXZGW9RR1VJ3JM"
+                }
+              }
+            }
+          }
+        },
+        "description": "Changes a Workspace state to archived using the canonical Workspace ID returned from create Workspace.",
+        "summary": "Archive Workspace"
+      }
+    },
+    "/v1/workspaces/{workspaceId}/unarchive": {
+      "post": {
+        "tags": ["Overseer"],
+        "operationId": "overseer.unarchiveWorkspace",
+        "parameters": [
+          {
+            "name": "workspaceId",
+            "in": "path",
+            "schema": {
+              "type": "string",
+              "pattern": "^workspace_[\\s\\S]*?$",
+              "description": "Stable Workspace identity returned by the create Workspace operation.",
+              "examples": ["workspace_01KZGWRATYFXD8QCG7QTKG5C3S"]
+            },
+            "required": true
+          }
+        ],
+        "security": [
+          {
+            "accessAssertion": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Workspace state after the requested operation completes.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Objects_1"
+                },
+                "examples": {
+                  "example": {
+                    "value": {
+                      "id": "workspace_01KZGWRATYFXD8QCG7QTKG5C3S",
+                      "name": "Product Engineering",
+                      "state": "active",
+                      "createdAt": "2026-08-08T14:34:41.913Z",
+                      "updatedAt": "2026-08-08T14:36:11.913Z"
+                    }
+                  }
+                }
+              }
+            },
+            "headers": {
+              "X-Overseer-Request-Id": {
+                "description": "Application request correlation ID for support, logs, and traces.",
+                "required": true,
+                "schema": {
+                  "type": "string",
+                  "pattern": "^request_[A-Z0-9]{26}$",
+                  "example": "request_01KZGWMQ4054AXZGW9RR1VJ3JM"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "AccessUnauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AccessUnauthorizedJsonEncoding"
+                },
+                "examples": {
+                  "example": {
+                    "value": {
+                      "message": "A valid Cf-Access-Jwt-Assertion header is required."
+                    }
+                  }
+                }
+              }
+            },
+            "headers": {
+              "X-Overseer-Request-Id": {
+                "description": "Application request correlation ID for support, logs, and traces.",
+                "required": true,
+                "schema": {
+                  "type": "string",
+                  "pattern": "^request_[A-Z0-9]{26}$",
+                  "example": "request_01KZGWMQ4054AXZGW9RR1VJ3JM"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "WorkspaceNotFoundApiError",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WorkspaceNotFoundApiErrorJsonEncoding"
+                },
+                "examples": {
+                  "example": {
+                    "value": {
+                      "code": "workspace_not_found",
+                      "message": "Workspace not found: Workspace workspace_01KZGWRATYFXD8QCG7QTKG5C3S was not found. Check the Workspace ID and try again.",
+                      "requestId": "request_01KZGWMQ4054AXZGW9RR1VJ3JM",
+                      "retryable": false,
+                      "details": {
+                        "workspaceId": "workspace_01KZGWRATYFXD8QCG7QTKG5C3S",
+                        "operation": "get"
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            "headers": {
+              "X-Overseer-Request-Id": {
+                "description": "Application request correlation ID for support, logs, and traces.",
+                "required": true,
+                "schema": {
+                  "type": "string",
+                  "pattern": "^request_[A-Z0-9]{26}$",
+                  "example": "request_01KZGWMQ4054AXZGW9RR1VJ3JM"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "WorkspaceOperationFailedApiError",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WorkspaceOperationFailedApiErrorJsonEncoding"
+                },
+                "examples": {
+                  "example": {
+                    "value": {
+                      "code": "workspace_operation_failed",
+                      "message": "Workspace operation failed: the requested Workspace read could not be completed because Overseer encountered an internal consistency problem. Contact support with request ID request_01KZGWMQ4054AXZGW9RR1VJ3JM.",
+                      "requestId": "request_01KZGWMQ4054AXZGW9RR1VJ3JM",
+                      "retryable": false,
+                      "details": {
+                        "workspaceId": null,
+                        "operation": "create"
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            "headers": {
+              "X-Overseer-Request-Id": {
+                "description": "Application request correlation ID for support, logs, and traces.",
+                "required": true,
+                "schema": {
+                  "type": "string",
+                  "pattern": "^request_[A-Z0-9]{26}$",
+                  "example": "request_01KZGWMQ4054AXZGW9RR1VJ3JM"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "WorkspaceServiceUnavailableApiError",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WorkspaceServiceUnavailableApiErrorJsonEncoding"
+                },
+                "examples": {
+                  "example": {
+                    "value": {
+                      "code": "workspace_service_unavailable",
+                      "message": "Workspace service unavailable: the requested Workspace creation could not be completed because a required Overseer service is temporarily unavailable. Do not retry this operation automatically; contact support with request ID request_01KZGWMQ4054AXZGW9RR1VJ3JM.",
+                      "requestId": "request_01KZGWMQ4054AXZGW9RR1VJ3JM",
+                      "retryable": false,
+                      "details": {
+                        "workspaceId": null,
+                        "operation": "create"
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            "headers": {
+              "X-Overseer-Request-Id": {
+                "description": "Application request correlation ID for support, logs, and traces.",
+                "required": true,
+                "schema": {
+                  "type": "string",
+                  "pattern": "^request_[A-Z0-9]{26}$",
+                  "example": "request_01KZGWMQ4054AXZGW9RR1VJ3JM"
+                }
+              }
+            }
+          }
+        },
+        "description": "Changes a Workspace state to active using the canonical Workspace ID returned from create Workspace.",
+        "summary": "Unarchive Workspace"
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "AccessUnauthorizedJsonEncoding": {
+        "type": "object",
+        "properties": {
+          "_tag": {
+            "type": "string",
+            "enum": ["AccessUnauthorized"]
+          },
+          "message": {
+            "type": "string"
+          }
+        },
+        "required": ["_tag", "message"],
+        "additionalProperties": false
+      },
+      "Objects_": {
+        "type": "object",
+        "properties": {
+          "workspaceId": {
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^workspace_[\\s\\S]*?$",
+                "description": "Stable Workspace identity returned by the create Workspace operation.",
+                "examples": ["workspace_01KZGWRATYFXD8QCG7QTKG5C3S"]
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "operation": {
+            "type": "string",
+            "enum": ["create", "get", "rename", "archive", "unarchive"]
+          }
+        },
+        "required": ["workspaceId", "operation"],
+        "additionalProperties": false
+      },
+      "WorkspaceOperationFailedApiErrorJsonEncoding": {
+        "type": "object",
+        "properties": {
+          "code": {
+            "type": "string",
+            "enum": ["workspace_operation_failed"]
+          },
+          "message": {
+            "type": "string"
+          },
+          "requestId": {
+            "type": "string",
+            "pattern": "^request_[\\s\\S]*?$",
+            "description": "Application request correlation ID for support, logs, and traces.",
+            "examples": ["request_01KZGWMQ4054AXZGW9RR1VJ3JM"]
+          },
+          "retryable": {
+            "type": "boolean",
+            "enum": [false]
+          },
+          "details": {
+            "$ref": "#/components/schemas/Objects_"
+          }
+        },
+        "required": ["code", "message", "requestId", "retryable", "details"],
+        "additionalProperties": false
+      },
+      "WorkspaceServiceUnavailableApiErrorJsonEncoding": {
+        "type": "object",
+        "properties": {
+          "code": {
+            "type": "string",
+            "enum": ["workspace_service_unavailable"]
+          },
+          "message": {
+            "type": "string"
+          },
+          "requestId": {
+            "type": "string",
+            "pattern": "^request_[\\s\\S]*?$",
+            "description": "Application request correlation ID for support, logs, and traces.",
+            "examples": ["request_01KZGWMQ4054AXZGW9RR1VJ3JM"]
+          },
+          "retryable": {
+            "type": "boolean"
+          },
+          "details": {
+            "$ref": "#/components/schemas/Objects_"
+          }
+        },
+        "required": ["code", "message", "requestId", "retryable", "details"],
+        "additionalProperties": false
+      },
+      "Objects_1": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^workspace_[\\s\\S]*?$",
+            "description": "Stable Workspace identity returned by the create Workspace operation.",
+            "examples": ["workspace_01KZGWRATYFXD8QCG7QTKG5C3S"]
+          },
+          "name": {
+            "type": "string",
+            "allOf": [
+              {
+                "minLength": 1
+              },
+              {
+                "maxLength": 200
+              },
+              {
+                "pattern": "\\S"
+              },
+              {
+                "pattern": "^[^\\p{Cc}\\p{Zl}\\p{Zp}]*$",
+                "description": "Human-readable Workspace display name.",
+                "examples": ["Product Engineering"]
+              }
+            ]
+          },
+          "state": {
+            "type": "string",
+            "enum": ["active", "archived"]
+          },
+          "createdAt": {
+            "type": "string"
+          },
+          "updatedAt": {
+            "type": "string"
+          }
+        },
+        "required": ["id", "name", "state", "createdAt", "updatedAt"],
+        "additionalProperties": false,
+        "description": "Workspace state after the requested operation completes.",
+        "examples": [
+          {
+            "id": "workspace_01KZGWRATYFXD8QCG7QTKG5C3S",
+            "name": "Product Engineering",
+            "state": "active",
+            "createdAt": "2026-08-08T14:34:41.913Z",
+            "updatedAt": "2026-08-08T14:34:41.913Z"
+          }
+        ]
+      },
+      "WorkspaceNotFoundApiErrorJsonEncoding": {
+        "type": "object",
+        "properties": {
+          "code": {
+            "type": "string",
+            "enum": ["workspace_not_found"]
+          },
+          "message": {
+            "type": "string"
+          },
+          "requestId": {
+            "type": "string",
+            "pattern": "^request_[\\s\\S]*?$",
+            "description": "Application request correlation ID for support, logs, and traces.",
+            "examples": ["request_01KZGWMQ4054AXZGW9RR1VJ3JM"]
+          },
+          "retryable": {
+            "type": "boolean",
+            "enum": [false]
+          },
+          "details": {
+            "type": "object",
+            "properties": {
+              "workspaceId": {
+                "type": "string",
+                "pattern": "^workspace_[\\s\\S]*?$",
+                "description": "Stable Workspace identity returned by the create Workspace operation.",
+                "examples": ["workspace_01KZGWRATYFXD8QCG7QTKG5C3S"]
+              },
+              "operation": {
+                "type": "string",
+                "enum": ["get", "rename", "archive", "unarchive"]
+              }
+            },
+            "required": ["workspaceId", "operation"],
+            "additionalProperties": false
+          }
+        },
+        "required": ["code", "message", "requestId", "retryable", "details"],
+        "additionalProperties": false
+      }
+    },
+    "securitySchemes": {
+      "accessAssertion": {
+        "type": "apiKey",
+        "name": "Cf-Access-Jwt-Assertion",
+        "in": "header",
+        "description": "Cloudflare Access assertion sent in the Cf-Access-Jwt-Assertion header."
+      }
+    }
+  },
+  "security": [],
+  "tags": [
+    {
+      "name": "Overseer",
+      "description": "Authenticated Workspace lifecycle operations."
+    }
+  ],
+  "servers": [
+    {
+      "url": "http://localhost:8787",
+      "description": "Local Alchemy development server"
+    }
+  ]
+}

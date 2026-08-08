@@ -1,46 +1,40 @@
 import * as Cloudflare from "alchemy/Cloudflare";
-import { Effect, FileSystem, Layer, Path, Schema } from "effect";
+import { Config, Effect, FileSystem, Layer, Path } from "effect";
 import { Etag, HttpPlatform, HttpRouter } from "effect/unstable/http";
-import { HttpApi, HttpApiBuilder, HttpApiEndpoint, HttpApiGroup } from "effect/unstable/httpapi";
+import { HttpApiBuilder } from "effect/unstable/httpapi";
 import {
   AccessAuthenticationMiddleware,
   accessAuthenticationMiddlewareLayer,
 } from "./access-authentication-middleware.ts";
-import { OverseerApiHostname } from "./overseer-api-hostname.ts";
+import { overseerHttpHandlersLayer } from "./overseer-http-handlers.ts";
+import { OverseerHttpApi } from "./overseer-http-api.ts";
+import { OverseerSdk, overseerSdkLayer } from "./overseer-sdk/overseer-sdk.ts";
+import {
+  RequestIdMiddleware,
+  requestIdMiddlewareLayerForEnvironment,
+} from "./request-id-middleware.ts";
 
-const apiIdentityEndpoint = HttpApiEndpoint.get("getApiIdentity", "/", {
-  success: Schema.String,
-}).middleware(AccessAuthenticationMiddleware);
-
-/** Public HTTP operations exposed by the Overseer API Worker. */
-export class ApiHttpGroup extends HttpApiGroup.make("api").add(apiIdentityEndpoint) { }
-
-/** Authenticated HTTP contract served by the Overseer API Worker. */
-export class ApiHttpApi extends HttpApi.make("ApiHttpApi").add(ApiHttpGroup) { }
-
-const apiHttpHandlersLayer = HttpApiBuilder.group(ApiHttpApi, "api", (handlers) =>
-  handlers.handle("getApiIdentity", () => Effect.succeed("Overseer API")),
-);
-
-const apiHttpPlatformLayer = Layer.succeed(HttpPlatform.HttpPlatform, {
+const overseerHttpPlatformLayer = Layer.succeed(HttpPlatform.HttpPlatform, {
   fileResponse: () => Effect.die("Overseer API HTTP file responses are not supported"),
   fileWebResponse: () => Effect.die("Overseer API HTTP web file responses are not supported"),
 });
 
-const apiHttpServerLayer = Layer.mergeAll(
+const overseerHttpServerLayer = Layer.mergeAll(
   Etag.layer,
   FileSystem.layerNoop({}),
-  apiHttpPlatformLayer,
+  overseerHttpPlatformLayer,
   Path.layer,
 );
 
 /** Effect-native API Worker shared by local development and every deployed stage. */
-export class ApiWorker extends Cloudflare.Worker<ApiWorker, {}>()("Api") { }
+export class ApiWorker extends Cloudflare.Worker<ApiWorker, {}>()("Api") {}
 
 /** Run the authenticated Overseer HTTP API locally or on its Access-protected custom domain. */
 export default ApiWorker.make(
   Effect.gen(function* () {
-    const hostname = yield* OverseerApiHostname;
+    const hostname = yield* Config.string("OVERSEER_API_HOSTNAME").pipe(
+      Config.withDefault("localhost"),
+    );
 
     return {
       main: import.meta.url,
@@ -58,14 +52,23 @@ export default ApiWorker.make(
     const accessAuthenticationMiddleware = yield* AccessAuthenticationMiddleware.pipe(
       Effect.provide(accessAuthenticationMiddlewareLayer),
     );
+    const requestIdMiddleware = yield* RequestIdMiddleware.pipe(
+      Effect.provide(requestIdMiddlewareLayerForEnvironment),
+    );
+    const overseerSdk = yield* OverseerSdk.pipe(Effect.provide(overseerSdkLayer));
+
+    const configuredOverseerHttpHandlersLayer = overseerHttpHandlersLayer.pipe(
+      Layer.provide(Layer.succeed(OverseerSdk, overseerSdk)),
+    );
 
     return {
-      fetch: HttpApiBuilder.layer(ApiHttpApi).pipe(
-        Layer.provide(apiHttpHandlersLayer),
+      fetch: HttpApiBuilder.layer(OverseerHttpApi).pipe(
+        Layer.provide(configuredOverseerHttpHandlersLayer),
         Layer.provide(
           Layer.succeed(AccessAuthenticationMiddleware, accessAuthenticationMiddleware),
         ),
-        Layer.provide(apiHttpServerLayer),
+        Layer.provide(Layer.succeed(RequestIdMiddleware, requestIdMiddleware)),
+        Layer.provide(overseerHttpServerLayer),
         HttpRouter.toHttpEffect,
       ),
     };

@@ -1,9 +1,14 @@
 # Agent Instructions
 
-## Coding Standards
+## Project Standards
 
-Read [`docs/coding-standards.md`](docs/coding-standards.md) before writing any new code. Review
-finished code against those standards before declaring the work complete.
+Read [`docs/coding-standards.md`](docs/coding-standards.md) before writing or reviewing code. Review finished code against those standards before declaring the work complete.
+
+Read [`docs/errors.md`](docs/errors.md) before adding or changing typed errors, error messages, public error contracts, HTTP error statuses, retry guidance, or failure telemetry.
+
+Read [`docs/testing.md`](docs/testing.md) before adding or changing application behavior, public endpoints, or tests. Apply its acceptance strategy and error-path accounting before declaring the behavior complete.
+
+Before adding or moving a workspace, package dependency, or cross-workspace import, apply [`Monorepo Boundaries`](docs/coding-standards.md#monorepo-boundaries).
 
 <!-- agent-repos:start -->
 

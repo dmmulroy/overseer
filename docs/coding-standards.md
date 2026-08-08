@@ -1,5 +1,27 @@
 # Coding Standards
 
+## Monorepo Boundaries
+
+Treat every workspace under `apps/*` as an independent runnable or deployable composition root.
+An app may depend on external packages and workspaces under `packages/*`; it must never import from,
+declare a workspace dependency on, or reach through a relative source path into another app. This
+rule applies to production code, scripts, and tests.
+
+Workspaces under `packages/*` contain capabilities shared by apps and must not import from
+`apps/*`. Cross-app behavior goes through a real runtime interface such as HTTP, or through a
+shared package with an intentional public entrypoint. Cross-app end-to-end test support belongs in
+a package rather than importing one app's internals into another app or its tests.
+
+Keep code in its owning app while it has one consumer. When another app needs the same domain,
+application service, adapter, infrastructure lifecycle, test utility, or client capability, move
+that capability to a cohesive package and have both apps depend on it. Do not create a package
+only to anticipate hypothetical reuse.
+
+Apps should become thin entrypoints as shared capabilities emerge: retain process/runtime startup,
+framework wiring, app-specific configuration, and final Layer or dependency composition in the
+app; place reusable behavior behind package public entrypoints. This is an incremental direction,
+not a requirement to relocate existing app-local modules before another owner needs them.
+
 ## Parse, Do Not Validate
 
 Parse every value as soon as it crosses an I/O boundary. Treat HTTP, RPC, persistence,
@@ -31,6 +53,18 @@ Application Services accept parsed domain/application values and must not know a
 payloads, database rows, environment strings, vendor records, or other boundary representations.
 When data leaves the application, encode rich values back into the exact external representation
 required by that boundary.
+
+## OpenAPI Contract Generation
+
+Effect HTTP API contracts are the source of truth for checked-in OpenAPI specifications. Annotate the contract before generation; never hand-edit generated OpenAPI JSON.
+
+- Add a safe, realistic schema example for every value a generated client must supply, especially branded IDs, names, request bodies, and lifecycle states. Never rely on importer placeholders such as `<string>`.
+- Add concise operation summaries and descriptions that explain identifier provenance and request ordering. When one operation creates an ID used by another, say that the ID comes from the create response; clients can then use request chaining instead of persisting an instance-specific ID.
+- Include representative success and public error examples for each operation state transition. Examples must conform to the same domain schema and stable error envelope that production serves.
+- Declare every response correlation header, including error responses. `X-Overseer-Request-Id` is required on matched endpoint responses and its OpenAPI description must identify it as the support, log, and trace correlation ID.
+- Document authentication schemes with their real header names and purpose. Verify a generated client import rather than assuming its authentication mapping is lossless.
+- Add only truthful server URLs. A local server URL is appropriate when stable; do not invent a production hostname.
+- Regenerate the specification with `vp run generate:openapi`, format it, and inspect the diff after every contract change.
 
 ## Schema Testing
 
@@ -145,6 +179,14 @@ import { HttpServerResponse } from "effect/unstable/http";
 
 Do not use direct leaf-module namespace imports such as `import * as Effect from "effect/Effect"`.
 Use the same import form consistently in source files and tests.
+
+## Error Design
+
+Treat errors as product interfaces and observability data. Every error must explain what operation or outcome failed and give the most specific safe reason known. Tell the caller how to correct, retry, reconcile, or escalate the failure; provide reassurance only when the application can prove what was unaffected. Use calm, direct language without blame, jokes, generic fallback copy, or implementation jargon.
+
+Carry diagnostic context as typed fields rather than burying it in prose. Include the operation, safe domain identifiers, a classified reason, recovery or retry information, and a public request identifier where applicable. Public errors use stable literal codes and variant-specific detail schemas. Internal errors retain richer safe context and causes for traces while public adapters redact secrets and implementation details.
+
+Read [`docs/errors.md`](errors.md) before adding or changing typed errors, rendered error messages, public error schemas, HTTP error statuses, retry guidance, or failure telemetry. It is the source of truth for error principles, internal/public boundaries, contextual data, and the error review checklist.
 
 ## Effect Tagged Error Translation
 

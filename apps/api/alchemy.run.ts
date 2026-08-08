@@ -41,12 +41,18 @@ export default Alchemy.Stack(
   },
   Effect.gen(function* () {
     const { dev } = yield* Alchemy.AlchemyContext;
+    const hostname = yield* OverseerApiHostname;
 
     if (dev === true) {
       const api = yield* ApiWorker.pipe(
         Effect.provide(ApiWorkerLive),
         Effect.provide(
-          ConfigProvider.layer(ConfigProvider.fromUnknown({ OVERSEER_ENVIRONMENT: "development" })),
+          ConfigProvider.layer(
+            ConfigProvider.fromUnknown({
+              OVERSEER_API_HOSTNAME: hostname,
+              OVERSEER_ENVIRONMENT: "development",
+            }),
+          ),
         ),
       );
       return { url: api.url };
@@ -60,6 +66,7 @@ export default Alchemy.Stack(
       Effect.provide(
         ConfigProvider.layer(
           ConfigProvider.fromUnknown({
+            OVERSEER_API_HOSTNAME: hostname,
             OVERSEER_ENVIRONMENT: "production",
             ACCESS_AUDIENCE: accessApplication.aud,
             CLOUDFLARE_ACCESS_TEAM_DOMAIN: accessTeamDomain,

@@ -81,7 +81,7 @@ export interface IBookkeeperClient {
 /** Provides the application-owned Bookkeeper HTTP client capability. */
 export class BookkeeperClient extends Context.Service<BookkeeperClient, IBookkeeperClient>()(
   "@overseer/BookkeeperClient",
-) {}
+) { }
 
 /** Construct the Bookkeeper client while preserving its Durable Object namespace requirement. */
 export const makeBookkeeperClient: Effect.Effect<
@@ -90,13 +90,15 @@ export const makeBookkeeperClient: Effect.Effect<
   Cloudflare.Worker
 > = Effect.gen(function* () {
   const namespace = yield* BookkeeperServer;
-  const client = yield* HttpApiClient.makeWith(BookkeeperHttpApi, {
-    baseUrl: "http://bookkeeper.internal",
-    httpClient: Cloudflare.toHttpClient(namespace.getByName(BOOKKEEPER_ID)),
-  });
+  const makeHttpClient = () =>
+    HttpApiClient.makeWith(BookkeeperHttpApi, {
+      baseUrl: "http://bookkeeper.internal",
+      httpClient: Cloudflare.toHttpClient(namespace.getByName(BOOKKEEPER_ID)),
+    });
 
   const listWorkspaces = Effect.fn("BookkeeperClient.listWorkspaces")(
     function* (request: PaginationRequest) {
+      const client = yield* makeHttpClient();
       return yield* client.bookkeeper.listWorkspaces({ query: request });
     },
     Effect.catchTags({
@@ -120,6 +122,7 @@ export const makeBookkeeperClient: Effect.Effect<
 
   const getWorkspace = Effect.fn("BookkeeperClient.getWorkspace")(
     function* (id: WorkspaceId) {
+      const client = yield* makeHttpClient();
       return yield* client.bookkeeper.getWorkspace({ params: { workspaceId: id } });
     },
     Effect.catchTags({
@@ -143,6 +146,7 @@ export const makeBookkeeperClient: Effect.Effect<
 
   const registerWorkspace = Effect.fn("BookkeeperClient.registerWorkspace")(
     function* (workspace: BookkeeperWorkspace) {
+      const client = yield* makeHttpClient();
       return yield* client.bookkeeper.registerWorkspace({
         params: { workspaceId: workspace.id },
         payload: workspace,
@@ -169,6 +173,7 @@ export const makeBookkeeperClient: Effect.Effect<
 
   const deleteWorkspace = Effect.fn("BookkeeperClient.deleteWorkspace")(
     function* (id: WorkspaceId) {
+      const client = yield* makeHttpClient();
       return yield* client.bookkeeper.deleteWorkspace({ params: { workspaceId: id } });
     },
     Effect.catchTags({
@@ -192,6 +197,7 @@ export const makeBookkeeperClient: Effect.Effect<
 
   const listProjects = Effect.fn("BookkeeperClient.listProjects")(
     function* (workspaceId: WorkspaceId, request: PaginationRequest) {
+      const client = yield* makeHttpClient();
       return yield* client.bookkeeper.listProjects({
         query: { workspaceId, cursor: request.cursor, limit: request.limit },
       });
@@ -217,6 +223,7 @@ export const makeBookkeeperClient: Effect.Effect<
 
   const getProject = Effect.fn("BookkeeperClient.getProject")(
     function* (id: ProjectId) {
+      const client = yield* makeHttpClient();
       return yield* client.bookkeeper.getProject({ params: { projectId: id } });
     },
     Effect.catchTags({
@@ -240,6 +247,7 @@ export const makeBookkeeperClient: Effect.Effect<
 
   const registerProject = Effect.fn("BookkeeperClient.registerProject")(
     function* (project: BookkeeperProject) {
+      const client = yield* makeHttpClient();
       return yield* client.bookkeeper.registerProject({
         params: { projectId: project.id },
         payload: project,
@@ -266,6 +274,7 @@ export const makeBookkeeperClient: Effect.Effect<
 
   const deleteProject = Effect.fn("BookkeeperClient.deleteProject")(
     function* (id: ProjectId) {
+      const client = yield* makeHttpClient();
       return yield* client.bookkeeper.deleteProject({ params: { projectId: id } });
     },
     Effect.catchTags({
@@ -289,6 +298,7 @@ export const makeBookkeeperClient: Effect.Effect<
 
   const listIssues = Effect.fn("BookkeeperClient.listIssues")(
     function* (projectId: ProjectId, request: PaginationRequest) {
+      const client = yield* makeHttpClient();
       return yield* client.bookkeeper.listIssues({
         query: { projectId, cursor: request.cursor, limit: request.limit },
       });
@@ -314,6 +324,7 @@ export const makeBookkeeperClient: Effect.Effect<
 
   const getIssue = Effect.fn("BookkeeperClient.getIssue")(
     function* (id: IssueId) {
+      const client = yield* makeHttpClient();
       return yield* client.bookkeeper.getIssue({ params: { issueId: id } });
     },
     Effect.catchTags({
@@ -337,6 +348,7 @@ export const makeBookkeeperClient: Effect.Effect<
 
   const registerIssue = Effect.fn("BookkeeperClient.registerIssue")(
     function* (issue: BookkeeperIssue) {
+      const client = yield* makeHttpClient();
       return yield* client.bookkeeper.registerIssue({
         params: { issueId: issue.id },
         payload: issue,
@@ -363,6 +375,7 @@ export const makeBookkeeperClient: Effect.Effect<
 
   const deleteIssue = Effect.fn("BookkeeperClient.deleteIssue")(
     function* (id: IssueId) {
+      const client = yield* makeHttpClient();
       return yield* client.bookkeeper.deleteIssue({ params: { issueId: id } });
     },
     Effect.catchTags({
@@ -386,6 +399,7 @@ export const makeBookkeeperClient: Effect.Effect<
 
   const getCounts = Effect.fn("BookkeeperClient.getCounts")(
     function* () {
+      const client = yield* makeHttpClient();
       return yield* client.bookkeeper.getCounts();
     },
     Effect.catchTags({
@@ -429,3 +443,7 @@ export const bookkeeperClientLayerWithoutDependencies = Layer.effect(
   BookkeeperClient,
   makeBookkeeperClient,
 );
+
+
+/** Provides the Bookkeeper client. */
+export const bookkeeperClientLayer = bookkeeperClientLayerWithoutDependencies;

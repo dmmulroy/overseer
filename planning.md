@@ -184,111 +184,51 @@ type IssueId = typeof IssueId.Type;
 
 # Overseer SDK
 
+**Decision:** The root API Worker depends only on the application-owned `OverseerSdk` for Overseer operations. HTTP handlers must not call `WorkspaceClient`, `BookkeeperClient`, Durable Object namespaces, or persistence services directly.
+
+The SDK groups the existing application client capabilities instead of inventing parallel operation interfaces or duplicating their method and error types:
+
 ```ts
-import * as Schema from "effect/Schema";
-
-class ListWorkspacesError extends Schema.TaggedErrorClass<ListWorkspacesError>()(
-  "ListWorkspacesError",
-  {},
-) {}
-
-class GetWorkspaceError extends Schema.TaggedErrorClass<GetWorkspaceError>()(
-  "GetWorkspaceError",
-  {},
-) {}
-
-class CreateWorkspaceError extends Schema.TaggedErrorClass<CreateWorkspaceError>()(
-  "CreateWorkspaceError",
-  {},
-) {}
-
-class RenameWorkspaceError extends Schema.TaggedErrorClass<RenameWorkspaceError>()(
-  "RenameWorkspaceError",
-  {},
-) {}
-
-class ArchiveWorkspaceError extends Schema.TaggedErrorClass<ArchiveWorkspaceError>()(
-  "ArchiveWorkspaceError",
-  {},
-) {}
-
-class UnarchiveWorkspaceError extends Schema.TaggedErrorClass<UnarchiveWorkspaceError>()(
-  "UnarchiveWorkspaceError",
-  {},
-) {}
-
-class ListProjectsError extends Schema.TaggedErrorClass<ListProjectsError>()(
-  "ListProjectsError",
-  {},
-) {}
-
-class GetProjectError extends Schema.TaggedErrorClass<GetProjectError>()("GetProjectError", {}) {}
-
-class CreateProjectError extends Schema.TaggedErrorClass<CreateProjectError>()(
-  "CreateProjectError",
-  {},
-) {}
-
-class ArchiveProjectError extends Schema.TaggedErrorClass<ArchiveProjectError>()(
-  "ArchiveProjectError",
-  {},
-) {}
-
-class UnarchiveProjectError extends Schema.TaggedErrorClass<UnarchiveProjectError>()(
-  "UnarchiveProjectError",
-  {},
-) {}
-
-class ListIssuesError extends Schema.TaggedErrorClass<ListIssuesError>()("ListIssuesError", {}) {}
-
-class GetIssueError extends Schema.TaggedErrorClass<GetIssueError>()("GetIssueError", {}) {}
-
-class CreateIssueError extends Schema.TaggedErrorClass<CreateIssueError>()(
-  "CreateIssueError",
-  {},
-) {}
-
-interface WorkspaceOperations {
-  list(): Effect.Effect<ReadonlyArray<Workspace>, ListWorkspacesError>;
-  get(id: WorkspaceId): Effect.Effect<Option.Option<Workspace>, GetWorkspaceError>;
-  create(input: { name: WorkspaceName }): Effect.Effect<Workspace, CreateWorkspaceError>;
-  rename(input: {
-    id: WorkspaceId;
-    name: WorkspaceName;
-  }): Effect.Effect<Workspace, RenameWorkspaceError>;
-  archive(id: WorkspaceId): Effect.Effect<Workspace, ArchiveWorkspaceError>;
-  unarchive(id: WorkspaceId): Effect.Effect<Workspace, UnarchiveWorkspaceError>;
+interface IOverseerSdk {
+  readonly workspace: IWorkspaceClient;
+  // Future additions use the same singular resource naming:
+  // readonly project: IProjectClient;
+  // readonly issue: IIssueClient;
 }
 
-interface ProjectOperations {
-  list(workspaceId: WorkspaceId): Effect.Effect<ReadonlyArray<Project>, ListProjectsError>;
-  get(id: ProjectId): Effect.Effect<Option.Option<Project>, GetProjectError>;
-  create(input: {
-    workspaceId: WorkspaceId;
-    name: ProjectName;
-  }): Effect.Effect<Project, CreateProjectError>;
-  archive(id: ProjectId): Effect.Effect<Project, ArchiveProjectError>;
-  unarchive(id: ProjectId): Effect.Effect<Project, UnarchiveProjectError>;
-}
-
-interface IssueOperations {
-  list(projectId: ProjectId): Effect.Effect<ReadonlyArray<Issue>, ListIssuesError>;
-  get(id: IssueId): Effect.Effect<Option.Option<Issue>, GetIssueError>;
-  create(input: {
-    projectId: ProjectId;
-    title: string;
-    body: Option.Option<string>;
-  }): Effect.Effect<Issue, CreateIssueError>;
-}
-
-interface OverseerSdk {
-  readonly workspaces: WorkspaceOperations;
-  readonly projects: ProjectOperations;
-  readonly issues: IssueOperations;
-}
+class OverseerSdk extends Context.Service<OverseerSdk, IOverseerSdk>()(
+  "@overseer/OverseerSdk",
+) {}
 ```
 
+The resource-oriented call site is:
+
+```ts
+const overseer = yield* OverseerSdk;
+
+const workspace = yield* overseer.workspace.createWorkspace({ name });
+const current = yield* overseer.workspace.getWorkspace(workspaceId);
+const renamed = yield* overseer.workspace.renameWorkspace({ id: workspaceId, name });
+```
+
+The SDK begins as one app-local capability because the API Worker is its only consumer:
+
+```text
+apps/api/src/overseer-sdk/
+└── overseer-sdk.ts
+```
+
+`makeOverseerSdk` yields each lower application client once and exposes that client's existing service interface under its singular resource property. `overseerSdkLayerWithoutDependencies` preserves those client requirements, and the root Worker selects their production Layers. Future cross-client orchestration belongs behind an existing client capability or a deliberately added SDK capability; do not create `WorkspaceOperations`, `ProjectOperations`, or `IssueOperations` aliases that merely repeat client interfaces.
+
 # File Structure
+
+## Monorepo Boundaries
+
+**Decision:** Apps are independent runnable or deployable composition roots and never import from one another. An app may depend on external libraries and workspaces under `packages/*`; packages never import from `apps/*`. Cross-app calls use real runtime interfaces, while shared code moves behind an intentional package public entrypoint.
+
+Keep a capability in its owning app while it has one consumer. When another app needs it, extract the complete cohesive capability—not a forwarding file or grab-bag helper—into `packages/*` and make both apps depend on that package. Over time this allows apps to become thin command/deployment entrypoints while reusable domain modules, application services, clients, infrastructure lifecycle services, and test utilities live in packages. This is an incremental extraction rule, not a request to move the current API modules before they have another consumer.
+
+Reserve the eventual `overseer` executable name for the official user-facing CLI that operates the Overseer API. A separate operator application may live at `apps/ops` and expose an unambiguous internal executable such as `overseer-ops` for Stack lifecycle, Access service-token administration, smoke tests, and debugging. `apps/ops` does not import `apps/api`; reusable Alchemy deployment capabilities, authenticated API clients, stage naming, and test orchestration move to packages when both apps or tests need them.
 
 ## Domain Modules
 
@@ -489,31 +429,140 @@ class WorkspaceDatabase extends Context.Service<WorkspaceDatabase, IWorkspaceDat
 
 `WorkspaceDatabase` owns SQL, table structure, persistence records, stored-row parsing, and Workspace schema migrations. Stored rows are parsed through the domain Workspace schemas before leaving the database service. `makeWorkspaceDatabase` runs the bundled `SqliteMigrator` loader before obtaining and closing over the generic `SqlClient` and returning the service implementation. The `WorkspaceDatabase` Layer cannot finish acquisition until all pending migrations finish.
 
-The Durable Object composition root adapts the current instance's native storage with `@effect/sql-sqlite-do`. Layer descriptions may be created beside the yielded state reference, but state-backed services and migrations are acquired only in the returned runtime Effect because Alchemy evaluates the outer Effect during planning with mock storage:
+The Durable Object composition root adapts the current instance's native storage with `@effect/sql-sqlite-do`. Infrastructure-backed application Layers are provided to Alchemy's outer init Effect, and their service tags are yielded there rather than bypassing the Layer by yielding an exported `make` Effect directly. Stable outer services are closed over and bridged into inner runtime Layers with `Layer.succeed` when required.
+
+Layer descriptions may be created beside the yielded state reference, but state-backed services and migrations are acquired only in the returned runtime Effect because Alchemy evaluates the outer Effect during planning with mock storage:
 
 ```ts
 Effect.gen(function* () {
   const state = yield* Cloudflare.DurableObjectState;
+  const bookkeeperClient = yield* BookkeeperClient;
 
   const workspaceDatabaseLayer = WorkspaceDatabase.layerWithoutDependencies.pipe(
     Layer.provide(SqliteClient.layer({ storage: state.raw.storage })),
+  );
+  const workspaceHandlersLayer = workspaceHttpHandlersLayer.pipe(
+    Layer.provide(workspaceDatabaseLayer),
+    Layer.provide(Layer.succeed(BookkeeperClient, bookkeeperClient)),
   );
 
   return Effect.gen(function* () {
     // Acquire SQL, complete pending migrations, then construct the HTTP handler.
     const httpLayer = HttpApiBuilder.layer(WorkspaceHttpApi).pipe(
-      Layer.provide(workspaceHttpHandlersLayer),
-      Layer.provide(workspaceDatabaseLayer),
+      Layer.provide(workspaceHandlersLayer),
     );
 
     return { fetch: yield* HttpRouter.toHttpEffect(httpLayer) };
   });
-});
+}).pipe(Effect.provide(bookkeeperClientLayerWithoutDependencies));
 ```
 
 Passing the complete `state.raw.storage` enables Effect SQL transaction support. One database service and SQL client are acquired for the Durable Object instance and shared by its handlers; they are not reconstructed for every request.
 
 ## Overseer API
+
+### Public REST API
+
+The root API Worker exposes this initial versioned Workspace API:
+
+```text
+GET  /
+POST /v1/workspaces
+GET  /v1/workspaces/:workspaceId
+POST /v1/workspaces/:workspaceId/rename
+POST /v1/workspaces/:workspaceId/archive
+POST /v1/workspaces/:workspaceId/unarchive
+```
+
+`POST /v1/workspaces` accepts `{ name }`; `OverseerSdk` generates the `WorkspaceId`. All other Workspace routes parse the ID from the path. Successful creation returns `201`; successful reads and state changes return `200` with the complete Workspace representation.
+
+Declare `AccessAuthenticationMiddleware` once on the top-level `OverseerHttpApi`, after adding its groups. Effect propagates API-level middleware to every group and endpoint. Individual endpoints do not repeat the middleware declaration. The middleware implementation is still materialized once per Worker isolate so its Cloudflare Access JWKS cache is reused, while assertion verification and `CurrentActor` remain request-scoped.
+
+Keep the complete root HTTP contract in `apps/api/src/overseer-http-api.ts` and aggregate all of its handler groups in `apps/api/src/overseer-http-handlers.ts`. Do not create resource-specific top-level files such as `overseer-workspace-http-api.ts` or `overseer-workspace-http-handlers.ts`; deepen the structure only if the aggregate files become too large to answer their one root-API question clearly. `apps/api/src/api-worker.ts` remains the composition root that materializes dependencies and builds the router.
+
+Workspace handlers yield `OverseerSdk` and invoke only `overseer.workspace.*`. They do not directly yield lower-level Durable Object clients. Listing Workspaces is deferred until the root collection contract uses the shared pagination model and the SDK exposes it through an intentional client capability.
+
+The checked-in OpenAPI 3.1 artifact lives at `apps/api/openapi.json` and is generated directly from `OverseerHttpApi` with Effect's `OpenApi.fromApi`. Run `vp run generate:openapi` after changing the root HTTP contract, schemas, middleware errors, or OpenAPI annotations. The Vite Plus task formats the generated artifact and caches its declared output; handwritten edits to `openapi.json` are overwritten.
+
+### Request Identity Middleware
+
+**Decision:** Create one request identity at the HTTP boundary and provide it to the complete request Effect. Handlers and error translators yield the request-scoped service; they never generate a new identifier when an error occurs.
+
+```ts
+const OverseerRequestId = Schema.TemplateLiteral(["request_", Ulid]).pipe(
+  Schema.brand("OverseerRequestId"),
+);
+
+type OverseerRequestId = typeof OverseerRequestId.Type;
+
+class CurrentRequestId extends Context.Service<CurrentRequestId, OverseerRequestId>()(
+  "@overseer/CurrentRequestId",
+) {}
+
+class RequestIdMiddleware extends HttpApiMiddleware.Service<
+  RequestIdMiddleware,
+  { provides: CurrentRequestId }
+>()("@overseer/RequestIdMiddleware") {}
+```
+
+`RequestIdMiddleware` generates exactly one `OverseerRequestId` for each matched Overseer endpoint request before authentication and endpoint execution, provides it as `CurrentRequestId`, and annotates the request span and structured logs with `requestId`. It registers an Effect HTTP pre-response handler that sets `X-Overseer-Request-Id` on successful and failed endpoint responses after the final response has been encoded. Error translation yields `CurrentRequestId` and copies the same value into the error response body. This correlates authentication, parsing, SDK calls, Durable Object calls, and response translation under one identity. The middleware must also make the request ID available to failures produced before an endpoint handler runs; middleware ordering is verified against the pinned Effect implementation rather than assumed.
+
+The HTTP API middleware does not run for traffic that matches no declared endpoint. If Overseer later requires `X-Overseer-Request-Id` on router-level not-found or method responses, add one outer `HttpMiddleware` around the complete router rather than duplicating ID generation.
+
+Declare `RequestIdMiddleware` once on the top-level `OverseerHttpApi`, alongside `AccessAuthenticationMiddleware`. Request identity must wrap authentication so authentication failures can use the same correlation value. The production composition root materializes stable middleware implementations once per Worker isolate, but identifier generation and context provision occur once per request.
+
+Use two environment-specific Layers behind the same middleware service:
+
+```text
+apps/api/src/request-id.ts
+apps/api/src/request-id-middleware.ts
+```
+
+- `requestIdMiddlewareLayer` is the local and generic implementation. It generates an `OverseerRequestId` from the Effect clock and randomness.
+- `cloudflareRequestIdMiddlewareLayer` is the Cloudflare implementation. It reads and parses the inbound `cf-ray` header, generates the same unique Overseer request ID, and records the Ray ID as separate structured context such as `cloudflareRayId`. All Cloudflare-specific schemas, parsing, header names, and annotations remain private to `request-id-middleware.ts`; `request-id.ts` owns only provider-neutral Overseer request identity.
+- `requestIdMiddlewareLayerForEnvironment` is the ready application Layer imported by composition roots. It uses `OverseerEnvironmentConfig` to select the generic Layer for development and the Cloudflare Layer for production, keeping that selection out of callers.
+
+Do not use the raw Cloudflare Ray ID as the unique Overseer request ID. [Cloudflare documents that Ray IDs are not guaranteed to be unique for every request](https://developers.cloudflare.com/fundamentals/reference/cloudflare-ray-id/). Preserve the full validated Ray ID separately so operators can search Cloudflare Security Events and logs, while `OverseerRequestId` remains the application correlation identity returned to callers. Missing or malformed `cf-ray` is not a request failure: omit the Cloudflare field, retain the generated Overseer request ID, and annotate the malformed-header classification without recording the raw value.
+
+The Cloudflare Ray ID is observability context only. It is never authentication or authorization evidence, and public error bodies continue to expose only `requestId` unless a future support workflow has a concrete reason to expose `cloudflareRayId`.
+
+### Public Error Contracts
+
+**Decision:** Errors are part of the public API and observability design, not generic fallback copy. Follow the canonical principles in [`docs/errors.md`](docs/errors.md), informed by [“When life gives you lemons, write better error messages”](https://wix-ux.com/when-life-gives-you-lemons-write-better-error-messages-46c5223e1a2f): explain what did not happen and why, include truthful reassurance about unaffected state when known, tell the caller what it can do next, avoid blame and implementation jargon, and provide a request identifier when support is the only next step.
+
+Every application-generated error response belongs to a `PublicApiError` discriminated union. Each variant has a literal `code`, an operation-specific `message`, a `requestId`, a `retryable` value, and a variant-specific `details` schema. Do not use an untyped details record that allows the code and contextual fields to disagree. For example:
+
+```ts
+const WorkspaceNotFoundApiError = Schema.Struct({
+  code: Schema.Literal("workspace_not_found"),
+  message: Schema.String,
+  requestId: Schema.String,
+  retryable: Schema.Literal(false),
+  details: Schema.Struct({
+    workspaceId: WorkspaceId,
+    operation: Schema.Literals(["get", "rename", "archive", "unarchive"]),
+  }),
+});
+```
+
+`code` is a stable machine-readable discriminator. `message` is a complete operation-specific explanation suitable for a human or Agent. `details` carries only the safe structured context defined for that error, such as `workspaceId`, `operation`, field violations, and legal values. It never contains credentials, JWT claims, raw request bodies, SQL, stack traces, or private causes. `requestId` comes from `CurrentRequestId` and correlates the response with the complete request trace and logs; error constructors never generate it themselves. `retryable` states whether retrying the same logical operation without changing its input may succeed; it must account for idempotency and uncertain cross-Durable-Object outcomes rather than making a blanket promise.
+
+Initial status contracts are:
+
+| Status | Code | Contract |
+| --- | --- | --- |
+| `400` | `invalid_request` | The path, query, headers, or payload could not be parsed. `details` identifies each invalid field and its constraint so the caller can correct it. |
+| `401` | `unauthorized` | The Worker could not authenticate the request. The message directs the caller to provide valid Access credentials. Cloudflare Access may reject a request at the edge before this Worker contract is reached. |
+| `404` | `workspace_not_found` | A syntactically valid Workspace ID is unknown. The response includes the requested `workspaceId` and tells the caller to check it. |
+| `405` | `method_not_allowed` | The route exists but does not support the HTTP method. The response identifies the allowed methods. |
+| `409` | `workspace_state_conflict` | Reserved for a rejected Workspace lifecycle transition if the domain chooses non-idempotent transitions or forbids rename while archived. It is not emitted while those operations remain permitted or idempotent. |
+| `415` | `unsupported_media_type` | A body-bearing operation did not receive a supported JSON media type. |
+| `500` | `workspace_operation_failed` | Overseer could not complete the named Workspace operation because of an internal invariant or invalid stored data. The response does not expose internals and directs the caller to contact support with `requestId`; retry is false unless the specific cause is known to be transient. |
+| `503` | `workspace_service_unavailable` | A required Overseer service is temporarily unavailable. The response identifies the operation, describes only state effects that are known with certainty, and indicates whether the same logical operation is safe to retry. |
+
+Messages must name the failed operation and relevant safe identity. For example: `Workspace workspace_… was not found. Check the Workspace ID and try again.` Avoid `Something went wrong`, raw reason literals, and claims such as “no changes were made” unless the operation protocol proves that statement.
+
+Internal typed errors follow the same information standard at greater fidelity. They carry the operation, safe domain identifiers, classified reason, and an attached cause where appropriate. Traces and logs record those structured fields and the response `requestId`; public adapters deliberately redact private causes while preserving a precise public classification. Each boundary translates known tagged errors explicitly so a newly introduced failure cannot silently collapse into a generic response.
 
 ### Durable Object HTTP Boundary
 
@@ -531,7 +580,7 @@ Passing the complete `state.raw.storage` enables Effect SQL transaction support.
 
 Alchemy provisions the Access application, human policy, Agent service token, and Agent service-token policy. The application is a self-hosted Access application for the production hostname. Agents authenticate at the Access edge with `CF-Access-Client-Id` and `CF-Access-Client-Secret`; the raw service-token secret never enters the Worker.
 
-Cloudflare Access injects the resulting signed `Cf-Access-Jwt-Assertion` header. The Worker verifies that assertion itself through an application-owned `CloudflareAccessVerifier` Effect service and a custom `HttpApiMiddleware` applied to the API. The middleware declares the header as an API-key security scheme, returns typed `401` failures, and provides the authenticated request context.
+Cloudflare Access injects the resulting signed `Cf-Access-Jwt-Assertion` header. The Worker verifies that assertion itself through an application-owned `CloudflareAccessVerifier` Effect service and a custom `HttpApiMiddleware` declared once on the top-level API. The middleware declaration applies to every group and endpoint, declares the header as an API-key security scheme, returns typed `401` failures, and provides the authenticated request context.
 
 The verifier must validate:
 
@@ -769,7 +818,9 @@ Collection reads use the shared cursor pagination module. `GET /v1/counts` provi
 
 Entity servers depend on their application-owned `BookkeeperClient`. Before a mutating CRUD operation changes local Durable Object state, it must write its intended registration, update, or deletion to the Bookkeeper and receive confirmation. The entity server may proceed with its local mutation only after that confirmation.
 
-Reads should first resolve or confirm the entity through the Bookkeeper, but should not write a mutation record unless the later design requires a read lease. The protocol remains intentionally non-atomic across Durable Objects: a confirmed Bookkeeper operation followed by a failed local mutation requires retry, reconciliation, and recovery behavior.
+Bookkeeper and entity databases own their timestamps independently. Each service generates its timestamp immediately before its own write; timestamps are not passed between services or expected to match.
+
+Entity reads go directly to the entity server and do not confirm the entity through Bookkeeper. Collection reads remain Bookkeeper operations because no individual entity server owns a collection. The mutation protocol remains intentionally non-atomic across Durable Objects: a confirmed Bookkeeper operation followed by a failed local mutation requires retry, reconciliation, and recovery behavior.
 
 When the detailed protocol is designed, explore Effect `Scope`, `Effect.acquireRelease`, and `Effect.scoped` for reservation or lease lifetimes. The design should determine the operation record, idempotency key, expiration, retry, release, crash recovery, and whether Bookkeeper needs a separate operation-intent table.
 
@@ -782,6 +833,107 @@ When the detailed protocol is designed, explore Effect `Scope`, `Effect.acquireR
 
 # Testing
 
+Overseer favors real-cloud end-to-end tests over every other test form. The primary acceptance suite deploys the actual `OverseerApi` Stack with `alchemy/Test/Vitest`, sends real HTTP requests through the Access-protected custom domain, crosses the Worker, application services, Durable Object HTTP boundaries, Bookkeeper, and SQLite storage, and then destroys the Stack. Every public feature and endpoint must have real-cloud coverage for its success behavior and every caller-reachable error path. A feature is not complete merely because a unit or local test covers it. The canonical test strategy and suite outline live in [`docs/testing.md`](docs/testing.md); detailed harness research and pinned API examples live in [`docs/research/alchemy-effect-vitest-testing.md`](docs/research/alchemy-effect-vitest-testing.md).
+
+The suite deploys one Stack once per suite file with `beforeAll(deploy(Stack))`, shares its output through Alchemy's lazy Effect accessor, waits for readiness with `Test.executeWhenReady`, and tears down with `afterAll(destroy(Stack))`. Keep one production-Stack cloud file initially so Vitest workers cannot race deployment and teardown. Organize that file by registering feature-specific spec groups from non-test modules:
+
+```text
+apps/api/test/e2e/cloud/
+  overseer-api.cloud.test.ts       # owns deploy, shared context, and destroy
+  access.cloud-spec.ts             # registers Access and identity cases
+  workspace.cloud-spec.ts          # registers all public Workspace cases
+  cloud-test-client.ts             # typed/raw HTTP helpers; never owns hooks
+  cloud-test-data.ts               # unique valid IDs and payloads
+```
+
+`*.cloud-spec.ts` files are imported and invoked by the one `*.cloud.test.ts` orchestrator; Vitest must not discover them as independent files. Split into multiple deployed-Stack files only when every file has an independent stage and lifecycle, or when the harness gains a single run-wide deployment fixture.
+
+Every test run—whether started on a developer machine or in automation—creates a fresh real-cloud Stack under a unique, DNS-safe Alchemy stage such as `test-<user>-<run-id>`. Test runs never reuse `local`, a developer stage, `production`, or another run's stage. The stage is shared only by the suites participating in that one invocation and is destroyed when the invocation finishes. Assume this lifecycle is cheap, fast, and free: infrastructure cost is not a reason to reuse a Stack, replace cloud coverage with workerd, or skip a real boundary. Concurrent local and automated runs remain isolated by their run IDs.
+
+Every test creates unique domain data and is independently runnable; tests may share their run's infrastructure but never depend on another test's mutation. Destruction remains the normal final step, and automation also runs unconditional cleanup so interruption cannot routinely orphan resources. Use remote `Cloudflare.state()` for shared state coordination, and never log or snapshot the redacted Access token secret.
+
+## Initial Real-Cloud Suite
+
+Assume the main Worker adds public Workspace handlers backed only by `OverseerSdk`; its Workspace operations use `WorkspaceClient` to route each operation to the `WorkspaceServer` Durable Object keyed by `WorkspaceId`. For this test outline, the public routes are:
+
+```text
+GET  /
+POST /v1/workspaces
+GET  /v1/workspaces/:workspaceId
+POST /v1/workspaces/:workspaceId/rename
+POST /v1/workspaces/:workspaceId/archive
+POST /v1/workspaces/:workspaceId/unarchive
+```
+
+The public create payload contains `name`; the SDK generates the `WorkspaceId`. The other routes take the ID from the path. The public `HttpApi` declaration owns the status and error-body contracts above; tests assert those contracts rather than implementation error classes.
+
+### Deployment and Access
+
+- A provisioned Agent service token reaches `GET /` through the custom domain and receives the API identity.
+- A request with no Access credentials is rejected at the public edge.
+- A request with invalid service-token credentials is rejected.
+- Every public Workspace endpoint rejects an unauthenticated request. This verifies that the top-level API middleware continues to protect all groups and routes as the API evolves.
+- Secrets and complete response headers are not snapshotted.
+
+### Create Workspace
+
+- A valid name creates an active Workspace with a generated canonical ID and parseable timestamps.
+- A separate GET returns the same persisted Workspace, proving the request crossed the deployed Durable Object and storage boundaries.
+- Distinct create requests produce distinct IDs and independent Durable Object state.
+- Missing, malformed, empty, whitespace-only, overlong, multiline/control-character, and otherwise contract-invalid names produce the declared request error without creating a Workspace.
+- The successful response proves the Bookkeeper-first registration path completed against the deployed Bookkeeper Durable Object; do not expose Bookkeeper's internal API solely for the test.
+
+### Get Workspace
+
+- A created Workspace is returned by ID with its complete persisted representation.
+- A valid but unknown `WorkspaceId` produces the public not-found contract.
+- A malformed path ID produces the public request-parsing contract and does not allocate meaningful domain state.
+
+### Rename Workspace
+
+- Renaming an existing Workspace changes only its name and update timestamp; ID, creation timestamp, and lifecycle state are preserved.
+- A following GET observes the new name.
+- A valid but unknown ID produces the public not-found contract.
+- Every caller-visible invalid-name class produces the declared request error and leaves the stored Workspace unchanged.
+- Rename behavior for an archived Workspace must be decided explicitly; once decided, the cloud suite covers that success or rejection contract.
+
+### Archive and Unarchive Workspace
+
+- Archiving an active Workspace returns and persists the `archived` state while preserving identity, name, and creation timestamp.
+- Unarchiving that Workspace returns and persists the `active` state.
+- Archive and unarchive against a valid unknown ID each produce their declared not-found contract.
+- Repeating archive on an archived Workspace and unarchive on an active Workspace cover the declared idempotency or transition-error contract. The current database implementation is idempotent, so changing that behavior requires an explicit domain decision and test update.
+- A lifecycle sequence—create, rename, archive, read, unarchive, read—asserts that separate requests compose into one coherent persisted history and that `updatedAt` never moves backward.
+
+### Concurrency and Boundary Cases
+
+- Concurrent mutations against one Workspace are exercised against the deployed Stack to verify the Durable Object and mutation semaphore prevent corruption. Assertions describe legal observable outcomes rather than assuming network arrival order.
+- Requests with wrong methods, malformed JSON, unsupported content types, and unexpected payload fields cover the public protocol contract where Effect HTTP API behavior is intentionally part of Overseer's API.
+- Response parsing uses the public Schemas. Raw status and body assertions remain available for malformed requests and Access edge responses that cannot be decoded as application success/error values.
+
+## Error-Path Accounting
+
+Maintain an endpoint matrix beside the cloud suite that lists every declared success and error variant and points to its test. Caller-inducible paths—authentication failure, malformed input, unknown IDs, illegal transitions, ownership failures, conflicts, and invalid cursors as those endpoints arrive—must run against the actual deployed Stack on every PR.
+
+Some expected internal failures cannot be safely induced through the production public API: `database_unavailable`, `stored_workspace_invalid`, `workspace_registration_failed`, and `workspace_id_mismatch` are examples in the current Workspace modules. Never add production test-only endpoints, corrupt-storage switches, or fault flags merely to reach them. Prefer, in order:
+
+1. an additional Alchemy-deployed scenario Stack using the same public handlers with a controlled failing or corrupt dependency Layer;
+2. a real-cloud test through an existing operational boundary that naturally creates the condition;
+3. a focused integration test through the real Workspace HTTP/service interface when a deployed scenario would no longer represent the production path honestly.
+
+Every non-cloud row records why the production Stack cannot safely induce it. This exception process keeps the suite comprehensive without pretending that a synthetic failure is the exact production deployment.
+
+## Supporting Tests
+
+Supporting tests exist only where they provide faster diagnosis, exercise otherwise uncontrollable failures, or prove pure application-owned rules:
+
+1. **Alchemy local workerd:** an optional explicitly selected developer feedback mode. The default local test command still deploys a fresh real-cloud Stack. Workerd does not accept Cloudflare Access or cloud deployment behavior and is not a substitute for any cloud contract row.
+2. **Integration:** public Effect service and HTTP contracts, real SQLite migrations/transactions, and controlled dependency Layers for failures that cannot be induced safely in the production Stack. Module mocks are forbidden.
+3. **Unit and property:** nontrivial pure invariants, transitions, normalization, ordering, idempotency, and regressions. Do not restate straightforward Schema declarations or library mechanics.
+
+Use `@effect/vitest` throughout Effect tests. Ordinary `it` owns synchronous pure tests; `it.effect` owns scoped programs using test services such as `TestClock`; Alchemy's harness uses live runtime services. Use `layer(...)` only when sharing one acquired Layer for a block is intentional; otherwise provide a fresh Layer per test. Assert expected failures through public error or protocol contracts, never through implementation spies or `vi.mock`.
+
+The default local and automated `test` command runs the complete uncached production-Stack endpoint matrix against a newly created stage. There is no reduced PR suite, main-only suite, nightly-only suite, or cost-based coverage split. A narrower fast or workerd command may exist for an explicit inner-loop choice, but it is not named or treated as the project's full test suite. Cloud tests use explicit timeouts, bounded polling schedules, complete Stack configuration, and credentials for every Cloudflare and Alchemy state resource they provision.
 
 
 # To-dos
