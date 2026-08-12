@@ -80,9 +80,30 @@ const requireYaakRequest = <Request>(
     ),
   );
 
+interface YaakApiKeyAuthentication {
+  readonly key: string;
+  readonly location: "header";
+  readonly value: string;
+}
+
+type YaakRequestPatch =
+  | Readonly<{
+      authenticationType: "apikey";
+      authentication: YaakApiKeyAuthentication;
+    }>
+  | Readonly<{ body: Readonly<{ text: string }> }>
+  | Readonly<{
+      urlParameters: readonly Readonly<{
+        enabled: boolean;
+        id: null;
+        name: string;
+        value: string;
+      }>[];
+    }>;
+
 const updateYaakRequest = Effect.fn("updateYaakRequest")(function* (
   requestId: string,
-  patch: object,
+  patch: YaakRequestPatch,
 ) {
   yield* runYaakCommand(["request", "update", JSON.stringify({ id: requestId, ...patch })]);
 });
@@ -118,7 +139,7 @@ const syncYaakOpenApi = Effect.fn("syncYaakOpenApi")(function* () {
   const requestsByName = yield* loadYaakRequestsByName(workspaceId);
   const createWorkspaceRequest = yield* requireYaakRequest(requestsByName, "Create Workspace");
   const workspaceIdFromCreateResponse = `\${[ response.body.path(request='${createWorkspaceRequest.id}', behavior='smart', ttl='0', result='first', join=b64'LCA', path=b64'JC5pZA') ]}`;
-  const cloudflareAccessAuthentication = {
+  const cloudflareAccessAuthentication: YaakApiKeyAuthentication = {
     key: "Cf-Access-Jwt-Assertion",
     location: "header",
     value: "${[accessAssertion]}",

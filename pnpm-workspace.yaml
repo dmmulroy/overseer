@@ -8,16 +8,36 @@ allowBuilds:
   workerd: true
 
 minimumReleaseAgeExclude:
-  - hono@4.12.34
+  - "@alchemy.run/cloudflare-runtime@2.0.0-beta.72"
+  - "@distilled.cloud/aws@1.0.0-rc.4"
+  - "@distilled.cloud/axiom@1.0.0-rc.4"
+  - "@distilled.cloud/cloudflare@1.0.0-rc.4"
+  - "@distilled.cloud/core@1.0.0-rc.4"
+  - "@distilled.cloud/neon@1.0.0-rc.4"
+  - "@distilled.cloud/planetscale@1.0.0-rc.4"
+  - alchemy@2.0.0-beta.72
+  - "@cloudflare/workers-types@5.20260812.1"
+  - "@voidzero-dev/vite-plus-core@0.2.9"
+  - "@voidzero-dev/vite-plus-darwin-arm64@0.2.9"
+  - "@voidzero-dev/vite-plus-darwin-x64@0.2.9"
+  - "@voidzero-dev/vite-plus-linux-arm64-gnu@0.2.9"
+  - "@voidzero-dev/vite-plus-linux-arm64-musl@0.2.9"
+  - "@voidzero-dev/vite-plus-linux-x64-gnu@0.2.9"
+  - "@voidzero-dev/vite-plus-linux-x64-musl@0.2.9"
+  - "@voidzero-dev/vite-plus-win32-arm64-msvc@0.2.9"
+  - "@voidzero-dev/vite-plus-win32-x64-msvc@0.2.9"
+  - vite-plus@0.2.9
 
 overrides:
+  "@cloudflare/workers-types": "5.20260812.1"
   "@hono/node-server": "2.0.12"
-  hono: "4.12.34"
+  hono: "4.13.1"
   lodash: "4.18.1"
   valibot: "1.4.2"
-  vite: "npm:@voidzero-dev/vite-plus-core@0.2.7"
+  vite: "npm:@voidzero-dev/vite-plus-core@0.2.9"
 
 peerDependencyRules:
   allowedVersions:
     "@distilled.cloud/cloudflare": "0.30.3"
-    vite: "0.2.7"
+    typescript: "7.0.2"
+    vite: "0.2.9"

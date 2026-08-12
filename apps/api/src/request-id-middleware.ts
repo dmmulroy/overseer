@@ -1,7 +1,6 @@
 import { Effect, Layer, Option, Schema } from "effect";
 import { HttpEffect, HttpServerRequest, HttpServerResponse } from "effect/unstable/http";
 import { HttpApiMiddleware } from "effect/unstable/httpapi";
-import { OverseerEnvironmentConfig } from "./overseer-environment.ts";
 import {
   CurrentRequestId,
   generateOverseerRequestId,
@@ -30,6 +29,7 @@ const runWithCurrentRequestId = Effect.fnUntraced(function* <A, E, R>(
   providerAnnotations: RequestIdentityAnnotations,
 ) {
   const requestId = yield* generateOverseerRequestId;
+
   const annotations =
     providerAnnotations.kind === "generic"
       ? { requestId }
@@ -83,15 +83,6 @@ export const cloudflareRequestIdMiddlewareLayer = Layer.succeed(
   RequestIdMiddleware.of((endpointEffect) =>
     Effect.flatMap(cloudflareRequestIdentityAnnotations, (annotations) =>
       runWithCurrentRequestId(endpointEffect, annotations),
-    ),
-  ),
-);
-
-/** Selects generic or Cloudflare request ID middleware from the Overseer environment. */
-export const requestIdMiddlewareLayerForEnvironment = Layer.unwrap(
-  OverseerEnvironmentConfig.pipe(
-    Effect.map((environment) =>
-      environment === "development" ? requestIdMiddlewareLayer : cloudflareRequestIdMiddlewareLayer,
     ),
   ),
 );

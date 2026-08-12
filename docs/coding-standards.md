@@ -143,18 +143,22 @@ Enforce this policy with generic Oxlint rules rather than framework- or project-
   type-aware diagnostics for unsafe narrowing and redundant assertions.
 - `typescript/no-explicit-any` and `typescript/no-non-null-assertion` reject common type-system
   escape hatches.
-- `type-provenance/no-chained-type-assertions` identifies nested assertion chains and directs the
-  caller to preserve the original type or parse at the boundary.
-- `type-provenance/no-known-value-widening` conservatively detects syntactically established values
+- `anti-slop/no-chained-type-assertions` identifies nested assertion chains and directs the caller
+  to preserve the original type or parse at the boundary.
+- `anti-slop/no-conditional-empty-object-spread` rejects conditional empty-object spreads and fixes
+  equivalent direct-property declarations.
+- `anti-slop/no-known-value-widening` conservatively detects syntactically established values
   assigned or returned through explicit `unknown`, `object`, or generic-record annotations.
-- `type-provenance/no-record-type` rejects TypeScript `Record` utility types so each data shape keeps
-  an owner-provided or schema-derived type.
-- `type-provenance/no-runtime-typeof` rejects runtime `typeof` narrowing in favor of parsing the
-  expected contract.
-- `type-provenance/no-unknown-parameters` rejects explicit `unknown` function parameters and directs
-  I/O adapters to expose `Schema.decodeUnknownEffect(ExpectedSchema)` instead.
-- `type-provenance/no-widen-then-assert` detects immutable local flows that erase a known type and
-  later reconstruct it with an assertion.
+- `anti-slop/no-record-type` rejects TypeScript `Record` utility types so each data contract keeps an
+  owner-provided or schema-derived type.
+- `anti-slop/no-runtime-typeof` rejects runtime `typeof` narrowing in favor of parsing the expected
+  contract.
+- `anti-slop/no-shape-in-symbol-names` rejects the term `shape` in symbol names so identifiers state
+  the concrete domain, protocol, or runtime concept they represent.
+- `anti-slop/no-unknown-parameters` rejects explicit `unknown` function parameters and directs I/O
+  adapters to expose `Schema.decodeUnknownEffect(ExpectedSchema)` instead.
+- `anti-slop/no-widen-then-assert` detects immutable local flows that erase a known type and later
+  reconstruct it with an assertion.
 
 Diagnostics for these rules must be agent-friendly: identify the lost type evidence or binding when
 available, explain why the operation is invalid, and state whether the correction is to preserve the

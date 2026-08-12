@@ -2,46 +2,34 @@ import { RuleTester } from "oxlint/plugins-dev";
 import { test } from "vite-plus/test";
 import { noUnknownParametersRule } from "./no-unknown-parameters.ts";
 
-/** Exercise unknown parameter rejection while allowing direct Effect Schema decoders. */
-test("requires unknown input to enter through an Effect Schema decoder", () => {
+test("rejects unknown inputs while allowing error causes", () => {
   new RuleTester().run("no-unknown-parameters", noUnknownParametersRule, {
     valid: [
+      { filename: "src/input.ts", code: "const parse = (input: RequestInput) => input;" },
+      { filename: "src/failure.ts", code: "const enrich = (cause: unknown) => ({ cause });" },
       {
-        filename: "src/io/create-workspace-request.ts",
-        code: "const parseCreateWorkspaceRequest = Schema.decodeUnknownEffect(CreateWorkspaceRequest);",
+        filename: "src/failure.ts",
+        code: "class Failure { constructor(public readonly cause: unknown) {} }",
       },
-      {
-        filename: "src/domain/workspace.ts",
-        code: "const renameWorkspace = (name: WorkspaceName): Workspace => workspace;",
-      },
-      {
-        filename: "src/io/vendor.ts",
-        code: "declare const vendorCallback: VendorUnknownCallback;",
-      },
+      { filename: "src/failure.ts", code: "interface Failure { readonly cause: unknown }" },
     ],
     invalid: [
       {
-        filename: "src/io/create-workspace-request.ts",
-        code: "const parseRequest = (input: unknown) => Schema.decodeUnknownEffect(CreateWorkspaceRequest)(input);",
+        filename: "src/input.ts",
+        code: "const parse = (input: unknown) => input;",
         errors: [{ messageId: "unknownParameter", data: { parameter: "input" } }],
         output: null,
       },
       {
-        filename: "src/application/workspace.ts",
-        code: "function createWorkspace(input: unknown): void {}",
-        errors: [{ messageId: "unknownParameter", data: { parameter: "input" } }],
+        filename: "src/input.ts",
+        code: "function parse(payload: unknown): void {}",
+        errors: [{ messageId: "unknownParameter", data: { parameter: "payload" } }],
         output: null,
       },
       {
-        filename: "src/application/service.ts",
+        filename: "src/service.ts",
         code: "interface Service { execute(input: unknown): void; }",
         errors: [{ messageId: "unknownParameter", data: { parameter: "input" } }],
-        output: null,
-      },
-      {
-        filename: "src/application/function.ts",
-        code: "type Handler = (payload: unknown) => void;",
-        errors: [{ messageId: "unknownParameter", data: { parameter: "payload" } }],
         output: null,
       },
     ],

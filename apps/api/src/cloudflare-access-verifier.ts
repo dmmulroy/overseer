@@ -1,6 +1,7 @@
 import { createRemoteJWKSet, errors as JoseErrors, jwtVerify, type JWTPayload } from "jose";
 import { Config, Context, Effect, Layer, Option, Redacted, Schema } from "effect";
 import { AgentId, CloudflareAccessSubject, EmailAddress } from "./domain/actor.ts";
+import { OverseerEnvironmentConfig } from "./overseer-environment.ts";
 
 const AccessAudience = Schema.String.check(Schema.isMinLength(1)).pipe(
   Schema.brand("AccessAudience"),
@@ -71,7 +72,7 @@ const accessVerificationFailureMessages = {
 } as const;
 
 /** Classified failure to verify a Cloudflare Access assertion. */
-export class CloudflareAccessVerificationFailed extends Schema.TaggedErrorClass<CloudflareAccessVerificationFailed>()(
+export class CloudflareAccessVerificationFailed extends Schema.TaggedError<CloudflareAccessVerificationFailed>()(
   "CloudflareAccessVerificationFailed",
   {
     reason: AccessVerificationFailureReason,
@@ -106,13 +107,9 @@ const localCloudflareAccessPrincipal = CloudflareAccessPrincipal.cases.HumanPrin
   email: EmailAddress.make("local@overseer.invalid"),
 });
 
-/** Local development verifier that authenticates every request as one fixed synthetic principal. */
-export const localCloudflareAccessVerifierLayer = Layer.succeed(
-  CloudflareAccessVerifier,
-  CloudflareAccessVerifier.of({
-    verifyAccessAssertion: () => Effect.succeed(localCloudflareAccessPrincipal),
-  }),
-);
+const localCloudflareAccessVerifier = CloudflareAccessVerifier.of({
+  verifyAccessAssertion: () => Effect.succeed(localCloudflareAccessPrincipal),
+});
 
 const invalidIdentity = (): CloudflareAccessVerificationFailed =>
   new CloudflareAccessVerificationFailed("invalid_identity");
@@ -153,7 +150,7 @@ const parseJoseVerificationError = Schema.decodeUnknownOption(
 );
 
 /** Construct the production Cloudflare Access verifier with one isolate-scoped remote JWKS cache. */
-export const makeCloudflareAccessVerifier: Effect.Effect<
+const makeProductionCloudflareAccessVerifier: Effect.Effect<
   CloudflareAccessVerifier["Service"],
   Config.ConfigError
 > = Effect.gen(function* () {
@@ -196,12 +193,29 @@ export const makeCloudflareAccessVerifier: Effect.Effect<
   });
 });
 
-/** Layer that constructs the Cloudflare Access verifier while preserving configuration requirements. */
-export const cloudflareAccessVerifierLayerWithoutDependencies = Layer.effect(
+/**
+ * Selects and caches the local or production Access verifier from deployed Worker configuration.
+ * Configuration stays lazy so Alchemy planning never reads runtime-only Worker environment values.
+ */
+export const cloudflareAccessVerifierLayerForEnvironment = Layer.effect(
   CloudflareAccessVerifier,
-  makeCloudflareAccessVerifier,
-);
+  Effect.gen(function* () {
+    const configuredVerifier = yield* Effect.cached(
+      OverseerEnvironmentConfig.pipe(
+        Effect.flatMap((environment) =>
+          environment === "development"
+            ? Effect.succeed(localCloudflareAccessVerifier)
+            : makeProductionCloudflareAccessVerifier,
+        ),
+      ),
+    );
 
-/** Production Layer for remote-JWKS Cloudflare Access assertion verification. */
-export const productionCloudflareAccessVerifierLayer =
-  cloudflareAccessVerifierLayerWithoutDependencies;
+    return CloudflareAccessVerifier.of({
+      verifyAccessAssertion: (assertion) =>
+        configuredVerifier.pipe(
+          Effect.mapError(() => new CloudflareAccessVerificationFailed("verification_unavailable")),
+          Effect.flatMap((verifier) => verifier.verifyAccessAssertion(assertion)),
+        ),
+    });
+  }),
+);

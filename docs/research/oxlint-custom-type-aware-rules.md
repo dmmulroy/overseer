@@ -9,7 +9,7 @@
 
 For the three rules:
 
-1. **Keep `type-provenance/no-chained-type-assertions` as a syntax-only Oxlint JS rule.** Its question—whether assertion nodes are nested, except an all-`const` chain—is syntactic. Type information would add cost without improving that invariant.
+1. **Keep `anti-slop/no-chained-type-assertions` as a syntax-only Oxlint JS rule.** Its question—whether assertion nodes are nested, except an all-`const` chain—is syntactic. Type information would add cost without improving that invariant.
 2. **Keep the existing conservative syntax checks for `no-known-value-widening` and `no-widen-then-assert` for immediate, cheap Oxlint feedback.** Their current source and tests intentionally stop where provenance cannot be established syntactically.
 3. **If the repository decides the currently documented false-negative space must be enforced, add one separate, read-only semantic checker using the TypeScript compiler API—not code inside the Oxlint plugin.** Run it once per check, group files by owning `tsconfig`, create/reuse one program per project, and add diagnostics only for semantic cases the JS rules intentionally skip (for example imported values, typed call results, resolved aliases, and symbol-identified local flows). At that point, add an explicit root `devDependency` on exactly the workspace TypeScript version (`7.0.2` at research time). Do not rely on the app's dependency or a hoisted/transitive package.
 4. Treat a small, separate ESLint + typescript-eslint pass as the fallback when editor-integrated custom semantic lint diagnostics are more valuable than dependency/startup cost. Use `@typescript-eslint/parser` with `parserOptions.projectService: true` and write the rules with `@typescript-eslint/utils`; do not try to run those typed rules through Oxlint.
@@ -21,7 +21,7 @@ This means the answer to “should this repo add a TypeScript AST/type-checker d
 
 - The root pins `oxlint` and `@oxlint/plugins` to 1.76.0 but does not directly declare TypeScript or typescript-eslint ([root package](../../package.json)).
 - `apps/api` already directly depends on TypeScript 7.0.2, and the installed workspace has one TypeScript version. That does not make TypeScript a declared dependency of root tooling ([API package](../../apps/api/package.json), [installed TypeScript package](../../node_modules/typescript/package.json)). Adding the same root version would primarily make ownership and resolution explicit; in the current lock it need not introduce another compiler version.
-- Vite+ enables `typeAware` and `typeCheck`, loads the local `type-provenance` JS plugin, and enables both native type-aware TypeScript rules and the three custom rules ([lint config](../../vite.config.ts)). The type-aware backend is therefore already paid for once during `vp check`.
+- Vite+ enables `typeAware` and `typeCheck`, loads the local `anti-slop` JS plugin, and enables both native type-aware TypeScript rules and the custom anti-slop rules ([lint config](../../vite.config.ts)). The type-aware backend is therefore already paid for once during `vp check`.
 - The root `tsconfig.json` covers root tooling; `apps/api/tsconfig.json` covers the app. There is currently one app and no populated package workspace ([root tsconfig](../../tsconfig.json), [API tsconfig](../../apps/api/tsconfig.json), [workspace config](../../pnpm-workspace.yaml)). A future checker still must be designed per project rather than around today's single app.
 
 ## What Oxlint officially supports

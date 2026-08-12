@@ -1,4 +1,5 @@
 import { defineRule } from "@oxlint/plugins";
+
 import type { ESTree } from "@oxlint/plugins";
 
 type Parameter = ESTree.ParamPattern;
@@ -24,13 +25,28 @@ function parameterAnnotation(parameter: Parameter): ESTree.TSTypeAnnotation | nu
   return parameter.typeAnnotation;
 }
 
-/** Disallow functions that retain unknown input instead of exposing an Effect Schema decoder. */
+function parameterName(parameter: Parameter, sourceText: string): string {
+  if (parameter.type === "TSParameterProperty") {
+    return parameterName(parameter.parameter, sourceText);
+  }
+  if (parameter.type === "AssignmentPattern") {
+    return parameterName(parameter.left, sourceText);
+  }
+  if (parameter.type === "RestElement") {
+    return parameterName(parameter.argument, sourceText);
+  }
+  return parameter.type === "Identifier"
+    ? parameter.name
+    : sourceText.replace(/\s*:\s*unknown\s*$/u, "");
+}
+
+/** Disallow unknown inputs except explicitly named error-cause enrichment. */
 export const noUnknownParametersRule = defineRule({
   meta: {
     type: "problem",
     docs: {
       description:
-        "Disallow explicitly unknown function parameters; expose an Effect Schema unknown decoder at the I/O boundary instead.",
+        "Disallow explicitly unknown function parameters except `cause`; expose an Effect Schema unknown decoder at the I/O boundary instead.",
     },
     messages: {
       unknownParameter:
@@ -42,14 +58,12 @@ export const noUnknownParametersRule = defineRule({
       for (const parameter of node.params) {
         const annotation = parameterAnnotation(parameter);
         if (annotation?.typeAnnotation.type !== "TSUnknownKeyword") continue;
-        const parameterName =
-          parameter.type === "Identifier"
-            ? parameter.name
-            : context.sourceCode.getText(parameter).replace(/\s*:\s*unknown\s*$/u, "");
+        const name = parameterName(parameter, context.sourceCode.getText(parameter));
+        if (name === "cause") continue;
         context.report({
           node: annotation.typeAnnotation,
           messageId: "unknownParameter",
-          data: { parameter: parameterName },
+          data: { parameter: name },
         });
       }
     };

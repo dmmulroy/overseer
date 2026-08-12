@@ -34,7 +34,7 @@ const WorkspaceOperationApiErrorDetails = Schema.Struct({
 });
 
 /** A syntactically valid Workspace identity that Overseer does not know. */
-export class WorkspaceNotFoundApiError extends Schema.ErrorClass<WorkspaceNotFoundApiError>(
+export class WorkspaceNotFoundApiError extends Schema.Error<WorkspaceNotFoundApiError>(
   "WorkspaceNotFoundApiError",
 )(
   {
@@ -48,7 +48,7 @@ export class WorkspaceNotFoundApiError extends Schema.ErrorClass<WorkspaceNotFou
 ) {}
 
 /** A non-transient internal failure that prevented a Workspace operation. */
-export class WorkspaceOperationFailedApiError extends Schema.ErrorClass<WorkspaceOperationFailedApiError>(
+export class WorkspaceOperationFailedApiError extends Schema.Error<WorkspaceOperationFailedApiError>(
   "WorkspaceOperationFailedApiError",
 )(
   {
@@ -62,7 +62,7 @@ export class WorkspaceOperationFailedApiError extends Schema.ErrorClass<Workspac
 ) {}
 
 /** A temporarily unavailable capability that prevented a Workspace operation. */
-export class WorkspaceServiceUnavailableApiError extends Schema.ErrorClass<WorkspaceServiceUnavailableApiError>(
+export class WorkspaceServiceUnavailableApiError extends Schema.Error<WorkspaceServiceUnavailableApiError>(
   "WorkspaceServiceUnavailableApiError",
 )(
   {

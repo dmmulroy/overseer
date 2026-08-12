@@ -13,13 +13,13 @@
     "test": "vp test run tools/oxlint"
   },
   "devDependencies": {
-    "@effect/platform-node": "4.0.0-beta.102",
-    "@oxlint/plugins": "1.76.0",
-    "alchemy": "2.0.0-beta.67",
-    "effect": "4.0.0-beta.102",
-    "oxlint": "1.76.0",
-    "vite": "npm:@voidzero-dev/vite-plus-core@0.2.7",
-    "vite-plus": "0.2.7"
+    "@effect/platform-node": "4.0.0-beta.107",
+    "@oxlint/plugins": "1.78.0",
+    "alchemy": "2.0.0-beta.72",
+    "effect": "4.0.0-beta.107",
+    "oxlint": "1.78.0",
+    "vite": "npm:@voidzero-dev/vite-plus-core@0.2.9",
+    "vite-plus": "0.2.9"
   },
   "devEngines": {
     "packageManager": {

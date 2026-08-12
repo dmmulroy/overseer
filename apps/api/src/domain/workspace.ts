@@ -62,7 +62,7 @@ const CreateWorkspaceFailureReason = Schema.Literals([
 ]);
 
 /** Classified failure while initializing a Workspace. */
-export class CreateWorkspaceError extends Schema.TaggedErrorClass<CreateWorkspaceError>()(
+export class CreateWorkspaceError extends Schema.TaggedError<CreateWorkspaceError>()(
   "CreateWorkspaceError",
   { reason: CreateWorkspaceFailureReason },
 ) {
@@ -88,7 +88,7 @@ const GetWorkspaceFailureReason = Schema.Literals([
 ]);
 
 /** Classified failure while reading a Workspace. */
-export class GetWorkspaceError extends Schema.TaggedErrorClass<GetWorkspaceError>()(
+export class GetWorkspaceError extends Schema.TaggedError<GetWorkspaceError>()(
   "GetWorkspaceError",
   { reason: GetWorkspaceFailureReason },
 ) {
@@ -113,7 +113,7 @@ const RenameWorkspaceFailureReason = Schema.Literals([
 ]);
 
 /** Classified failure while renaming a Workspace. */
-export class RenameWorkspaceError extends Schema.TaggedErrorClass<RenameWorkspaceError>()(
+export class RenameWorkspaceError extends Schema.TaggedError<RenameWorkspaceError>()(
   "RenameWorkspaceError",
   { reason: RenameWorkspaceFailureReason },
 ) {
@@ -140,7 +140,7 @@ const ArchiveWorkspaceFailureReason = Schema.Literals([
 ]);
 
 /** Classified failure while archiving a Workspace. */
-export class ArchiveWorkspaceError extends Schema.TaggedErrorClass<ArchiveWorkspaceError>()(
+export class ArchiveWorkspaceError extends Schema.TaggedError<ArchiveWorkspaceError>()(
   "ArchiveWorkspaceError",
   { reason: ArchiveWorkspaceFailureReason },
 ) {
@@ -167,7 +167,7 @@ const UnarchiveWorkspaceFailureReason = Schema.Literals([
 ]);
 
 /** Classified failure while unarchiving a Workspace. */
-export class UnarchiveWorkspaceError extends Schema.TaggedErrorClass<UnarchiveWorkspaceError>()(
+export class UnarchiveWorkspaceError extends Schema.TaggedError<UnarchiveWorkspaceError>()(
   "UnarchiveWorkspaceError",
   { reason: UnarchiveWorkspaceFailureReason },
 ) {

@@ -1,5 +1,5 @@
 import { definePlugin, defineRule } from "@oxlint/plugins";
-import type { ESTree, SourceCode } from "@oxlint/plugins";
+import type { ESTree } from "@oxlint/plugins";
 
 const DOMAIN_APPLICATION_PATH =
   /(?:^|\/)src\/(?:domain|application)(?:\/|$)|\.(?:domain|application)\.[cm]?[jt]sx?$/u;
@@ -20,94 +20,6 @@ const functionLikeTypes = new Set([
   "TSFunctionType",
   "TSMethodSignature",
 ]);
-
-type ConditionalEmptyObjectSpread = {
-  readonly conditional: ESTree.ConditionalExpression;
-  readonly property: ESTree.ObjectProperty | null;
-};
-
-type UndefinedCheckedExpression = {
-  readonly expression: ESTree.Expression;
-  readonly isDefinedWhenTrue: boolean;
-};
-
-function unwrapParentheses(node: ESTree.Expression): ESTree.Expression {
-  let current = node;
-  while (current.type === "ParenthesizedExpression") {
-    current = current.expression;
-  }
-  return current;
-}
-
-function isEmptyObjectExpression(node: ESTree.Expression): boolean {
-  return node.type === "ObjectExpression" && node.properties.length === 0;
-}
-
-function singleObjectProperty(node: ESTree.Expression): ESTree.ObjectProperty | null {
-  if (node.type !== "ObjectExpression" || node.properties.length !== 1) return null;
-
-  const [property] = node.properties;
-  if (
-    property?.type !== "Property" ||
-    property.kind !== "init" ||
-    property.method ||
-    property.computed
-  ) {
-    return null;
-  }
-
-  return property;
-}
-
-function conditionalEmptyObjectSpread(
-  node: ESTree.Expression,
-): ConditionalEmptyObjectSpread | null {
-  const conditional = unwrapParentheses(node);
-  if (conditional.type !== "ConditionalExpression") return null;
-
-  if (isEmptyObjectExpression(conditional.consequent)) {
-    return { conditional, property: singleObjectProperty(conditional.alternate) };
-  }
-
-  if (isEmptyObjectExpression(conditional.alternate)) {
-    return { conditional, property: singleObjectProperty(conditional.consequent) };
-  }
-
-  return null;
-}
-
-function undefinedCheckedExpression(test: ESTree.Expression): UndefinedCheckedExpression | null {
-  const binary = unwrapParentheses(test);
-  if (binary.type !== "BinaryExpression") return null;
-  if (binary.operator !== "===" && binary.operator !== "!==") return null;
-
-  const left = unwrapParentheses(binary.left);
-  const right = unwrapParentheses(binary.right);
-  const leftIsUndefined = left.type === "Identifier" && left.name === "undefined";
-  const rightIsUndefined = right.type === "Identifier" && right.name === "undefined";
-  if (leftIsUndefined === rightIsUndefined) return null;
-
-  return {
-    expression: leftIsUndefined ? right : left,
-    isDefinedWhenTrue: binary.operator === "!==",
-  };
-}
-
-function canAutofixConditionalEmptyObjectSpread(
-  sourceCode: SourceCode,
-  conditional: ESTree.ConditionalExpression,
-  property: ESTree.ObjectProperty,
-): boolean {
-  const checked = undefinedCheckedExpression(conditional.test);
-  if (checked === null) return false;
-
-  const propertyIsConsequent = conditional.consequent === property.parent;
-  if (propertyIsConsequent !== checked.isDefinedWhenTrue) return false;
-
-  return (
-    sourceCode.getText(unwrapParentheses(checked.expression)) === sourceCode.getText(property.value)
-  );
-}
 
 /** Return whether a source file is an inner domain or application module governed by the Option standard. */
 export function isDomainApplicationOptionFile(filename: string, sourceText = ""): boolean {
@@ -197,84 +109,6 @@ function isOptionalProperty(node: ESTree.Node): boolean {
   );
 }
 
-const FORBIDDEN_SYMBOL_NAME = "shape";
-
-function containsForbiddenSymbolName(name: string): boolean {
-  return name.toLowerCase().includes(FORBIDDEN_SYMBOL_NAME);
-}
-
-/** Ban the case-insensitive substring "shape" in every JavaScript and TypeScript symbol name. */
-export const noForbiddenTermInSymbolNamesRule = defineRule({
-  meta: {
-    type: "problem",
-    docs: {
-      description:
-        'Disallow the case-insensitive substring "shape" in JavaScript, TypeScript, private, and JSX symbol names.',
-    },
-    messages: {
-      forbiddenSymbolName:
-        'Do not use the case-insensitive substring "shape" in symbol names (found "{{name}}").',
-    },
-  },
-  create(context) {
-    const reportForbiddenSymbolName = (node: ESTree.Node & { name: string }) => {
-      if (!containsForbiddenSymbolName(node.name)) return;
-      context.report({
-        node,
-        messageId: "forbiddenSymbolName",
-        data: { name: node.name },
-      });
-    };
-
-    return {
-      Identifier: reportForbiddenSymbolName,
-      PrivateIdentifier: reportForbiddenSymbolName,
-      JSXIdentifier: reportForbiddenSymbolName,
-    };
-  },
-});
-
-/** Ban conditional empty-object spreads and autofix equivalent direct property declarations. */
-export const noConditionalEmptyObjectSpreadRule = defineRule({
-  meta: {
-    type: "suggestion",
-    fixable: "code",
-    docs: {
-      description:
-        "Disallow object spreads that conditionally spread an empty object to omit fields.",
-    },
-    messages: {
-      avoid:
-        "Do not use conditional empty-object spreads. Prefer a direct property or build the object in separate statements.",
-    },
-  },
-  create(context) {
-    return {
-      SpreadElement(node) {
-        if (node.parent.type !== "ObjectExpression") return;
-
-        const match = conditionalEmptyObjectSpread(node.argument);
-        if (match === null) return;
-
-        const { conditional, property } = match;
-        if (
-          property !== null &&
-          canAutofixConditionalEmptyObjectSpread(context.sourceCode, conditional, property)
-        ) {
-          context.report({
-            node,
-            messageId: "avoid",
-            fix: (fixer) => fixer.replaceText(node, context.sourceCode.getText(property)),
-          });
-          return;
-        }
-
-        context.report({ node, messageId: "avoid" });
-      },
-    };
-  },
-});
-
 /** Enforce Effect Option on optional domain and application declaration surfaces. */
 export const requireOptionForOptionalValuesRule = defineRule({
   meta: {
@@ -343,8 +177,6 @@ export const requireOptionForOptionalValuesRule = defineRule({
 export default definePlugin({
   meta: { name: "overseer" },
   rules: {
-    "no-conditional-empty-object-spread": noConditionalEmptyObjectSpreadRule,
-    "no-shape-in-symbol-names": noForbiddenTermInSymbolNamesRule,
     "require-option-for-optional-values": requireOptionForOptionalValuesRule,
   },
 });

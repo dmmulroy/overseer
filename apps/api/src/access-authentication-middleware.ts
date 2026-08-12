@@ -3,14 +3,12 @@ import { HttpApiMiddleware, HttpApiSecurity, OpenApi } from "effect/unstable/htt
 import {
   CloudflareAccessPrincipal,
   CloudflareAccessVerifier,
-  localCloudflareAccessVerifierLayer,
-  productionCloudflareAccessVerifierLayer,
+  cloudflareAccessVerifierLayerForEnvironment,
 } from "./cloudflare-access-verifier.ts";
 import { Actor } from "./domain/actor.ts";
-import { OverseerEnvironmentConfig } from "./overseer-environment.ts";
 
 /** Unauthorized response for failed Cloudflare Access authentication. */
-export class AccessUnauthorized extends Schema.TaggedErrorClass<AccessUnauthorized>()(
+export class AccessUnauthorized extends Schema.TaggedError<AccessUnauthorized>()(
   "AccessUnauthorized",
   {
     message: Schema.String,
@@ -83,6 +81,14 @@ export const makeAccessAuthenticationMiddleware: Effect.Effect<
         CurrentActor,
         accessVerifier.verifyAccessAssertion(credential).pipe(
           Effect.map(actorFromCloudflareAccessPrincipal),
+          Effect.tapError((error) =>
+            Effect.logWarning("Cloudflare Access assertion verification failed").pipe(
+              Effect.annotateLogs({
+                operation: "verifyAccessAssertion",
+                reason: error.reason,
+              }),
+            ),
+          ),
           Effect.mapError(() => new AccessUnauthorized({ message: "Unauthorized" })),
         ),
       ),
@@ -95,18 +101,7 @@ export const accessAuthenticationMiddlewareLayerWithoutDependencies = Layer.effe
   makeAccessAuthenticationMiddleware,
 );
 
-/** Selects local or production Cloudflare Access verification from the Alchemy-bound environment. */
-export const cloudflareAccessVerifierLayerForEnvironment = Layer.unwrap(
-  OverseerEnvironmentConfig.pipe(
-    Effect.map((environment) =>
-      environment === "development"
-        ? localCloudflareAccessVerifierLayer
-        : productionCloudflareAccessVerifierLayer,
-    ),
-  ),
-);
-
-/** Provides Access authentication middleware selected by the Alchemy-bound environment. */
+/** Provides Access authentication middleware selected by the deployed Worker environment. */
 export const accessAuthenticationMiddlewareLayer =
   accessAuthenticationMiddlewareLayerWithoutDependencies.pipe(
     Layer.provide(cloudflareAccessVerifierLayerForEnvironment),

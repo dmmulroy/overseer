@@ -80,91 +80,91 @@ const DeleteFailureReason = Schema.Literals([
 ]);
 
 /** Failure to list Workspace projections, including invalid collection cursors. */
-export class ListWorkspacesError extends Schema.TaggedErrorClass<ListWorkspacesError>()(
+export class ListWorkspacesError extends Schema.TaggedError<ListWorkspacesError>()(
   "ListWorkspacesError",
   { reason: ListFailureReason, message: Schema.String },
   { httpApiStatus: 400 },
 ) {}
 
 /** Failure to read one Workspace projection. */
-export class GetWorkspaceError extends Schema.TaggedErrorClass<GetWorkspaceError>()(
+export class GetWorkspaceError extends Schema.TaggedError<GetWorkspaceError>()(
   "GetWorkspaceError",
   { reason: GetFailureReason, message: Schema.String },
   { httpApiStatus: 500 },
 ) {}
 
 /** Failure to register or refresh a Workspace projection. */
-export class RegisterWorkspaceError extends Schema.TaggedErrorClass<RegisterWorkspaceError>()(
+export class RegisterWorkspaceError extends Schema.TaggedError<RegisterWorkspaceError>()(
   "RegisterWorkspaceError",
   { reason: RegisterFailureReason, message: Schema.String },
   { httpApiStatus: 409 },
 ) {}
 
 /** Failure to tombstone a Workspace projection. */
-export class DeleteWorkspaceError extends Schema.TaggedErrorClass<DeleteWorkspaceError>()(
+export class DeleteWorkspaceError extends Schema.TaggedError<DeleteWorkspaceError>()(
   "DeleteWorkspaceError",
   { reason: DeleteFailureReason, message: Schema.String },
   { httpApiStatus: 409 },
 ) {}
 
 /** Failure to list Project projections for a Workspace. */
-export class ListProjectsError extends Schema.TaggedErrorClass<ListProjectsError>()(
+export class ListProjectsError extends Schema.TaggedError<ListProjectsError>()(
   "ListProjectsError",
   { reason: ListFailureReason, message: Schema.String },
   { httpApiStatus: 400 },
 ) {}
 
 /** Failure to read one Project projection. */
-export class GetProjectError extends Schema.TaggedErrorClass<GetProjectError>()(
+export class GetProjectError extends Schema.TaggedError<GetProjectError>()(
   "GetProjectError",
   { reason: GetFailureReason, message: Schema.String },
   { httpApiStatus: 500 },
 ) {}
 
 /** Failure to register or refresh a Project projection. */
-export class RegisterProjectError extends Schema.TaggedErrorClass<RegisterProjectError>()(
+export class RegisterProjectError extends Schema.TaggedError<RegisterProjectError>()(
   "RegisterProjectError",
   { reason: RegisterFailureReason, message: Schema.String },
   { httpApiStatus: 409 },
 ) {}
 
 /** Failure to tombstone a Project projection. */
-export class DeleteProjectError extends Schema.TaggedErrorClass<DeleteProjectError>()(
+export class DeleteProjectError extends Schema.TaggedError<DeleteProjectError>()(
   "DeleteProjectError",
   { reason: DeleteFailureReason, message: Schema.String },
   { httpApiStatus: 409 },
 ) {}
 
 /** Failure to list Issue projections for a Project. */
-export class ListIssuesError extends Schema.TaggedErrorClass<ListIssuesError>()(
+export class ListIssuesError extends Schema.TaggedError<ListIssuesError>()(
   "ListIssuesError",
   { reason: ListFailureReason, message: Schema.String },
   { httpApiStatus: 400 },
 ) {}
 
 /** Failure to read one Issue projection. */
-export class GetIssueError extends Schema.TaggedErrorClass<GetIssueError>()(
+export class GetIssueError extends Schema.TaggedError<GetIssueError>()(
   "GetIssueError",
   { reason: GetFailureReason, message: Schema.String },
   { httpApiStatus: 500 },
 ) {}
 
 /** Failure to register or refresh an Issue projection. */
-export class RegisterIssueError extends Schema.TaggedErrorClass<RegisterIssueError>()(
+export class RegisterIssueError extends Schema.TaggedError<RegisterIssueError>()(
   "RegisterIssueError",
   { reason: RegisterFailureReason, message: Schema.String },
   { httpApiStatus: 409 },
 ) {}
 
 /** Failure to tombstone an Issue projection. */
-export class DeleteIssueError extends Schema.TaggedErrorClass<DeleteIssueError>()(
+export class DeleteIssueError extends Schema.TaggedError<DeleteIssueError>()(
   "DeleteIssueError",
   { reason: DeleteFailureReason, message: Schema.String },
   { httpApiStatus: 409 },
 ) {}
 
 /** Failure to count live Bookkeeper projections. */
-export class GetBookkeeperCountsError extends Schema.TaggedErrorClass<GetBookkeeperCountsError>()(
+export class GetBookkeeperCountsError extends Schema.TaggedError<GetBookkeeperCountsError>()(
   "GetBookkeeperCountsError",
   {
     reason: Schema.Literals(["PersistenceFailed", "StoredDataInvalid"]),

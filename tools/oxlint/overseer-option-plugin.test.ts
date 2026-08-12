@@ -1,10 +1,6 @@
 import { RuleTester } from "oxlint/plugins-dev";
 import { test } from "vite-plus/test";
-import {
-  noConditionalEmptyObjectSpreadRule,
-  noForbiddenTermInSymbolNamesRule,
-  requireOptionForOptionalValuesRule,
-} from "./overseer-option-plugin.ts";
+import { requireOptionForOptionalValuesRule } from "./overseer-option-plugin.ts";
 
 const optionImport = 'import * as Option from "effect/Option";';
 
@@ -92,110 +88,6 @@ test("requires Option only on inner domain and application declaration surfaces"
         filename: "src/domain/issue-loader.ts",
         code: "type IssueLoader = (id: string | undefined) => Promise<string | null>;",
         errors: [{ messageId: "nullishUnion" }, { messageId: "nullishUnion" }],
-        output: null,
-      },
-    ],
-  });
-});
-
-/** Exercise conditional empty-object spread detection and guarded direct-property autofixes. */
-test("bans conditional empty-object spreads and fixes only equivalent direct properties", () => {
-  new RuleTester().run("no-conditional-empty-object-spread", noConditionalEmptyObjectSpreadRule, {
-    valid: [
-      {
-        code: "const value = { cursor };",
-      },
-      {
-        code: "const value = { ...(enabled ? { cursor } : fallback) };",
-      },
-    ],
-    invalid: [
-      {
-        code: "const value = { ...(cursor === undefined ? {} : { cursor }) };",
-        errors: [{ messageId: "avoid" }],
-        output: "const value = { cursor };",
-      },
-      {
-        code: "const value = { ...(cursor !== undefined ? { cursor } : {}) };",
-        errors: [{ messageId: "avoid" }],
-        output: "const value = { cursor };",
-      },
-      {
-        code: "const value = { ...(submissionId === undefined ? {} : { submissionId: submissionId.value }) };",
-        errors: [{ messageId: "avoid" }],
-        output: null,
-      },
-      {
-        code: 'const value = { ...(immutable ? { "cache-control": header } : {}) };',
-        errors: [{ messageId: "avoid" }],
-        output: null,
-      },
-      {
-        code: "const value = { ...(start === undefined ? {} : { lineStart: start, lineEnd: end }) };",
-        errors: [{ messageId: "avoid" }],
-        output: null,
-      },
-    ],
-  });
-});
-
-/** Exercise strict, case-insensitive substring matching across JavaScript and TypeScript symbol names. */
-test("bans shape in declarations, references, members, and private names", () => {
-  new RuleTester().run("no-shape-in-symbol-names", noForbiddenTermInSymbolNamesRule, {
-    valid: [
-      {
-        filename: "src/domain/issue.ts",
-        code: `const formFactory = { shap: "near miss", profile: "allowed" };
-formFactory.profile;
-formFactory["shape"];`,
-      },
-    ],
-    invalid: [
-      {
-        filename: "src/domain/issue.ts",
-        code: `type UserShape = Shape;
-const Shape = 1;
-Shape;`,
-        errors: [
-          { messageId: "forbiddenSymbolName" },
-          { messageId: "forbiddenSymbolName" },
-          { messageId: "forbiddenSymbolName" },
-          { messageId: "forbiddenSymbolName" },
-        ],
-        output: null,
-      },
-      {
-        filename: "src/domain/member.ts",
-        code: `const object = { shape: 1, shapeFactory() { return this.shape; } };
-object.shapeFactory();
-object.shape;`,
-        errors: [
-          { messageId: "forbiddenSymbolName" },
-          { messageId: "forbiddenSymbolName" },
-          { messageId: "forbiddenSymbolName" },
-          { messageId: "forbiddenSymbolName" },
-          { messageId: "forbiddenSymbolName" },
-        ],
-        output: null,
-      },
-      {
-        filename: "src/domain/component.tsx",
-        code: `const value = 1;
-<Shape shapeFactory={value} />;`,
-        errors: [{ messageId: "forbiddenSymbolName" }, { messageId: "forbiddenSymbolName" }],
-        output: null,
-      },
-      {
-        filename: "src/domain/private.ts",
-        code: `class User {
-  #shape = 1;
-  #shapeFactory() { return this.#shape; }
-}`,
-        errors: [
-          { messageId: "forbiddenSymbolName" },
-          { messageId: "forbiddenSymbolName" },
-          { messageId: "forbiddenSymbolName" },
-        ],
         output: null,
       },
     ],

@@ -16,6 +16,7 @@ dist-ssr
 # dotenv environment variable files
 .env
 .env.*
+.envrc
 !.env.example
 
 # Editor directories and files

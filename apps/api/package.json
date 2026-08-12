@@ -8,19 +8,20 @@
     "deploy": "alchemy deploy --stage production",
     "destroy:production": "alchemy destroy --stage production",
     "dev": "alchemy dev --stage local",
-    "test": "vp test run"
+    "test": "vp test run src",
+    "test:e2e": "vp test run test/e2e.test.ts"
   },
   "dependencies": {
-    "@effect/sql-sqlite-do": "4.0.0-beta.102",
-    "effect": "4.0.0-beta.102",
-    "jose": "6.2.4"
+    "@effect/sql-sqlite-do": "4.0.0-beta.107",
+    "effect": "4.0.0-beta.107",
+    "jose": "6.2.8"
   },
   "devDependencies": {
-    "@cloudflare/workers-types": "5.20260801.1",
-    "@effect/platform-node": "4.0.0-beta.102",
-    "@effect/vitest": "4.0.0-beta.102",
-    "@types/node": "26.1.2",
-    "alchemy": "2.0.0-beta.67",
+    "@cloudflare/workers-types": "5.20260812.1",
+    "@effect/platform-node": "4.0.0-beta.107",
+    "@effect/vitest": "4.0.0-beta.107",
+    "@types/node": "26.2.0",
+    "alchemy": "2.0.0-beta.72",
     "typescript": "7.0.2"
   }
 }
