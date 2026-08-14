@@ -28,8 +28,8 @@ import * as HttpClientError from "effect/unstable/http/HttpClientError"
 import type * as HttpClientRequest from "effect/unstable/http/HttpClientRequest"
 import * as HttpClientResponse from "effect/unstable/http/HttpClientResponse"
 import * as HttpIncomingMessage from "effect/unstable/http/HttpIncomingMessage"
+import * as HeaderParser from "effect/unstable/http/MultipartParser/HeadersParser"
 import * as UrlParams from "effect/unstable/http/UrlParams"
-import * as HeaderParser from "multipasta/HeadersParser"
 
 // =============================================================================
 // Fetch
@@ -39,14 +39,14 @@ export {
   /**
    * Context reference for the `fetch` implementation used by the fetch-based HTTP client.
    *
-   * @category fetch
+   * @category services
    * @since 4.0.0
    */
   Fetch,
   /**
    * Layer that provides an `HttpClient` implementation backed by the configured `Fetch` function.
    *
-   * @category fetch
+   * @category layers
    * @since 4.0.0
    */
   layer as layerFetch,
@@ -58,7 +58,7 @@ export {
    * Use to provide default credentials, cache, redirect, integrity, or other
    * fetch options for browser HTTP requests.
    *
-   * @category fetch
+   * @category services
    * @since 4.0.0
    */
   RequestInit
@@ -87,7 +87,7 @@ export type XHRResponseType = "arraybuffer" | "text"
  * @see {@link XHRResponseType} for the allowed response body modes
  * @see {@link withXHRArrayBuffer} for scoping XHR response handling to `ArrayBuffer`
  *
- * @category references
+ * @category services
  * @since 4.0.0
  */
 export const CurrentXHRResponseType: Context.Reference<XHRResponseType> = Context.Reference(
@@ -98,7 +98,7 @@ export const CurrentXHRResponseType: Context.Reference<XHRResponseType> = Contex
 /**
  * Runs an effect with `CurrentXHRResponseType` set to `"arraybuffer"` so the XHR HTTP client receives response bodies as `ArrayBuffer` values.
  *
- * @category references
+ * @category providing services
  * @since 4.0.0
  */
 export const withXHRArrayBuffer = <A, E, R>(
@@ -399,7 +399,11 @@ class ClientResponseImpl extends IncomingMessageImpl<HttpClientError.HttpClientE
   }
 
   get formData(): Effect.Effect<FormData, HttpClientError.HttpClientError> {
-    return Effect.die("Not implemented")
+    return Effect.flatMap(this.arrayBuffer, (body) =>
+      Effect.tryPromise({
+        try: () => new globalThis.Response(body, { headers: this.headers }).formData(),
+        catch: this.onError
+      }))
   }
 
   override toString(): string {
