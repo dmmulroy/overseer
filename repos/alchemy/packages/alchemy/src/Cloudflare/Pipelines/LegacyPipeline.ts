@@ -181,8 +181,8 @@ export type LegacyPipeline = Resource<
  *   destination: {
  *     bucket: bucket.bucketName,
  *     credentials: {
- *       accessKeyId: alchemy.secret.env.R2_ACCESS_KEY_ID,
- *       secretAccessKey: alchemy.secret.env.R2_SECRET_ACCESS_KEY,
+ *       accessKeyId: yield* Config.redacted("R2_ACCESS_KEY_ID"),
+ *       secretAccessKey: yield* Config.redacted("R2_SECRET_ACCESS_KEY"),
  *     },
  *   },
  * });
@@ -413,8 +413,7 @@ const listLegacyPipelineSummaries = (accountId: string) => {
       const next = [...acc, ...results];
       const total = response.resultInfo?.totalCount;
       const done =
-        results.length < perPage ||
-        (total !== undefined && next.length >= total);
+        results.length < perPage || (total != null && next.length >= total);
       return done ? next : yield* collect(page + 1, next);
     });
   return collect(1, []);

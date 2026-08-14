@@ -1,7 +1,8 @@
 import * as Data from "effect/Data";
 import * as Effect from "effect/Effect";
 import * as Redacted from "effect/Redacted";
-import { Client } from "pg";
+import type { Client } from "pg";
+import { importPg } from "../SQL/PostgresDriver.ts";
 import type { SqlFile } from "../SQL/SqlFile.ts";
 
 export class PgError extends Data.TaggedError("PgError")<{
@@ -44,6 +45,7 @@ const withClient = <A, E>(
 ): Effect.Effect<A, PgError | E> =>
   Effect.tryPromise({
     try: async () => {
+      const { Client } = await importPg();
       const client = new Client({
         connectionString: stripSslQueryParams(Redacted.value(connectionUri)),
         ssl: { rejectUnauthorized: false },
