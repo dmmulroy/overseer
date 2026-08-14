@@ -1,0 +1,139 @@
+---
+title: Foldkit
+description: Deploy a Foldkit app to Cloudflare with the Vite resource — one declaration, no Wrangler config.
+sidebar:
+  order: 8
+---
+
+[Foldkit](https://foldkit.dev) is an Elm-architecture frontend
+framework built on Effect. Its apps are client-only Vite projects —
+the Foldkit Vite plugin only adds HMR and devtools wiring — so
+[`Cloudflare.Website.Vite`](/cloudflare/frontend/vite) deploys them
+with a single declaration: no `main` entrypoint, no build command,
+no output directory, no Wrangler configuration.
+
+## Configure Vite
+
+Your Vite config stays what Foldkit's setup gives you:
+
+```typescript
+// vite.config.ts
+import { foldkit } from "@foldkit/vite-plugin";
+import { defineConfig } from "vite";
+
+export default defineConfig({
+  plugins: [foldkit()],
+  optimizeDeps: {
+    entries: ["src/entry.ts"],
+  },
+});
+```
+
+Alchemy runs Vite programmatically on the project root and layers
+its Cloudflare integration on top of this config — the Foldkit
+plugin and the rest of your setup are preserved as-is.
+
+:::note[Pinned Effect versions]
+Foldkit pins its `effect` peer dependency to an exact version.
+Alchemy runs your app's own Vite build with your app's own
+`node_modules`, so that pin is between Foldkit and your package
+manager — Alchemy imposes no Effect version on your frontend.
+:::
+
+## Declare the Website
+
+Declare the site as a module-level const (rather than inline in the
+Stack). Foldkit apps that use URL routing need the SPA fallback so
+deep links reach the client router — see
+[Deep links](#deep-links) below:
+
+```typescript
+// alchemy.run.ts
+import * as Cloudflare from "alchemy/Cloudflare";
+
+export const Website = Cloudflare.Website.Vite("Foldkit", {
+  assets: {
+    notFoundHandling: "single-page-application",
+  },
+});
+```
+
+## Add it to the Stack
+
+Yield the class from your Stack and return its URL — see
+[examples/cloudflare-foldkit](https://github.com/alchemy-run/alchemy/tree/main/examples/cloudflare-foldkit)
+for the checked-in example:
+
+```typescript
+// alchemy.run.ts
+import * as Alchemy from "alchemy";
+import * as Effect from "effect/Effect";
+
+export default Alchemy.Stack(
+  "CloudflareFoldkitExample",
+  {
+    providers: Cloudflare.providers(),
+    state: Cloudflare.state(),
+  },
+  Effect.gen(function* () {
+    const worker = yield* Website;
+
+    return {
+      url: worker.url,
+    };
+  }),
+);
+```
+
+Alchemy builds the client assets and serves them from a Worker at
+the returned `url`.
+
+## Deep links
+
+A Foldkit app that uses URL routing (`Runtime.makeApplication` with
+`route`, `onUrlRequest`, and `onUrlChange`) resolves routes on the
+client, so a deep link like `/counter/42` arrives at the server as a
+request for a file that doesn't exist. The
+`notFoundHandling: "single-page-application"` setting above returns
+`index.html` for unmatched paths instead of a 404, and the Foldkit
+runtime resolves the route once the app boots.
+
+## Add environment variables
+
+A Foldkit SPA has no server, so anything it needs from the rest of
+your Stack is baked into the bundle at build time — pass a
+`VITE_`-prefixed key in `env`:
+
+```diff lang="typescript"
+// alchemy.run.ts
+export const Website = Cloudflare.Website.Vite("Foldkit", {
++  env: {
++    VITE_API_URL: backend.url,
++  },
+  assets: {
+    notFoundHandling: "single-page-application",
+  },
+});
+```
+
+Type it for your Foldkit code with Vite's standard `ImportMetaEnv`
+augmentation:
+
+```typescript
+// src/vite-env.d.ts
+/// <reference types="vite/client" />
+
+interface ImportMetaEnv {
+  readonly VITE_API_URL: string;
+}
+```
+
+Client code reads it as `import.meta.env.VITE_API_URL` (e.g. from a
+`Command` that fetches it). See
+[Environment](/cloudflare/frontend/vite#environment) for the full
+inlining semantics.
+
+Because a SPA ships no server code, there are no runtime bindings to
+type with `Cloudflare.InferEnv` — when you need server logic, bind a
+separate [Worker](/cloudflare/compute/workers) and call it from the
+client.

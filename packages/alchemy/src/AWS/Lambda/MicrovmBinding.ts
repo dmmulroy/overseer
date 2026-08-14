@@ -290,6 +290,9 @@ const ensureWorkerAwsAccess = (host: WorkerHost) =>
                 : Redacted.make(secret)
               : Redacted.make(""),
             sessionToken: undefined,
+            // STS AssumeRole is signed against a fixed global endpoint region;
+            // per-request operations provide their own image-derived Region.
+            region: "us-east-1",
           } satisfies ResolvedCredentials;
         }),
       );
@@ -351,7 +354,7 @@ export const makeImageBinding = <Req, Res, Err, Self>(
       return Effect.fn(function* (image: MicrovmImage) {
         const host = yield* Binding.Host;
         const statements = imagePolicyStatements(image, options);
-        const label = `Allow(${host.LogicalId}, AWS.Lambda.${options.name}(${image.LogicalId}))`;
+        const label = `Allow(${host?.LogicalId}, AWS.Lambda.${options.name}(${image.LogicalId}))`;
 
         // Accessors (registered on the host at deploy, resolved at runtime).
         const imageArn = yield* image.imageArn;
@@ -365,7 +368,7 @@ export const makeImageBinding = <Req, Res, Err, Self>(
           if (!globalThis.__ALCHEMY_RUNTIME__) {
             yield* host.bind`${label}`({ policyStatements: statements });
           }
-        } else if (isWorkerHost(host)) {
+        } else if (host !== undefined && isWorkerHost(host)) {
           access = yield* ensureWorkerAwsAccess(host);
           if (!globalThis.__ALCHEMY_RUNTIME__) {
             yield* access.role.bind`${label}`({ policyStatements: statements });
@@ -413,7 +416,7 @@ export const makeAccountBinding = <Req, Res, Err, Self>(
       const run = yield* options.operation;
       return Effect.fn(function* () {
         const host = yield* Binding.Host;
-        const label = `Allow(${host.LogicalId}, AWS.Lambda.${options.name}())`;
+        const label = `Allow(${host?.LogicalId}, AWS.Lambda.${options.name}())`;
         const statements: Input<PolicyStatement>[] = [
           { Effect: "Allow", Action: options.actions, Resource: ["*"] },
         ];
@@ -423,7 +426,7 @@ export const makeAccountBinding = <Req, Res, Err, Self>(
           if (!globalThis.__ALCHEMY_RUNTIME__) {
             yield* host.bind`${label}`({ policyStatements: statements });
           }
-        } else if (isWorkerHost(host)) {
+        } else if (host !== undefined && isWorkerHost(host)) {
           access = yield* ensureWorkerAwsAccess(host);
           if (!globalThis.__ALCHEMY_RUNTIME__) {
             yield* access.role.bind`${label}`({ policyStatements: statements });

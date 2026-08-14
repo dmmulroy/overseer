@@ -17,12 +17,14 @@ import { BadArgument, SystemError } from "effect/PlatformError";
 import * as Predicate from "effect/Predicate";
 import * as Redacted from "effect/Redacted";
 import type * as Scope from "effect/Scope";
+import { initialCwd } from "../Util/Node.ts";
 import * as Sink from "effect/Sink";
 import * as Stream from "effect/Stream";
 import * as ChildProcess from "effect/unstable/process/ChildProcess";
 import * as ChildProcessSpawner from "effect/unstable/process/ChildProcessSpawner";
 import type { ScopedPlanStatusSession } from "../Cli/Cli.ts";
 import { isNonInteractive } from "../Util/interactive.ts";
+import { registerExitKill } from "../Util/killProcessGroup.ts";
 import {
   makeCommandRedactor,
   redactPlatformReason,
@@ -309,7 +311,9 @@ export const CommandExecutorLive = () =>
           Effect.flatMap(({ bin, args }) =>
             spawner.spawn(
               ChildProcess.make(bin, args, {
-                cwd: path.resolve(props.cwd ?? process.cwd()),
+                // Anchored: a live `process.cwd()` read can race a
+                // concurrent tool's transient chdir (see Util/Node.ts).
+                cwd: path.resolve(initialCwd, props.cwd ?? "."),
                 shell: props.shell ?? false,
                 env: Object.fromEntries(
                   Object.entries(props.env ?? {}).map(([k, v]) => [
@@ -328,6 +332,7 @@ export const CommandExecutorLive = () =>
               }),
             ),
           ),
+          Effect.tap((child) => registerExitKill(child.pid)),
           Effect.map((child) =>
             redactChildProcessHandle(child, makeCommandRedactor(props.env)),
           ),

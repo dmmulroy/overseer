@@ -6,6 +6,7 @@ import * as Command from "../../Command/index.ts";
 import type { Input, InputProps } from "../../Input.ts";
 import * as Namespace from "../../Namespace.ts";
 import * as Output from "../../Output.ts";
+import { renamedFrom } from "../../Rename.ts";
 import {
   effectClass,
   isYieldableEffectLike,
@@ -14,7 +15,6 @@ import {
 import { asEffect } from "../../Util/types.ts";
 import type { Providers } from "../Providers.ts";
 import type { AssetsConfig } from "../Workers/Assets.ts";
-import { isContainerDecl } from "../Workers/WorkerAsyncBindings.ts";
 import {
   Worker,
   type NormalizedBindings,
@@ -22,6 +22,7 @@ import {
   type WorkerBindingProps,
   type WorkerProps,
 } from "../Workers/Worker.ts";
+import { isContainerDecl } from "../Workers/WorkerAsyncBindings.ts";
 
 export interface StaticSiteProps<Bindings extends WorkerBindingProps = {}>
   extends
@@ -255,6 +256,14 @@ const makeStaticSite = <
     const ctx = yield* AlchemyContext;
     const props = yield* asEffect(propsEff);
 
+    // `Dev` and `Build` carry constant logical ids, so they are namespaced
+    // under `id` to keep two sites on one stack from colliding. Nothing
+    // else is: the site's own `props` — and the resources its `env`
+    // bindings declare — must resolve in the CALLER's namespace. Pushing
+    // the namespace around the whole body instead re-declares a shared
+    // resource referenced from `env` as a second copy under `<id>/`.
+    // `Vite` already passes `id` straight through to `Worker`.
+
     // In dev mode with a dev.command, declare a DevCommand resource so
     // the sidecar owns the process lifecycle (survives user-code HMR),
     // skip the build, and tell Worker not to start a local instance.
@@ -267,6 +276,7 @@ const makeStaticSite = <
               (typeof props.cwd === "string" ? props.cwd : undefined),
             env: yield* serializeEnv(props.dev.env ?? props.env),
           }).pipe(
+            Namespace.push(id),
             Effect.map((d) =>
               Output.map(d.url, (url) => ({
                 url: url ?? props.dev?.url,
@@ -283,17 +293,23 @@ const makeStaticSite = <
           memo: props.memo,
           outdir: props.outdir,
           env: yield* serializeEnv(props.env),
-        });
+        }).pipe(Namespace.push(id));
 
     // Pure-static sites (neither `main` nor `script`) deploy as
     // assets-only Workers: no script is uploaded and Cloudflare's asset
     // layer serves every request itself.
-    return yield* Worker<Bindings, WorkerAssetsConfig, Req>("Worker", {
+    //
+    // The Worker's FQN was `<id>/Worker` before #1053 flattened it to
+    // `<id>`; `renamedFrom` migrates the pre-existing state row to the new
+    // FQN instead of letting the engine plan a create+delete replacement
+    // (a new physical name, a torn-down workers.dev URL, and a
+    // custom-domain handover that crashes the deploy).
+    return yield* Worker<Bindings, WorkerAssetsConfig, Req>(id, {
       ...props,
       assets: build
         ? cast({
             directory: build.outdir,
-            hash: build.hash,
+            hash: build.hash.output,
             ...props.assets,
           })
         : undefined,
@@ -302,8 +318,8 @@ const makeStaticSite = <
       // state with a stub Attributes shape.
       dev: dev ? { mode: "external", url: dev.url } : undefined,
       script: props.script,
-    });
-  }).pipe(Namespace.push(id));
+    }).pipe(renamedFrom(`${id}/Worker`));
+  });
 
 /**
  * Serialize the site's `env` for the build/dev subprocess. The same record
