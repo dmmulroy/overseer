@@ -67,6 +67,25 @@ export type ServeOptions<R extends string> =
   & { readonly routes?: Bun.Serve.Routes<WebSocketContext, R> }
 
 /**
+ * WebSocket tuning options forwarded to `Bun.serve`'s `websocket` handler.
+ *
+ * **Details**
+ *
+ * The lifecycle handlers (`open`, `message`, `close`, ...) are managed by the
+ * server and cannot be overridden; everything else — such as
+ * `perMessageDeflate` compression, payload limits, and idle timeouts — passes
+ * through, e.g.
+ * `BunHttpServer.layer({ port: 3000, websocket: { perMessageDeflate: true } })`.
+ *
+ * @category options
+ * @since 4.0.0
+ */
+export type WebSocketOptions = Omit<
+  Bun.WebSocketHandler<WebSocketContext>,
+  "open" | "message" | "close" | "drain" | "ping" | "pong" | "data" | "binaryType"
+>
+
+/**
  * Creates a scoped Bun `HttpServer` from `Bun.serve` options, stopping the server on scope finalization with optional graceful shutdown settings.
  *
  * @category constructors
@@ -77,6 +96,7 @@ export const make = Effect.fnUntraced(
     options: ServeOptions<R> & {
       readonly disablePreemptiveShutdown?: boolean | undefined
       readonly gracefulShutdownTimeout?: Duration.Input | undefined
+      readonly websocket?: WebSocketOptions | undefined
     }
   ) {
     const scope = yield* Effect.scope
@@ -90,6 +110,7 @@ export const make = Effect.fnUntraced(
       ...options as ServeOptions<R>,
       fetch: handlerStack[0],
       websocket: {
+        ...options.websocket,
         open(ws) {
           Deferred.doneUnsafe(ws.data.deferred, Exit.succeed(ws))
         },
@@ -137,12 +158,12 @@ export const make = Effect.fnUntraced(
 
         function handler(request: Request, server: BunServer<WebSocketContext>) {
           return new Promise<Response>((resolve, _reject) => {
-            const map = new Map(services.mapUnsafe)
-            map.set(
-              ServerRequest.HttpServerRequest.key,
+            const context = Context.add(
+              services,
+              ServerRequest.HttpServerRequest,
               new BunServerRequest(request, resolve, removeHost(request.url), server)
             )
-            const fiber = Fiber.runIn(Effect.runForkWith(Context.makeUnsafe<any>(map))(httpEffect), scope)
+            const fiber = Fiber.runIn(Effect.runForkWith(context)(httpEffect), scope)
             request.signal.addEventListener("abort", () => {
               fiber.interruptUnsafe(parent.id, Error.ClientAbort.annotation)
             }, { once: true })
@@ -150,9 +171,10 @@ export const make = Effect.fnUntraced(
         }
 
         yield* Scope.addFinalizerExit(serveScope, () => {
-          handlerStack.pop()
+          const index = handlerStack.indexOf(handler)
+          if (index !== -1) handlerStack.splice(index, 1)
           server.reload({ fetch: handlerStack[handlerStack.length - 1] })
-          return preemptiveShutdown
+          return handlerStack.length === 1 ? preemptiveShutdown : Effect.void
         })
         handlerStack.push(handler)
         server.reload({ fetch: handler })
@@ -233,6 +255,7 @@ export const layerServer: <R extends string>(
   options: ServeOptions<R> & {
     readonly disablePreemptiveShutdown?: boolean | undefined
     readonly gracefulShutdownTimeout?: Duration.Input | undefined
+    readonly websocket?: WebSocketOptions | undefined
   }
 ) => Layer.Layer<Server.HttpServer> = flow(make, Layer.effect(Server.HttpServer)) as any
 
@@ -262,6 +285,7 @@ export const layer = <R extends string>(
   options: ServeOptions<R> & {
     readonly disablePreemptiveShutdown?: boolean | undefined
     readonly gracefulShutdownTimeout?: Duration.Input | undefined
+    readonly websocket?: WebSocketOptions | undefined
   }
 ): Layer.Layer<
   | Server.HttpServer
@@ -273,7 +297,7 @@ export const layer = <R extends string>(
 /**
  * Layer that starts a Bun HTTP server on an ephemeral port for tests.
  *
- * @category layers
+ * @category testing
  * @since 4.0.0
  */
 export const layerTest: Layer.Layer<
@@ -296,6 +320,7 @@ export const layerConfig = <R extends string>(
     ServeOptions<R> & {
       readonly disablePreemptiveShutdown?: boolean | undefined
       readonly gracefulShutdownTimeout?: Duration.Input | undefined
+      readonly websocket?: WebSocketOptions | undefined
     }
   >
 ): Layer.Layer<
