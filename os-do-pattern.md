@@ -80,10 +80,9 @@ We do not run an HTTP server inside the DO. The DO stub is the server adapter.
 The application does not expose namespaces or stubs. It exposes an Effect service:
 
 ```ts
-export class WorkspaceClient extends Context.Service<
-  WorkspaceClient,
-  IWorkspaceClient
->()("@overseer/WorkspaceClient") {}
+export class WorkspaceClient extends Context.Service<WorkspaceClient, IWorkspaceClient>()(
+  "@overseer/WorkspaceClient",
+) {}
 ```
 
 `WorkspaceClient`:
@@ -96,7 +95,7 @@ export class WorkspaceClient extends Context.Service<
 HttpApiClient.makeWith(WorkspaceHttpApi, {
   baseUrl: "http://workspace.internal",
   httpClient: Cloudflare.toHttpClient(namespace.getByName(id)),
-})
+});
 ```
 
 `Cloudflare.toHttpClient` short-circuits requests to `stub.fetch`; the internal hostname is only used to construct request URLs.
@@ -104,8 +103,8 @@ HttpApiClient.makeWith(WorkspaceHttpApi, {
 The generated HTTP client is then wrapped in application operations such as:
 
 ```ts
-workspaceClient.getWorkspace(id)
-workspaceClient.renameWorkspace({ id, name })
+workspaceClient.getWorkspace(id);
+workspaceClient.renameWorkspace({ id, name });
 ```
 
 Those wrappers hide transport details and translate HTTP/schema failures into domain errors.
@@ -123,7 +122,7 @@ is not—the concrete runtime binding does not exist yet.
 Therefore our clients defer stub construction until an actual Worker request or DO call:
 
 ```ts
-const clients = yield* makeExecutionMemo(/* lazy client construction */);
+const clients = yield * makeExecutionMemo(/* lazy client construction */);
 ```
 
 `makeExecutionMemo` provides:
@@ -141,7 +140,7 @@ For Workspaces, that execution-local cache is keyed by `WorkspaceId`. For Bookke
 The stack only explicitly creates the API Worker:
 
 ```ts
-const api = yield* ApiWorker;
+const api = yield * ApiWorker;
 ```
 
 But the Effect dependency graph reaches the DOs:
