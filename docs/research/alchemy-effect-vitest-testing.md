@@ -236,7 +236,7 @@ Do not use the local suite as evidence for deployed Cloudflare Access, DNS, cust
   "scripts": {
     "test": "... focused tests ... && ... deployed integration suite ...",
     "test:e2e": "... test/e2e.test.ts ...",
-    "test:fast": "... focused tests only ...",
+    "test:unit": "... unit tests only ...",
     "test:e2e:local": "... test/e2e.local.test.ts ..."
   }
 }

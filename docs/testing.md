@@ -192,10 +192,10 @@ The testing implementation should provide these commands:
 ```sh
 pnpm test                # focused tests, then a fresh cloud Stack and full matrix
 pnpm test:e2e:cloud      # fresh cloud Stack and full matrix only
-pnpm test:fast           # explicit narrower unit/integration choice
+pnpm test:unit           # explicit unit-test-only choice
 pnpm test:e2e:workerd    # explicit emulator-only choice
 ```
 
-`pnpm test` is the complete suite. It must not be cached. `test:fast` and `test:e2e:workerd` are convenience commands and must not be described as equivalent confidence.
+`pnpm test` is the complete suite. It must not be cached. `test:unit` and `test:e2e:workerd` are convenience commands and must not be described as equivalent confidence.
 
 The cloud runner owns unique stage generation and fallback cleanup. The Alchemy Vitest `afterAll(destroy(Stack))` hook remains the primary teardown path.
