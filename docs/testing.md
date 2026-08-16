@@ -2,7 +2,7 @@
 
 ## Strategy
 
-Overseer favors real-cloud end-to-end tests over every other test form.
+Overseer favors deployed-stack integration tests over every other test form. These tests exercise Overseer end to end through its deployed public API.
 
 The default test suite deploys a fresh `OverseerApi` Stack with `alchemy/Test/Vitest`, sends real HTTP requests through its Cloudflare Access-protected custom domain, exercises the Worker, application services, Durable Object HTTP boundaries, Bookkeeper, and SQLite storage, and destroys the Stack afterward.
 
@@ -16,7 +16,7 @@ Every public feature and endpoint must have deployed end-to-end coverage for:
 - state transitions and idempotency guarantees;
 - meaningful concurrency, recovery, or asynchronous behavior.
 
-A feature is not complete merely because a unit, integration, or workerd test covers it.
+A feature is not complete merely because a unit, service integration, or local-runtime integration test covers it.
 
 For detailed Alchemy and `@effect/vitest` API research, see [`research/alchemy-effect-vitest-testing.md`](research/alchemy-effect-vitest-testing.md).
 
@@ -25,19 +25,19 @@ For detailed Alchemy and `@effect/vitest` API research, see [`research/alchemy-e
 Every local or automated test invocation:
 
 1. Generates a unique DNS-safe Alchemy stage such as `test-<user>-<run-id>`.
-2. Deploys a fresh real-cloud `OverseerApi` Stack.
+2. Deploys a fresh `OverseerApi` Stack through the real providers.
 3. Waits for the Access-protected public URL to become ready.
 4. Runs the complete endpoint and feature matrix.
 5. Destroys the Stack and its test data.
 6. Attempts fallback cleanup if the test process fails after deployment.
 
-Assume provisioning test infrastructure is cheap, fast, and free. Cost is not a reason to reuse infrastructure, skip a cloud boundary, or replace cloud coverage with workerd.
+Assume provisioning test infrastructure is cheap, fast, and free. Cost is not a reason to reuse infrastructure, skip a deployed provider boundary, or replace deployed-stack coverage with a local runtime.
 
 A stage is shared only within one test invocation. Never test against `local`, a developer deployment stage, `production`, or another test run's stage. Concurrent invocations remain isolated through distinct run IDs.
 
 ## Alchemy Harness
 
-The production-Stack suite uses `alchemy/Test/Vitest`:
+The deployed-stack integration suite uses `alchemy/Test/Vitest`:
 
 ```ts
 const { test, beforeAll, afterAll, deploy, destroy } = Test.make({
@@ -53,26 +53,23 @@ afterAll(destroy(Stack), { timeout: 300_000 });
 
 Use `Test.executeWhenReady` for the initial authenticated readiness request. It retries deployment-readiness failures without hiding ordinary authorization failures.
 
-Deploy once per production-Stack suite file. Keep the cloud tests sequential initially so Vitest workers cannot race deployment and destruction.
+Deploy once per integration suite file. Keep the deployed-stack integration tests sequential initially so Vitest workers cannot race deployment and destruction.
 
 ## Suite Organization
 
 ```text
 apps/api/test/
-  e2e/cloud/
-    overseer-api.cloud.test.ts  # owns deployment, shared context, and teardown
-    access.cloud-spec.ts        # registers Access and identity cases
-    workspace.cloud-spec.ts     # registers all public Workspace cases
-    cloud-test-client.ts        # typed and raw HTTP helpers
-    cloud-test-data.ts          # unique valid test values
-  e2e/workerd/
-    overseer-api.workerd.test.ts
-  run-cloud-tests.mjs           # unique stage and fallback lifecycle cleanup
+  e2e.test.ts       # owns deployment, shared context, and teardown
+  e2e/
+    access.ts       # registers Access and identity cases
+    workspace.ts    # registers all public Workspace cases
+    test-client.ts  # typed and raw HTTP helpers
+    test-data.ts    # unique valid test values
 ```
 
-Only `overseer-api.cloud.test.ts` is independently discovered by Vitest. The `*.cloud-spec.ts` modules export functions that register feature-specific tests into that shared suite.
+Only `e2e.test.ts` is independently discovered by Vitest. The feature modules export functions that register tests into that shared integration suite without using test-runner-discovered filenames.
 
-Split the cloud suite into multiple independently discovered files only when each file owns a separate stage and Stack lifecycle, or when a run-wide deployment fixture safely coordinates them.
+Split the integration suite into multiple independently discovered `*.e2e.test.ts` files only when each file owns a separate stage and Stack lifecycle, or when a run-wide deployment fixture safely coordinates them.
 
 ## Initial Public API Matrix
 
@@ -154,14 +151,14 @@ Some internal failures cannot be safely induced through the production public AP
 Never add production test-only endpoints, corruption switches, or fault flags. Prefer, in order:
 
 1. An additional Alchemy-deployed scenario Stack using the same public handlers with a controlled dependency Layer.
-2. A real-cloud test through an existing operational boundary that naturally creates the condition.
+2. A deployed-stack integration test through an existing operational boundary that naturally creates the condition.
 3. A focused integration test through the real service or HTTP interface when a scenario Stack would misrepresent production.
 
 Every error covered below the production Stack records why it cannot safely be induced there.
 
 ## Supporting Tests
 
-Supporting tests are narrower tools, not substitutes for cloud acceptance.
+Supporting tests are narrower tools, not substitutes for deployed-stack acceptance.
 
 ### Integration
 
@@ -171,9 +168,9 @@ Use integration tests for otherwise uncontrollable failure translations, real SQ
 
 Use focused tests for nontrivial pure invariants, state transitions, normalization, ordering, idempotency, and regressions. Do not restate straightforward Schema declarations or Effect/library behavior.
 
-### Workerd
+### Local runtime
 
-Workerd is an explicitly selected emulator-only feedback mode. It does not accept Cloudflare Access, custom-domain deployment, cloud permissions, or real Durable Object provisioning. The default local `test` command still deploys a fresh real-cloud Stack.
+A local-runtime integration test is an explicitly selected emulator-only feedback mode. It does not cover Cloudflare Access, custom-domain deployment, provider permissions, or real Durable Object provisioning. If introduced, it remains a qualified local counterpart rather than a separate test category or a substitute for the deployed-stack integration suite.
 
 ## Effect Vitest Conventions
 
@@ -183,19 +180,18 @@ Workerd is an explicitly selected emulator-only feedback mode. It does not accep
 - Use `layer(...)` only when one acquired Layer is intentionally shared by the block.
 - Provide a fresh Layer per test when mutable state must be isolated.
 - Assert public values, errors, responses, and persisted state—not implementation calls or spies.
-- Use bounded schedules for polling and explicit timeouts for deployment and cloud operations.
+- Use bounded schedules for polling and explicit timeouts for deployment and provider operations.
 
 ## Target Commands
 
-The testing implementation should provide these commands:
+The repository provides these commands:
 
 ```sh
-pnpm test                # focused tests, then a fresh cloud Stack and full matrix
-pnpm test:e2e:cloud      # fresh cloud Stack and full matrix only
-pnpm test:unit           # explicit unit-test-only choice
-pnpm test:e2e:workerd    # explicit emulator-only choice
+pnpm test       # unit tests, then the deployed-stack integration suite
+pnpm test:unit  # unit tests only
+pnpm test:e2e   # deployed-stack integration suite only
 ```
 
-`pnpm test` is the complete suite. It must not be cached. `test:unit` and `test:e2e:workerd` are convenience commands and must not be described as equivalent confidence.
+`pnpm test` is the complete suite. `test:e2e` runs without task caching so every invocation deploys and verifies a fresh Stack. `test:unit` is an explicit narrower choice and must not be described as equivalent confidence.
 
-The cloud runner owns unique stage generation and fallback cleanup. The Alchemy Vitest `afterAll(destroy(Stack))` hook remains the primary teardown path.
+The current integration test reads a caller-supplied unique `ALCHEMY_TEST_STAGE`. The remaining runner work must generate that stage automatically and provide fallback cleanup. The Alchemy Vitest `afterAll(destroy(Stack))` hook remains the primary teardown path.

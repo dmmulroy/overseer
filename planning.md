@@ -821,26 +821,27 @@ When the detailed protocol is designed, explore Effect `Scope`, `Effect.acquireR
 
 # Testing
 
-Overseer favors real-cloud end-to-end tests over every other test form. The primary acceptance suite deploys the actual `OverseerApi` Stack with `alchemy/Test/Vitest`, sends real HTTP requests through the Access-protected custom domain, crosses the Worker, application services, Durable Object HTTP boundaries, Bookkeeper, and SQLite storage, and then destroys the Stack. Every public feature and endpoint must have real-cloud coverage for its success behavior and every caller-reachable error path. A feature is not complete merely because a unit or local test covers it. The canonical test strategy and suite outline live in [`docs/testing.md`](docs/testing.md); detailed harness research and pinned API examples live in [`docs/research/alchemy-effect-vitest-testing.md`](docs/research/alchemy-effect-vitest-testing.md).
+Overseer favors deployed-stack integration tests over every other test form. The primary acceptance suite deploys the actual `OverseerApi` Stack with `alchemy/Test/Vitest`, sends real HTTP requests through the Access-protected custom domain, crosses the Worker, application services, Durable Object HTTP boundaries, Bookkeeper, and SQLite storage, and then destroys the Stack. Every public feature and endpoint must have deployed-stack coverage for its success behavior and every caller-reachable error path. A feature is not complete merely because a unit, service integration, or local-runtime integration test covers it. The canonical test strategy and suite outline live in [`docs/testing.md`](docs/testing.md); detailed harness research and pinned API examples live in [`docs/research/alchemy-effect-vitest-testing.md`](docs/research/alchemy-effect-vitest-testing.md).
 
-The suite deploys one Stack once per suite file with `beforeAll(deploy(Stack))`, shares its output through Alchemy's lazy Effect accessor, waits for readiness with `Test.executeWhenReady`, and tears down with `afterAll(destroy(Stack))`. Keep one production-Stack cloud file initially so Vitest workers cannot race deployment and teardown. Organize that file by registering feature-specific spec groups from non-test modules:
+The suite deploys one Stack once per suite file with `beforeAll(deploy(Stack))`, shares its output through Alchemy's lazy Effect accessor, waits for readiness with `Test.executeWhenReady`, and tears down with `afterAll(destroy(Stack))`. Keep one deployed-stack integration suite file initially so Vitest workers cannot race deployment and teardown. Organize that file by registering feature-specific test groups from non-test modules:
 
 ```text
-apps/api/test/e2e/cloud/
-  overseer-api.cloud.test.ts       # owns deploy, shared context, and destroy
-  access.cloud-spec.ts             # registers Access and identity cases
-  workspace.cloud-spec.ts          # registers all public Workspace cases
-  cloud-test-client.ts             # typed/raw HTTP helpers; never owns hooks
-  cloud-test-data.ts               # unique valid IDs and payloads
+apps/api/test/
+  e2e.test.ts       # owns deploy, shared context, and destroy
+  e2e/
+    access.ts       # registers Access and identity cases
+    workspace.ts    # registers all public Workspace cases
+    test-client.ts  # typed/raw HTTP helpers; never owns hooks
+    test-data.ts    # unique valid IDs and payloads
 ```
 
-`*.cloud-spec.ts` files are imported and invoked by the one `*.cloud.test.ts` orchestrator; Vitest must not discover them as independent files. Split into multiple deployed-Stack files only when every file has an independent stage and lifecycle, or when the harness gains a single run-wide deployment fixture.
+The feature modules are imported and invoked by the one `e2e.test.ts` orchestrator; Vitest must not discover them as independent files. Split into multiple `*.e2e.test.ts` files only when every file has an independent stage and lifecycle, or when the harness gains a single run-wide deployment fixture.
 
-Every test run—whether started on a developer machine or in automation—creates a fresh real-cloud Stack under a unique, DNS-safe Alchemy stage such as `test-<user>-<run-id>`. Test runs never reuse `local`, a developer stage, `production`, or another run's stage. The stage is shared only by the suites participating in that one invocation and is destroyed when the invocation finishes. Assume this lifecycle is cheap, fast, and free: infrastructure cost is not a reason to reuse a Stack, replace cloud coverage with workerd, or skip a real boundary. Concurrent local and automated runs remain isolated by their run IDs.
+Every test run—whether started on a developer machine or in automation—creates a fresh Stack through the real providers under a unique, DNS-safe Alchemy stage such as `test-<user>-<run-id>`. Test runs never reuse `local`, a developer stage, `production`, or another run's stage. The stage is shared only by the suites participating in that one invocation and is destroyed when the invocation finishes. Assume this lifecycle is cheap, fast, and free: infrastructure cost is not a reason to reuse a Stack, replace deployed-stack coverage with a local runtime, or skip a real boundary. Concurrent local and automated runs remain isolated by their run IDs.
 
 Every test creates unique domain data and is independently runnable; tests may share their run's infrastructure but never depend on another test's mutation. Destruction remains the normal final step, and automation also runs unconditional cleanup so interruption cannot routinely orphan resources. Use remote `Cloudflare.state()` for shared state coordination, and never log or snapshot the redacted Access token secret.
 
-## Initial Real-Cloud Suite
+## Initial Deployed-Stack Integration Suite
 
 Assume the main Worker adds public Workspace handlers backed only by `OverseerSdk`; its Workspace operations use `WorkspaceClient` to route each operation to the `WorkspaceServer` Durable Object keyed by `WorkspaceId`. For this test outline, the public routes are:
 
@@ -883,7 +884,7 @@ The public create payload contains `name`; the SDK generates the `WorkspaceId`. 
 - A following GET observes the new name.
 - A valid but unknown ID produces the public not-found contract.
 - Every caller-visible invalid-name class produces the declared request error and leaves the stored Workspace unchanged.
-- Rename behavior for an archived Workspace must be decided explicitly; once decided, the cloud suite covers that success or rejection contract.
+- Rename behavior for an archived Workspace must be decided explicitly; once decided, the integration suite covers that success or rejection contract.
 
 ### Archive and Unarchive Workspace
 
@@ -901,27 +902,27 @@ The public create payload contains `name`; the SDK generates the `WorkspaceId`. 
 
 ## Error-Path Accounting
 
-Maintain an endpoint matrix beside the cloud suite that lists every declared success and error variant and points to its test. Caller-inducible paths—authentication failure, malformed input, unknown IDs, illegal transitions, ownership failures, conflicts, and invalid cursors as those endpoints arrive—must run against the actual deployed Stack on every PR.
+Maintain an endpoint matrix beside the integration suite that lists every declared success and error variant and points to its test. Caller-inducible paths—authentication failure, malformed input, unknown IDs, illegal transitions, ownership failures, conflicts, and invalid cursors as those endpoints arrive—must run against the actual deployed Stack on every PR.
 
 Some expected internal failures cannot be safely induced through the production public API: `database_unavailable`, `stored_workspace_invalid`, `workspace_registration_failed`, and `workspace_id_mismatch` are examples in the current Workspace modules. Never add production test-only endpoints, corrupt-storage switches, or fault flags merely to reach them. Prefer, in order:
 
 1. an additional Alchemy-deployed scenario Stack using the same public handlers with a controlled failing or corrupt dependency Layer;
-2. a real-cloud test through an existing operational boundary that naturally creates the condition;
+2. a deployed-stack integration test through an existing operational boundary that naturally creates the condition;
 3. a focused integration test through the real Workspace HTTP/service interface when a deployed scenario would no longer represent the production path honestly.
 
-Every non-cloud row records why the production Stack cannot safely induce it. This exception process keeps the suite comprehensive without pretending that a synthetic failure is the exact production deployment.
+Every row below the deployed-stack boundary records why the production Stack cannot safely induce it. This exception process keeps the suite comprehensive without pretending that a synthetic failure is the exact production deployment.
 
 ## Supporting Tests
 
 Supporting tests exist only where they provide faster diagnosis, exercise otherwise uncontrollable failures, or prove pure application-owned rules:
 
-1. **Alchemy local workerd:** an optional explicitly selected developer feedback mode. The default local test command still deploys a fresh real-cloud Stack. Workerd does not accept Cloudflare Access or cloud deployment behavior and is not a substitute for any cloud contract row.
+1. **Local-runtime integration:** an optional explicitly selected developer feedback mode. The default local test command still deploys a fresh Stack through the real providers. The local runtime does not cover Cloudflare Access, custom-domain deployment, provider permissions, or real Durable Object provisioning and is not a substitute for any deployed-stack contract row.
 2. **Integration:** public Effect service and HTTP contracts, real SQLite migrations/transactions, and controlled dependency Layers for failures that cannot be induced safely in the production Stack. Module mocks are forbidden.
 3. **Unit and property:** nontrivial pure invariants, transitions, normalization, ordering, idempotency, and regressions. Do not restate straightforward Schema declarations or library mechanics.
 
 Use `@effect/vitest` throughout Effect tests. Ordinary `it` owns synchronous pure tests; `it.effect` owns scoped programs using test services such as `TestClock`; Alchemy's harness uses live runtime services. Use `layer(...)` only when sharing one acquired Layer for a block is intentional; otherwise provide a fresh Layer per test. Assert expected failures through public error or protocol contracts, never through implementation spies or `vi.mock`.
 
-The default local and automated `test` command runs the complete uncached production-Stack endpoint matrix against a newly created stage. There is no reduced PR suite, main-only suite, nightly-only suite, or cost-based coverage split. A narrower fast or workerd command may exist for an explicit inner-loop choice, but it is not named or treated as the project's full test suite. Cloud tests use explicit timeouts, bounded polling schedules, complete Stack configuration, and credentials for every Cloudflare and Alchemy state resource they provision.
+The default local and automated `test` command runs unit tests followed by the complete uncached deployed-Stack endpoint matrix against a newly created stage. There is no reduced PR suite, main-only suite, nightly-only suite, or cost-based coverage split. `test:unit` is the explicit narrower inner-loop choice; a qualified local-runtime integration command may be added later, but neither is named or treated as the project's full test suite. Deployed-stack integration tests use explicit timeouts, bounded polling schedules, complete Stack configuration, and credentials for every Cloudflare and Alchemy state resource they provision.
 
 # To-dos
 

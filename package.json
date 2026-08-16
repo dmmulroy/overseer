@@ -8,10 +8,11 @@
   ],
   "type": "module",
   "scripts": {
-    "check": "vp check && vp run -r test",
+    "check": "vp check && pnpm test:unit",
     "ready": "vp run check",
-    "test": "vp test run tools/oxlint",
-    "test:unit": "vp run -r test"
+    "test": "pnpm test:unit && pnpm test:e2e",
+    "test:e2e": "vp run --no-cache @overseer/api#test:e2e",
+    "test:unit": "vp test run tools/oxlint && vp run @overseer/api#test:unit"
   },
   "devDependencies": {
     "@effect/platform-node": "4.0.0-beta.107",
