@@ -188,34 +188,37 @@ The custom `no-conditional-tests` lint rule points agents directly to the releva
 4. **Fresh scenario data.** Every test gets unique domain values and never depends on another test's mutation.
 5. **Scoped cleanup.** External resources and scenario-specific infrastructure use Effect finalizers.
 6. **Structured run evidence.** Record scenario, stage, duration, status, request IDs, and safe request summaries even before Overseer has a browser.
-7. **Shared test/interactive primitives.** Agents should be able to deploy, call, inspect, and destroy through the same code the suite uses.
-8. **Narrow iteration and full final validation.** Agents may run one scenario while developing; final validation still runs Overseer's complete fresh deployed-stack suite.
-9. **Agent-facing policy plus lint guardrails.** Make good test structure the easy and searchable path.
-10. **Hand-authored tests.** Do not generate test source from recorded interactions.
+7. **An evidence viewer.** Make every local and automated run browsable by scenario, with its verdict, source, request ledger, logs, terminal cast, video, screenshots, and traces when those artifacts exist.
+8. **A recorded terminal surface.** Agents should be able to run the same harness commands through a real PTY whose sanitized asciicast, timing, exit status, and output become scenario evidence.
+9. **A recorded browser surface.** Once Overseer has a browser client, Playwright sessions should automatically produce video, trace, step screenshots, and a failure screenshot.
+10. **A shared evidence timeline.** Terminal and browser activity should emit focus and navigation events as side effects of normal surface use so the viewer can present one coherent validation session.
+11. **Shared test/interactive primitives.** Agents should be able to deploy, call, inspect, record, and destroy through the same code the suite uses.
+12. **Narrow iteration and full final validation.** Agents may run one scenario while developing; final validation still runs Overseer's complete fresh deployed-stack suite.
+13. **Agent-facing policy plus lint guardrails.** Make good test structure the easy and searchable path.
+14. **Hand-authored tests.** Recordings are evidence, not an alternate assertion model or generated test source.
 
 ### Adapt for Overseer
 
 1. **Keep real provider deployment.** Executor's emulated dev stack is not equivalent to Overseer's acceptance boundary. Overseer's primary suite must continue deploying Alchemy resources through real Cloudflare providers.
 2. **Use stage isolation before identity isolation.** A fresh Alchemy stage isolates each invocation. Unique Workspace and later Project/Issue values isolate scenarios within that stage.
-3. **Capture API evidence first.** Overseer currently has no SPA. Start with method, canonical path, status, elapsed time, `X-Overseer-Request-Id`, and redacted error/result metadata. Add Playwright artifacts only when a browser client exists.
-4. **Treat Access credentials as sensitive.** Never record Access client secrets, complete headers, or unredacted request bodies.
-5. **Use explicit failure scenario Stacks.** Internal failures that cannot be induced through production should use controlled dependency Layers in separately named deployed scenario Stacks, not test switches in production handlers.
-6. **Fail missing capabilities initially.** Overseer has one acceptance target. Automatic capability skips would hide harness defects.
+3. **Make the viewer sparse-artifact aware.** API-only runs should be useful immediately with results, source, request IDs, logs, and terminal casts. Browser panels appear only when a scenario produced browser evidence.
+4. **Treat Access credentials as sensitive.** Never record Access client secrets, complete headers, unredacted request bodies, secret-bearing commands, or secret-bearing terminal output. Redaction occurs before evidence is written, not only when the viewer renders it.
+5. **Separate verification speed from presentation pacing.** Terminal and browser recordings must add no artificial delays during ordinary test runs. Human-readable pacing is an explicit filming mode implemented by surfaces rather than sleeps in scenarios.
+6. **Use explicit failure scenario Stacks.** Internal failures that cannot be induced through production should use controlled dependency Layers in separately named deployed scenario Stacks, not test switches in production handlers.
+7. **Fail missing capabilities initially.** Overseer has one acceptance target. Automatic capability skips would hide harness defects.
 
 ### Do not adopt yet
 
 - a generic multi-target registry;
 - target capability auto-skipping;
 - port-block claiming for the real deployed suite;
-- a React evidence viewer;
-- video, terminal theater, or focus-timeline machinery;
 - sharding before suite duration demonstrates a need;
 - a record-and-promote or generated-test workflow;
 - broad emulator infrastructure without an actual external dependency.
 
 ## Proposed Overseer primitive set
 
-The smallest useful design is:
+The target design includes evidence presentation and recorded terminal/browser surfaces from the start, while allowing each artifact type to land incrementally:
 
 ```text
 apps/api/test/
@@ -230,11 +233,21 @@ apps/api/test/
       typed-api.ts         # authenticated generated HttpApi client
       raw-api.ts           # status/body/header requests for protocol failures
       test-data.ts         # unique valid and invalid domain inputs
-      evidence.ts          # redacted request/result/request-id ledger
       run-context.ts       # stage, run id, artifact root, timing
+      evidence/
+        artifact.ts        # versioned artifact manifest and safe metadata schemas
+        ledger.ts          # redacted request/result/request-id ledger
+        timeline.ts        # terminal/browser focus and navigation events
+        redaction.ts       # mandatory write-boundary secret removal
+      surfaces/
+        terminal.ts        # scoped PTY + sanitized asciicast
+        browser.ts         # scoped Playwright video/trace/screenshots
   scripts/
     run-e2e.ts             # unique stage, child lifecycle, signals, fallback destroy
-    inspect-e2e.ts         # summary and safe artifact inspection
+    inspect-e2e.ts         # textual summary and safe artifact inspection
+    serve-evidence.ts      # build and serve the evidence viewer
+  viewer/
+    src/                   # run list, scenario source, ledgers, casts, video, traces
 ```
 
 Suggested services:
@@ -244,33 +257,36 @@ DeployedApi       base URL and parsed non-secret deployment identity
 AgentApi          authenticated typed public client
 RawApi            redaction-aware raw HTTP client
 TestData          run/scenario-qualified domain values
-Evidence          structured request and result ledger
+Evidence          versioned artifact manifest and safe ledger writer
+Terminal          scoped real-PTY command sessions with asciicast recording
+Browser           scoped Playwright sessions with video, trace, and screenshots
 RunContext        stage, run ID, scenario identity, artifact directory
 ```
 
-A future browser client can add `Browser` without changing API scenarios. A future controlled failure Stack can provide the same `AgentApi` and `RawApi` contracts from a different suite composition root.
+The evidence viewer consumes a versioned manifest and treats every artifact as optional except the scenario verdict. That lets API evidence, terminal recording, browser video, and distributed traces arrive in separate implementation slices without redesigning the viewer. A future controlled failure Stack can provide the same `AgentApi`, `RawApi`, `Terminal`, and evidence contracts from a different suite composition root.
 
 ## Recommended implementation order
 
 1. Build `run-e2e.ts`: generate a unique stage, invoke the uncached suite, handle signals, and perform fallback Alchemy destruction.
-2. Extract the current deployment result into a parsed `DeployedApi` service.
-3. Build typed and raw HTTP surfaces with authentication and mandatory redaction.
-4. Build deterministic run/scenario-qualified test data.
-5. Introduce `scenario()` with structured `result.json` and request-ID evidence.
-6. Move the current identity smoke test onto those primitives.
-7. Implement Access and Workspace scenario modules and their error-path matrix.
-8. Add an interactive command only after the underlying deploy/client/evidence primitives are stable.
-9. Add lint rules for direct Vitest imports, conditional assertions, and bypassing the scenario/public-surface boundary when actual misuse appears.
+2. Define the versioned evidence manifest, write-boundary redaction policy, run directory, and `result.json` contract.
+3. Build a thin evidence viewer that can browse verdicts, scenario source, request IDs, and any optional artifact declared by the manifest.
+4. Extract the current deployment result into a parsed `DeployedApi` service and build typed and raw HTTP surfaces.
+5. Build deterministic run/scenario-qualified test data and introduce `scenario()` with evidence finalization.
+6. Add the scoped terminal surface, sanitized asciicast recording, command timing, and viewer playback.
+7. Move the current identity smoke test onto those primitives, then implement Access and Workspace scenario modules and their error-path matrix.
+8. Add the scoped Playwright browser surface, video, trace, screenshots, and shared focus timeline when the first browser-facing Overseer flow lands.
+9. Add an interactive command that reuses deploy, client, terminal, browser, and evidence primitives for agent validation and handoff.
+10. Add lint rules for direct Vitest imports, conditional assertions, bypassing the scenario/public-surface boundary, and evidence writes outside the redaction owner when actual misuse appears.
 
 ## Conclusion
 
-Executor's strongest idea is not its viewer or its target matrix. It is the alignment of four interfaces:
+Executor's strongest idea is the alignment of four interfaces, made tangible through inspectable evidence:
 
 ```text
-what an agent uses to inspect the product
+what an agent uses to inspect and record the product
   = what a scenario uses to drive the product
   = what CI uses to validate the product
-  = what a reviewer receives as evidence
+  = what a reviewer watches and inspects as evidence
 ```
 
-Overseer can obtain that alignment with a much smaller harness because it currently has one deployed target and one public API surface. The first valuable slice is the stage-owning runner, typed/raw clients, fresh test data, and structured request-ID evidence. Everything else should earn its place from a demonstrated second surface or target.
+Overseer should deliberately adopt the evidence viewer, recorded terminal surface, and recorded browser surface as part of that alignment. The implementation should still begin with lifecycle and a versioned, redaction-safe artifact contract; then a thin viewer and terminal recording can land before the browser client exists. Browser video and the shared session timeline become active as soon as Overseer has a browser-facing flow.
