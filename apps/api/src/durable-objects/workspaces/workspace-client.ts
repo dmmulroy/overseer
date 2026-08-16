@@ -14,7 +14,7 @@ import {
   generateWorkspaceId,
 } from "../../domain/workspace.ts";
 import { WorkspaceHttpApi } from "./workspace-http-api.ts";
-import { WorkspaceServer } from "./workspace-server.ts";
+import workspaceServerLayer, { WorkspaceServer } from "./workspace-server.ts";
 
 /** Application-facing operations for Workspace Durable Objects. */
 export interface IWorkspaceClient {
@@ -54,7 +54,7 @@ export class WorkspaceClient extends Context.Service<WorkspaceClient, IWorkspace
 export const makeWorkspaceClient: Effect.Effect<
   WorkspaceClient["Service"],
   never,
-  Cloudflare.Worker
+  Cloudflare.Worker | WorkspaceServer
 > = Effect.gen(function* () {
   const namespace = yield* WorkspaceServer;
   const workspaceHttpClients = yield* makeExecutionMemo(
@@ -146,4 +146,9 @@ export const makeWorkspaceClient: Effect.Effect<
 export const workspaceClientLayerWithoutDependencies = Layer.effect(
   WorkspaceClient,
   makeWorkspaceClient,
+);
+
+/** Provides the Workspace client with its production Durable Object server. */
+export const workspaceClientLayer = workspaceClientLayerWithoutDependencies.pipe(
+  Layer.provide(workspaceServerLayer),
 );

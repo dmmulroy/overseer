@@ -2,7 +2,7 @@ import { Context, Effect, Layer } from "effect";
 import {
   type IWorkspaceClient,
   WorkspaceClient,
-  workspaceClientLayerWithoutDependencies,
+  workspaceClientLayer,
 } from "../durable-objects/workspaces/workspace-client.ts";
 
 /** Resource clients exposed through the application-owned Overseer SDK. */
@@ -29,5 +29,5 @@ export const overseerSdkLayerWithoutDependencies = Layer.effect(OverseerSdk, mak
 
 /** Provides the Overseer SDK with its production application clients. */
 export const overseerSdkLayer = overseerSdkLayerWithoutDependencies.pipe(
-  Layer.provide(workspaceClientLayerWithoutDependencies),
+  Layer.provide(workspaceClientLayer),
 );

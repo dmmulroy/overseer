@@ -9,8 +9,10 @@
     "destroy:production": "alchemy destroy --stage production",
     "dev": "alchemy dev --stage local",
     "test": "vp test run src",
-    "test:e2e": "vp test run test/e2e.test.ts",
-    "test:unit": "vp test run src"
+    "test:e2e": "node scripts/run-e2e.ts deployed",
+    "test:e2e:deployed": "node scripts/run-e2e.ts deployed",
+    "test:e2e:local": "node scripts/run-e2e.ts local",
+    "test:unit": "vp test run src scripts test/e2e --exclude test/e2e.test.ts"
   },
   "dependencies": {
     "@effect/sql-sqlite-do": "4.0.0-beta.107",

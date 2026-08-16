@@ -1,5 +1,6 @@
 import { SqliteClient } from "@effect/sql-sqlite-do";
 import * as Cloudflare from "alchemy/Cloudflare";
+import type { HttpEffect } from "alchemy/Http";
 import { Effect, Layer } from "effect";
 import { HttpRouter } from "effect/unstable/http";
 import { HttpApiBuilder } from "effect/unstable/httpapi";
@@ -70,25 +71,37 @@ export const bookkeeperHttpHandlersLayer = HttpApiBuilder.group(
     }),
 );
 
-/** Singleton Durable Object HTTP server for Bookkeeper registration and directory operations. */
-export class BookkeeperServer extends Cloudflare.DurableObject<BookkeeperServer>()(
-  "BookkeeperServer",
-  Effect.gen(function* () {
-    const state = yield* Cloudflare.DurableObjectState;
-    const bookkeeperDatabaseLayer = bookkeeperDatabaseLayerWithoutDependencies.pipe(
-      Layer.provide(SqliteClient.layer({ storage: state.raw.storage })),
-    );
-    const bookkeeperHandlersLayer = bookkeeperHttpHandlersLayer.pipe(
-      Layer.provide(bookkeeperDatabaseLayer),
-    );
+interface BookkeeperServerContract {
+  readonly fetch: HttpEffect;
+}
 
-    return Effect.gen(function* () {
-      const httpLayer = HttpApiBuilder.layer(BookkeeperHttpApi).pipe(
-        Layer.provide(bookkeeperHandlersLayer),
-        Layer.provide(durableObjectBaseHttpServerLayer),
+/** Singleton Durable Object namespace for Bookkeeper registration and directory operations. */
+export class BookkeeperServer extends Cloudflare.DurableObject<
+  BookkeeperServer,
+  BookkeeperServerContract
+>()("BookkeeperServer") {}
+
+/** Hosts the Bookkeeper Durable Object implementation in the current Worker. */
+const bookkeeperServerLayer: Layer.Layer<BookkeeperServer, never, Cloudflare.Worker> =
+  BookkeeperServer.make<never>(
+    Effect.gen(function* () {
+      const state = yield* Cloudflare.DurableObjectState;
+      const bookkeeperDatabaseLayer = bookkeeperDatabaseLayerWithoutDependencies.pipe(
+        Layer.provide(SqliteClient.layer({ storage: state.raw.storage })),
       );
-      const fetch = yield* HttpRouter.toHttpEffect(httpLayer);
-      return { fetch };
-    }).pipe(Effect.orDie);
-  }),
-) {}
+      const bookkeeperHandlersLayer = bookkeeperHttpHandlersLayer.pipe(
+        Layer.provide(bookkeeperDatabaseLayer),
+      );
+
+      return Effect.gen(function* () {
+        const httpLayer = HttpApiBuilder.layer(BookkeeperHttpApi).pipe(
+          Layer.provide(bookkeeperHandlersLayer),
+          Layer.provide(durableObjectBaseHttpServerLayer),
+        );
+        const fetch = yield* HttpRouter.toHttpEffect(httpLayer);
+        return { fetch };
+      }).pipe(Effect.orDie);
+    }),
+  );
+
+export default bookkeeperServerLayer;

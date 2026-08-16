@@ -4,7 +4,7 @@
 
 Overseer favors deployed-stack integration tests over every other test form. These tests exercise Overseer end to end through its deployed public API.
 
-The default test suite deploys a fresh `OverseerApi` Stack with `alchemy/Test/Vitest`, sends real HTTP requests through its Cloudflare Access-protected custom domain, exercises the Worker, application services, Durable Object HTTP boundaries, Bookkeeper, and SQLite storage, and destroys the Stack afterward.
+The acceptance suite deploys a fresh `OverseerApi` Stack with `alchemy/Test/Vitest`, sends real HTTP requests through its Cloudflare Access-protected custom domain, exercises the Worker, application services, Durable Object HTTP boundaries, Bookkeeper, and SQLite storage, and destroys the Stack afterward. A target-equivalent local suite runs the same feature tests through Alchemy's workerd infrastructure for fast iteration, but it does not replace deployed acceptance.
 
 Every public feature and endpoint must have deployed end-to-end coverage for:
 
@@ -20,51 +20,58 @@ A feature is not complete merely because a unit, service integration, or local-r
 
 For detailed Alchemy and `@effect/vitest` API research, see [`research/alchemy-effect-vitest-testing.md`](research/alchemy-effect-vitest-testing.md).
 
+## Test Targets
+
+- `local` runs the same feature suites through Alchemy's workerd, local Durable Objects, and local SQLite infrastructure. It is the fast debugging and development loop.
+- `deployed` provisions real Cloudflare infrastructure, custom DNS, and Access. It remains the acceptance boundary and the meaning of `pnpm test:e2e`.
+
+Feature suites consume the same `OverseerApiClient` service for both targets. Target-specific deployment parsing, readiness, authentication, and teardown remain harness concerns.
+
 ## Default Test Lifecycle
 
-Every local or automated test invocation:
+Every deployed test invocation:
 
-1. Generates a unique DNS-safe Alchemy stage such as `test-<user>-<run-id>`.
+1. Generates a unique DNS-safe Alchemy stage such as `test-<user>-<timestamp>-<entropy>`.
 2. Deploys a fresh `OverseerApi` Stack through the real providers.
-3. Waits for the Access-protected public URL to become ready.
-4. Runs the complete endpoint and feature matrix.
-5. Destroys the Stack and its test data.
-6. Attempts fallback cleanup if the test process fails after deployment.
+3. Waits for the Access-protected API Worker and Workspace Durable Object to become ready.
+4. Runs the registered feature tests.
+5. Destroys the Stack and its test data through the Vitest lifecycle hook.
+6. Runs outer fallback cleanup only if the deployed test process fails or is interrupted.
 
 Assume provisioning test infrastructure is cheap, fast, and free. Cost is not a reason to reuse infrastructure, skip a deployed provider boundary, or replace deployed-stack coverage with a local runtime.
 
-A stage is shared only within one test invocation. Never test against `local`, a developer deployment stage, `production`, or another test run's stage. Concurrent invocations remain isolated through distinct run IDs.
+A stage is shared only within one test invocation. Never test against `local`, a developer deployment stage, `production`, or another test run's stage. Concurrent invocations remain isolated through distinct stages.
 
 ## Alchemy Harness
 
-The deployed-stack integration suite uses `alchemy/Test/Vitest`:
+The suite creates one registration-time harness and shares its Stack lifecycle across feature modules:
 
 ```ts
-const { test, beforeAll, afterAll, deploy, destroy } = Test.make({
-  providers: Cloudflare.providers(),
-  state: Cloudflare.state(),
-  stage: process.env.ALCHEMY_TEST_STAGE,
-  dev: false,
-});
+const harness = OverseerTestHarness.fromStack(OverseerApiStack);
 
-const stack = beforeAll(deploy(Stack), { timeout: 300_000 });
-afterAll(destroy(Stack), { timeout: 300_000 });
+registerAccessTestSuite(harness);
+registerWorkspaceTestSuite(harness);
 ```
 
-Use `Test.executeWhenReady` for the initial authenticated readiness request. It retries deployment-readiness failures without hiding ordinary authorization failures.
+`OverseerTestHarness.fromStack` owns `alchemy/Test/Vitest` deployment, readiness, service Layers, and teardown. Readiness first verifies the authenticated API identity, then retries a safe known-absent Workspace read until the Workspace Durable Object returns its stable not-found contract.
 
-Deploy once per integration suite file. Keep the deployed-stack integration tests sequential initially so Vitest workers cannot race deployment and destruction.
+Deploy once per integration suite file. Keep deployed tests sequential so Vitest workers cannot race deployment and destruction.
 
 ## Suite Organization
 
 ```text
-apps/api/test/
-  e2e.test.ts       # owns deployment, shared context, and teardown
-  e2e/
-    access.ts       # registers Access and identity cases
-    workspace.ts    # registers all public Workspace cases
-    test-client.ts  # typed and raw HTTP helpers
-    test-data.ts    # unique valid test values
+apps/api/
+  scripts/
+    run-e2e.ts                   # selects target, creates stage, and owns fallback cleanup
+  test/
+    e2e.test.ts                  # composes one shared harness and feature suites
+    e2e/
+      access.ts                  # registers the API identity guarantee
+      workspace.ts               # registers public Workspace guarantees
+      overseer-test-run.ts       # parses target and isolated stage
+      overseer-api-deployment.ts # parses deployment output and owns readiness
+      overseer-api-client.ts     # target-aware typed public API client
+      overseer-test-harness.ts   # deployment, teardown, and test registration
 ```
 
 Only `e2e.test.ts` is independently discovered by Vitest. The feature modules export functions that register tests into that shared integration suite without using test-runner-discovered filenames.
@@ -166,11 +173,15 @@ Use integration tests for otherwise uncontrollable failure translations, real SQ
 
 ### Unit and property
 
-Use focused tests for nontrivial pure invariants, state transitions, normalization, ordering, idempotency, and regressions. Do not restate straightforward Schema declarations or Effect/library behavior.
+Use focused tests for nontrivial pure invariants, state transitions, normalization, ordering, idempotency, and regressions. Property execution belongs in this supporting-test layer, not in the local or deployed end-to-end harness. Do not restate straightforward Schema declarations or Effect/library behavior.
 
 ### Local runtime
 
-A local-runtime integration test is an explicitly selected emulator-only feedback mode. It does not cover Cloudflare Access, custom-domain deployment, provider permissions, or real Durable Object provisioning. If introduced, it remains a qualified local counterpart rather than a separate test category or a substitute for the deployed-stack integration suite.
+The local-runtime integration target is an explicitly selected emulator-only feedback mode. It does not cover Cloudflare Access, custom-domain deployment, provider permissions, or real Durable Object provisioning. It remains a qualified local counterpart rather than a separate test category or a substitute for the deployed-stack integration suite.
+
+## Generated End-to-End Test Data
+
+End-to-end tests may sample a small, deterministic set of valid mock values from Effect Schema-derived FastCheck arbitraries. Sampling is only test-data construction: the harness executes each registered test once and does not run FastCheck properties, shrinking, or repeated generated infrastructure scenarios.
 
 ## Effect Vitest Conventions
 
@@ -187,11 +198,13 @@ A local-runtime integration test is an explicitly selected emulator-only feedbac
 The repository provides these commands:
 
 ```sh
-pnpm test       # unit tests, then the deployed-stack integration suite
-pnpm test:unit  # unit tests only
-pnpm test:e2e   # deployed-stack integration suite only
+pnpm test                 # unit tests, then real Cloudflare acceptance
+pnpm test:unit            # unit tests only
+pnpm test:e2e:local       # fast workerd end-to-end feedback
+pnpm test:e2e             # real Cloudflare acceptance
+pnpm test:e2e:deployed    # explicit alias for real Cloudflare acceptance
 ```
 
 `pnpm test` is the complete suite. `test:e2e` runs without task caching so every invocation deploys and verifies a fresh Stack. `test:unit` is an explicit narrower choice and must not be described as equivalent confidence.
 
-The current integration test reads a caller-supplied unique `ALCHEMY_TEST_STAGE`. The remaining runner work must generate that stage automatically and provide fallback cleanup. The Alchemy Vitest `afterAll(destroy(Stack))` hook remains the primary teardown path.
+The outer runner generates a unique stage for every invocation. Deployed runs use Alchemy's Vitest `afterAll(destroy(Stack))` hook as primary teardown; the outer runner invokes fallback destruction only after failure or interruption. Local runs first close the dev sidecar, then let the outer runner destroy local Stack state to avoid the pinned sidecar teardown deadlock.

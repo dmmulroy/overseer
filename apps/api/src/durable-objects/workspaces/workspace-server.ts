@@ -1,5 +1,6 @@
 import { SqliteClient } from "@effect/sql-sqlite-do";
 import * as Cloudflare from "alchemy/Cloudflare";
+import type { HttpEffect } from "alchemy/Http";
 import { Effect, Layer } from "effect";
 import { HttpRouter } from "effect/unstable/http";
 import { HttpApiBuilder } from "effect/unstable/httpapi";
@@ -9,9 +10,22 @@ import { workspaceDatabaseLayerWithoutDependencies } from "./workspace-database.
 import { workspaceHttpHandlersLayer } from "./workspace-http-handlers.ts";
 import { WorkspaceHttpApi } from "./workspace-http-api.ts";
 
-/** Alchemy Durable Object that owns one Workspace and exposes its versioned HTTP API. */
-export class WorkspaceServer extends Cloudflare.DurableObject<WorkspaceServer>()(
-  "WorkspaceServer",
+interface WorkspaceServerContract {
+  readonly fetch: HttpEffect;
+}
+
+/** Durable Object namespace that owns one Workspace and exposes its versioned HTTP API. */
+export class WorkspaceServer extends Cloudflare.DurableObject<
+  WorkspaceServer,
+  WorkspaceServerContract
+>()("WorkspaceServer") {}
+
+/** Hosts the Workspace Durable Object while preserving its Bookkeeper client requirement. */
+export const workspaceServerLayerWithoutDependencies: Layer.Layer<
+  WorkspaceServer,
+  never,
+  Cloudflare.Worker | BookkeeperClient
+> = WorkspaceServer.make<BookkeeperClient>(
   Effect.gen(function* () {
     const state = yield* Cloudflare.DurableObjectState;
     const bookkeeperClient = yield* BookkeeperClient;
@@ -33,5 +47,12 @@ export class WorkspaceServer extends Cloudflare.DurableObject<WorkspaceServer>()
       const fetch = yield* HttpRouter.toHttpEffect(workspaceHttpLayer);
       return { fetch };
     }).pipe(Effect.orDie);
-  }).pipe(Effect.provide(bookkeeperClientLayer)),
-) {}
+  }),
+);
+
+/** Hosts the Workspace Durable Object with its production Bookkeeper client. */
+const workspaceServerLayer = workspaceServerLayerWithoutDependencies.pipe(
+  Layer.provide(bookkeeperClientLayer),
+);
+
+export default workspaceServerLayer;

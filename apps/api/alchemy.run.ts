@@ -1,7 +1,7 @@
 import * as Alchemy from "alchemy";
 import * as Cloudflare from "alchemy/Cloudflare";
 import { Effect, Option } from "effect";
-import ApiWorker from "./src/api-worker.ts";
+import apiWorkerLayer, { ApiWorker } from "./src/api-worker.ts";
 import { OverseerApiAccessDeployment } from "./src/overseer-api-access.ts";
 
 /** Provision the production Access-protected API or start its local workerd implementation. */
@@ -24,5 +24,5 @@ export default Alchemy.Stack(
         agentClientSecret: agentToken.clientSecret,
       }),
     });
-  }),
+  }).pipe(Effect.provide(apiWorkerLayer)),
 );

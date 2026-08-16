@@ -27,7 +27,7 @@ import {
   RegisterProjectError,
   RegisterWorkspaceError,
 } from "./bookkeeper-http-api.ts";
-import { BookkeeperServer } from "./bookkeeper-server.ts";
+import bookkeeperServerLayer, { BookkeeperServer } from "./bookkeeper-server.ts";
 
 /** Application-facing operations for the singleton Bookkeeper directory. */
 export interface IBookkeeperClient {
@@ -88,7 +88,7 @@ export class BookkeeperClient extends Context.Service<BookkeeperClient, IBookkee
 export const makeBookkeeperClient: Effect.Effect<
   BookkeeperClient["Service"],
   never,
-  Cloudflare.Worker
+  Cloudflare.Worker | BookkeeperServer
 > = Effect.gen(function* () {
   const namespace = yield* BookkeeperServer;
   const bookkeeperHttpClient = yield* makeExecutionMemo(
@@ -448,5 +448,7 @@ export const bookkeeperClientLayerWithoutDependencies = Layer.effect(
   makeBookkeeperClient,
 );
 
-/** Provides the Bookkeeper client. */
-export const bookkeeperClientLayer = bookkeeperClientLayerWithoutDependencies;
+/** Provides the Bookkeeper client and hosts its Durable Object implementation. */
+export const bookkeeperClientLayer = bookkeeperClientLayerWithoutDependencies.pipe(
+  Layer.provide(bookkeeperServerLayer),
+);

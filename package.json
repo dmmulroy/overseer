@@ -12,6 +12,8 @@
     "ready": "vp run check",
     "test": "pnpm test:unit && pnpm test:e2e",
     "test:e2e": "vp run --no-cache @overseer/api#test:e2e",
+    "test:e2e:deployed": "vp run --no-cache @overseer/api#test:e2e:deployed",
+    "test:e2e:local": "vp run --no-cache @overseer/api#test:e2e:local",
     "test:unit": "vp test run tools/oxlint && vp run @overseer/api#test:unit"
   },
   "devDependencies": {

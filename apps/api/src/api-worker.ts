@@ -7,6 +7,8 @@ import {
   accessAuthenticationMiddlewareLayer,
 } from "./access-authentication-middleware.ts";
 import { overseerHttpHandlersLayer } from "./overseer-http-handlers.ts";
+import type { BookkeeperServer } from "./durable-objects/bookkeeper/bookkeeper-server.ts";
+import type { WorkspaceServer } from "./durable-objects/workspaces/workspace-server.ts";
 import { OverseerApiAccessDeployment } from "./overseer-api-access.ts";
 import { OverseerApiHostname } from "./overseer-api-hostname.ts";
 import { OverseerHttpApi } from "./overseer-http-api.ts";
@@ -31,9 +33,15 @@ const overseerHttpServerLayer = Layer.mergeAll(
   Path.layer,
 );
 
-/** Effect-native API Worker with effectful deployment props and inline runtime initialization. */
-export class ApiWorker extends Cloudflare.Worker<ApiWorker>()(
-  "OverseerApi",
+/** Worker host for the Overseer API and its Bookkeeper and Workspace Durable Objects. */
+export class ApiWorker extends Cloudflare.Worker<
+  ApiWorker,
+  {},
+  BookkeeperServer | WorkspaceServer
+>()("OverseerApi") {}
+
+/** Provides the Overseer API Worker with its hosted Durable Object implementations. */
+const apiWorkerLayer = ApiWorker.make(
   Effect.gen(function* () {
     const commonProps = {
       main: import.meta.url,
@@ -87,6 +95,6 @@ export class ApiWorker extends Cloudflare.Worker<ApiWorker>()(
     Effect.provide(accessAuthenticationMiddlewareLayer),
     Effect.provide(cloudflareRequestIdMiddlewareLayer),
   ),
-) {}
+);
 
-export default ApiWorker;
+export default apiWorkerLayer;
