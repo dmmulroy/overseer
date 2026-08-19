@@ -256,6 +256,7 @@ export class OverseerTestHarness {
         const assert: ITestAssert = yield* TestAssert;
         const evidence: ITestEvidence = yield* TestEvidence;
         const recorder = yield* TestEvidenceRecorder;
+        // Fixture factories own mutable generation cursors but no resources; isolate them per execution without adding a service or finalizer.
         const fixtures = createFixtureRegistry();
 
         return yield* makeEffect({ assert, client, evidence, fixtures }).pipe(

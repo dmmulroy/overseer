@@ -12,6 +12,16 @@ export const RecordedAssertionError = Schema.Struct({
 export interface RecordedAssertionError extends Schema.Schema.Type<typeof RecordedAssertionError> {}
 
 const RegexExpectation = Schema.Struct({ source: Schema.String, flags: Schema.String });
+
+/** Final value observed by an eventual assertion, or proof that no value completed. */
+export const TestAssertionObservation = Schema.TaggedUnion({
+  Observed: { value: Schema.Json },
+  NotObserved: {},
+});
+
+/** Persistable final observation made by an eventual assertion. */
+export type TestAssertionObservation = typeof TestAssertionObservation.Type;
+
 const BinaryExpected = { actual: Schema.Json, expected: Schema.Json };
 const BinaryUnexpected = { actual: Schema.Json, unexpected: Schema.Json };
 
@@ -59,28 +69,28 @@ export const TestAssertionOperation = Schema.TaggedUnion({
   Fail: { actual: Schema.Json },
   Satisfies: { actual: Schema.Json, expectation: Schema.NonEmptyString },
   EventuallyEqual: {
-    actual: Schema.Json,
+    observation: TestAssertionObservation,
     expected: Schema.Json,
     attempts: Schema.Natural,
     timeoutMs: Schema.Natural,
     intervalMs: Schema.Natural,
   },
   EventuallyDeepEqual: {
-    actual: Schema.Json,
+    observation: TestAssertionObservation,
     expected: Schema.Json,
     attempts: Schema.Natural,
     timeoutMs: Schema.Natural,
     intervalMs: Schema.Natural,
   },
   EventuallyMatch: {
-    actual: Schema.String,
+    observation: TestAssertionObservation,
     expected: RegexExpectation,
     attempts: Schema.Natural,
     timeoutMs: Schema.Natural,
     intervalMs: Schema.Natural,
   },
   EventuallySatisfies: {
-    actual: Schema.Json,
+    observation: TestAssertionObservation,
     expectation: Schema.NonEmptyString,
     attempts: Schema.Natural,
     timeoutMs: Schema.Natural,

@@ -1,5 +1,5 @@
 import { assert, describe, it } from "@effect/vitest";
-import { Duration, Effect, Layer } from "effect";
+import { Cause, Deferred, Duration, Effect, Exit, Fiber, Layer, Option } from "effect";
 import { type ITestAssert, TestAssert, testAssertLayerWithoutDependencies } from "./test-assert.ts";
 import { TestEvidenceRecorder, testEvidenceRecorderLayer } from "./test-evidence-recorder.ts";
 import { TestExecutionId } from "./test-evidence-identity.ts";
@@ -104,6 +104,151 @@ describe("Test assertions", () => {
       assert.strictEqual(thrown?.name, "AssertionError");
       assert.strictEqual(record?.outcome._tag, "Failed");
       assert.strictEqual(record?.description, "strict values should match");
+    }).pipe(Effect.provide(assertionsLayer())),
+  );
+
+  it.effect("records an eventual typed failure before preserving it", () =>
+    Effect.gen(function* () {
+      const testAssert: ITestAssert = yield* TestAssert;
+      const recorder = yield* TestEvidenceRecorder;
+      const failure = new ExpectedError("observation failure");
+
+      const exit = yield* Effect.exit(
+        testAssert.eventuallyEqual(
+          "Workspace observation remains available",
+          Effect.fail(failure),
+          "active",
+          { timeout: Duration.seconds(1), interval: Duration.millis(10) },
+        ),
+      );
+
+      assert.ok(Exit.isFailure(exit));
+      assert.strictEqual(Option.getOrThrow(Cause.findErrorOption(exit.cause)), failure);
+      const snapshot = recorder.snapshot();
+      assert.strictEqual(snapshot.assertions.length, 1);
+      assert.strictEqual(snapshot.assertions[0]?.outcome._tag, "Failed");
+      assert.strictEqual(snapshot.assertions[0]?.operation._tag, "EventuallyEqual");
+    }).pipe(Effect.provide(assertionsLayer())),
+  );
+
+  it.effect("records an eventual timeout with its last observation", () =>
+    Effect.gen(function* () {
+      const testAssert: ITestAssert = yield* TestAssert;
+      const recorder = yield* TestEvidenceRecorder;
+
+      const exit = yield* Effect.exit(
+        testAssert.eventuallyEqual(
+          "Workspace eventually becomes active",
+          Effect.succeed("pending"),
+          "active",
+          { timeout: Duration.zero, interval: Duration.millis(10) },
+        ),
+      );
+
+      assert.ok(Exit.isFailure(exit));
+      const snapshot = recorder.snapshot();
+      assert.strictEqual(snapshot.assertions.length, 1);
+      assert.deepStrictEqual(snapshot.assertions[0]?.operation, {
+        _tag: "EventuallyEqual",
+        observation: { _tag: "Observed", value: "pending" },
+        expected: "active",
+        attempts: 1,
+        timeoutMs: 0,
+        intervalMs: 10,
+      });
+    }).pipe(Effect.provide(assertionsLayer())),
+  );
+
+  it.effect("records an eventual observed-Effect defect before preserving it", () =>
+    Effect.gen(function* () {
+      const testAssert: ITestAssert = yield* TestAssert;
+      const recorder = yield* TestEvidenceRecorder;
+      const defect = new ExpectedError("observation defect");
+
+      const exit = yield* Effect.exit(
+        testAssert.eventuallyEqual(
+          "Workspace observation remains available",
+          Effect.die(defect),
+          "active",
+          { timeout: Duration.seconds(1), interval: Duration.millis(10) },
+        ),
+      );
+
+      assert.ok(Exit.isFailure(exit));
+      assert.ok(Cause.hasDies(exit.cause));
+      const record = recorder.snapshot().assertions[0];
+      assert.strictEqual(record?.outcome._tag, "Failed");
+      assert.deepStrictEqual(record?.operation, {
+        _tag: "EventuallyEqual",
+        observation: { _tag: "NotObserved" },
+        expected: "active",
+        attempts: 1,
+        timeoutMs: 1_000,
+        intervalMs: 10,
+      });
+    }).pipe(Effect.provide(assertionsLayer())),
+  );
+
+  it.effect("records a throwing eventual predicate with its last observation", () =>
+    Effect.gen(function* () {
+      const testAssert: ITestAssert = yield* TestAssert;
+      const recorder = yield* TestEvidenceRecorder;
+
+      const exit = yield* Effect.exit(
+        testAssert.eventuallySatisfies(
+          "Workspace observation satisfies its invariant",
+          Effect.succeed({ state: "active" }),
+          "Workspace state is legal",
+          () => {
+            throw new ExpectedError("predicate defect");
+          },
+          { timeout: Duration.seconds(1), interval: Duration.millis(10) },
+        ),
+      );
+
+      assert.ok(Exit.isFailure(exit));
+      assert.ok(Cause.hasDies(exit.cause));
+      const record = recorder.snapshot().assertions[0];
+      assert.strictEqual(record?.outcome._tag, "Failed");
+      assert.deepStrictEqual(record?.operation, {
+        _tag: "EventuallySatisfies",
+        observation: { _tag: "Observed", value: { state: "active" } },
+        expectation: "Workspace state is legal",
+        attempts: 1,
+        timeoutMs: 1_000,
+        intervalMs: 10,
+      });
+    }).pipe(Effect.provide(assertionsLayer())),
+  );
+
+  it.effect("records interruption before an eventual observation completes", () =>
+    Effect.gen(function* () {
+      const testAssert: ITestAssert = yield* TestAssert;
+      const recorder = yield* TestEvidenceRecorder;
+      const observationStarted = yield* Deferred.make<void>();
+      const actual = Deferred.succeed(observationStarted, undefined).pipe(
+        Effect.andThen(Effect.never),
+      );
+
+      const fiber = yield* testAssert
+        .eventuallyEqual("Workspace observation completes", actual, "active", {
+          timeout: Duration.seconds(1),
+          interval: Duration.millis(10),
+        })
+        .pipe(Effect.forkScoped);
+      yield* Deferred.await(observationStarted);
+      yield* Fiber.interrupt(fiber);
+
+      const record = recorder.snapshot().assertions[0];
+      assert.strictEqual(record?.outcome._tag, "Failed");
+      assert.deepStrictEqual(record?.operation, {
+        _tag: "EventuallyEqual",
+        observation: { _tag: "NotObserved" },
+        expected: "active",
+        attempts: 1,
+        timeoutMs: 1_000,
+        intervalMs: 10,
+      });
     }).pipe(Effect.provide(assertionsLayer())),
   );
 

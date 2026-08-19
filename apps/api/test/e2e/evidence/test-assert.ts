@@ -1,7 +1,11 @@
 import nodeAssert from "node:assert/strict";
 import { isDeepStrictEqual } from "node:util";
-import { Context, Duration, Effect, Inspectable, Layer, Result, Schema } from "effect";
-import type { TestAssertionOperation, TestAssertionRecord } from "./test-assertion.ts";
+import { Cause, Context, Duration, Effect, Exit, Inspectable, Layer, Option, Schema } from "effect";
+import type {
+  TestAssertionObservation,
+  TestAssertionOperation,
+  TestAssertionRecord,
+} from "./test-assertion.ts";
 import { TestEvidenceRecorder, type TestAssertionReservation } from "./test-evidence-recorder.ts";
 import { encodeTestEvidenceJson } from "./test-evidence-json.ts";
 
@@ -226,6 +230,39 @@ const hasSameMembers = <A>(
   });
 };
 
+type EventualOperationConfig =
+  | { readonly _tag: "EventuallyEqual"; readonly expected: Schema.Json }
+  | { readonly _tag: "EventuallyDeepEqual"; readonly expected: Schema.Json }
+  | {
+      readonly _tag: "EventuallyMatch";
+      readonly expected: { readonly source: string; readonly flags: string };
+    }
+  | { readonly _tag: "EventuallySatisfies"; readonly expectation: string };
+
+const makeEventualAssertionOperation = (
+  config: EventualOperationConfig,
+  observation: TestAssertionObservation,
+  attempts: number,
+  timeoutMs: number,
+  intervalMs: number,
+): TestAssertionOperation => {
+  switch (config._tag) {
+    case "EventuallyEqual":
+      return { ...config, observation, attempts, timeoutMs, intervalMs };
+    case "EventuallyDeepEqual":
+      return { ...config, observation, attempts, timeoutMs, intervalMs };
+    case "EventuallyMatch":
+      return { ...config, observation, attempts, timeoutMs, intervalMs };
+    case "EventuallySatisfies":
+      return { ...config, observation, attempts, timeoutMs, intervalMs };
+  }
+};
+
+const eventualAssertionErrorFromCause = <E>(cause: Cause.Cause<E>): Error => {
+  const error = Cause.squash(cause);
+  return error instanceof Error ? error : new Error(Inspectable.toStringUnknown(error));
+};
+
 /** Constructs assertions while preserving the current recorder requirement. */
 export const makeTestAssert = Effect.gen(function* () {
   const recorder = yield* TestEvidenceRecorder;
@@ -281,70 +318,73 @@ export const makeTestAssert = Effect.gen(function* () {
     readonly expectation: string;
     readonly options: EventuallyAssertionOptions;
     readonly matches: (actual: A) => boolean;
-    readonly operation: (
-      actual: A,
-      attempts: number,
-      timeoutMs: number,
-      intervalMs: number,
-    ) => TestAssertionOperation;
-    readonly failureOperation: (
-      error: E,
-      attempts: number,
-      timeoutMs: number,
-      intervalMs: number,
-    ) => TestAssertionOperation;
+    readonly operation: EventualOperationConfig;
   }): Effect.Effect<void, E | TestAssertionError, R> =>
-    Effect.gen(function* () {
+    Effect.suspend(() => {
       requireAssertionDescription(input.description);
       requireAssertionDescription(input.expectation);
       const reservation = recorder.reserveAssertion();
       const timeoutMs = Math.max(0, Math.floor(Duration.toMillis(input.options.timeout)));
       const intervalMs = Math.max(0, Math.floor(Duration.toMillis(input.options.interval)));
-      const startedAt = yield* Effect.clockWith((clock) => clock.currentTimeMillis);
       let attempts = 0;
+      let lastObservation = Option.none<A>();
+      let recorded = false;
 
-      while (true) {
-        attempts += 1;
-        const observed = yield* Effect.result(input.actual);
-        if (Result.isFailure(observed)) {
-          const error =
-            observed.failure instanceof Error
-              ? observed.failure
-              : new Error(Inspectable.toStringUnknown(observed.failure));
-          appendOutcome(
-            reservation,
-            input.description,
-            input.failureOperation(observed.failure, attempts, timeoutMs, intervalMs),
-            error,
-          );
-          return yield* Effect.fail(observed.failure);
-        }
-        if (input.matches(observed.success)) {
-          appendOutcome(
-            reservation,
-            input.description,
-            input.operation(observed.success, attempts, timeoutMs, intervalMs),
-            undefined,
-          );
-          return;
-        }
-        const now = yield* Effect.clockWith((clock) => clock.currentTimeMillis);
-        if (now - startedAt >= timeoutMs) {
-          const error = new TestAssertionError({
-            description: input.description,
-            expectation: input.expectation,
-            message: `Eventually assertion timed out: ${input.description}`,
-          });
-          appendOutcome(
-            reservation,
-            input.description,
-            input.operation(observed.success, attempts, timeoutMs, intervalMs),
-            error,
-          );
-          return yield* Effect.fail(error);
-        }
-        yield* Effect.sleep(input.options.interval);
-      }
+      const observation = (): TestAssertionObservation =>
+        Option.match(lastObservation, {
+          onNone: () => ({ _tag: "NotObserved" }),
+          onSome: (actual) => ({ _tag: "Observed", value: encodeAssertionValue(actual) }),
+        });
+      const complete = (error: Error | undefined): void => {
+        if (recorded) return;
+        appendOutcome(
+          reservation,
+          input.description,
+          makeEventualAssertionOperation(
+            input.operation,
+            observation(),
+            attempts,
+            timeoutMs,
+            intervalMs,
+          ),
+          error,
+        );
+        recorded = true;
+      };
+
+      const poll = Effect.gen(function* () {
+        const startedAt = yield* Effect.clockWith((clock) => clock.currentTimeMillis);
+        const matched = yield* Effect.gen(function* () {
+          attempts += 1;
+          const actual = yield* input.actual;
+          lastObservation = Option.some(actual);
+          const matches = yield* Effect.sync(() => input.matches(actual));
+          if (matches) return true;
+
+          const now = yield* Effect.clockWith((clock) => clock.currentTimeMillis);
+          if (now - startedAt >= timeoutMs) {
+            return yield* Effect.fail(
+              new TestAssertionError({
+                description: input.description,
+                expectation: input.expectation,
+                message: `Eventually assertion timed out: ${input.description}`,
+              }),
+            );
+          }
+          yield* Effect.sleep(input.options.interval);
+          return false;
+        }).pipe(Effect.repeat({ until: (matches) => matches }));
+
+        if (matched) complete(undefined);
+      });
+
+      return poll.pipe(
+        Effect.onExit((exit) =>
+          Exit.isFailure(exit)
+            ? Effect.sync(() => complete(eventualAssertionErrorFromCause(exit.cause)))
+            : Effect.void,
+        ),
+      );
     });
 
   const group = <A>(description: string, run: () => A): A => {
@@ -759,22 +799,7 @@ export const makeTestAssert = Effect.gen(function* () {
         expectation: Inspectable.toStringUnknown(expected),
         options,
         matches: (value) => Object.is(value, expected),
-        operation: (value, attempts, timeoutMs, intervalMs) => ({
-          _tag: "EventuallyEqual",
-          actual: encodeAssertionValue(value),
-          expected: encodeAssertionValue(expected),
-          attempts,
-          timeoutMs,
-          intervalMs,
-        }),
-        failureOperation: (error, attempts, timeoutMs, intervalMs) => ({
-          _tag: "EventuallyEqual",
-          actual: encodeAssertionValue(error),
-          expected: encodeAssertionValue(expected),
-          attempts,
-          timeoutMs,
-          intervalMs,
-        }),
+        operation: { _tag: "EventuallyEqual", expected: encodeAssertionValue(expected) },
       }),
     eventuallyDeepEqual: (description, actual, expected, options) =>
       eventual({
@@ -783,22 +808,7 @@ export const makeTestAssert = Effect.gen(function* () {
         expectation: Inspectable.toStringUnknown(expected),
         options,
         matches: (value) => isDeepStrictEqual(value, expected),
-        operation: (value, attempts, timeoutMs, intervalMs) => ({
-          _tag: "EventuallyDeepEqual",
-          actual: encodeAssertionValue(value),
-          expected: encodeAssertionValue(expected),
-          attempts,
-          timeoutMs,
-          intervalMs,
-        }),
-        failureOperation: (error, attempts, timeoutMs, intervalMs) => ({
-          _tag: "EventuallyDeepEqual",
-          actual: encodeAssertionValue(error),
-          expected: encodeAssertionValue(expected),
-          attempts,
-          timeoutMs,
-          intervalMs,
-        }),
+        operation: { _tag: "EventuallyDeepEqual", expected: encodeAssertionValue(expected) },
       }),
     eventuallyMatch: (description, actual, expected, options) =>
       eventual({
@@ -807,22 +817,10 @@ export const makeTestAssert = Effect.gen(function* () {
         expectation: expected.toString(),
         options,
         matches: (value) => new RegExp(expected.source, expected.flags).test(value),
-        operation: (value, attempts, timeoutMs, intervalMs) => ({
+        operation: {
           _tag: "EventuallyMatch",
-          actual: value,
           expected: { source: expected.source, flags: expected.flags },
-          attempts,
-          timeoutMs,
-          intervalMs,
-        }),
-        failureOperation: (error, attempts, timeoutMs, intervalMs) => ({
-          _tag: "EventuallyMatch",
-          actual: Inspectable.toStringUnknown(error),
-          expected: { source: expected.source, flags: expected.flags },
-          attempts,
-          timeoutMs,
-          intervalMs,
-        }),
+        },
       }),
     eventuallySatisfies: (description, actual, expectation, predicate, options) =>
       eventual({
@@ -831,22 +829,7 @@ export const makeTestAssert = Effect.gen(function* () {
         expectation,
         options,
         matches: predicate,
-        operation: (value, attempts, timeoutMs, intervalMs) => ({
-          _tag: "EventuallySatisfies",
-          actual: encodeAssertionValue(value),
-          expectation,
-          attempts,
-          timeoutMs,
-          intervalMs,
-        }),
-        failureOperation: (error, attempts, timeoutMs, intervalMs) => ({
-          _tag: "EventuallySatisfies",
-          actual: encodeAssertionValue(error),
-          expectation,
-          attempts,
-          timeoutMs,
-          intervalMs,
-        }),
+        operation: { _tag: "EventuallySatisfies", expectation },
       }),
     group,
     groupEffect,

@@ -69,11 +69,11 @@ interface OverseerTestContext {
   readonly assert: ITestAssert;
   readonly client: IOverseerApiClient;
   readonly evidence: ITestEvidence;
-  readonly fixtures: IFixtureRegistry;
+  readonly fixtures: FixtureRegistry;
 }
 ```
 
-The harness yields the underlying Effect services and passes their service values through this object. Test authors do not yield those services individually.
+The harness yields the underlying Effect services, constructs a fresh fixture registry value for each test execution, and passes all author-facing capabilities through this object. Test authors do not yield services individually.
 
 ## Runtime architecture
 
@@ -96,10 +96,10 @@ flowchart TD
 OverseerTestHarness
 ├── run-scoped services
 │   ├── OverseerApiClient
-│   ├── FixtureRegistry
 │   └── TestRunStorage
 ├── run-scoped TestRun snapshot coordinator
 └── per test execution
+    ├── fresh FixtureRegistry value
     ├── fresh TestEvidenceRecorder
     ├── fresh TestAssert
     ├── fresh TestEvidence
@@ -586,12 +586,15 @@ interface ITestAssert {
 }
 ```
 
-Recorded operations include the final actual value, expected value or expectation, number of attempts, timeout, interval, and elapsed duration.
+Recorded operations include the final observation, expected value or expectation, number of attempts, timeout, and interval. The assertion envelope records total elapsed duration. A tagged observation distinguishes a completed value from failure or interruption before any value completed.
 
 ```json
 {
   "_tag": "EventuallyEqual",
-  "actual": "archived",
+  "observation": {
+    "_tag": "Observed",
+    "value": "archived"
+  },
   "expected": "archived",
   "attempts": 3,
   "timeoutMs": 10000,
@@ -599,7 +602,7 @@ Recorded operations include the final actual value, expected value or expectatio
 }
 ```
 
-A timeout records the last observed value and fails the assertion. A typed failure from the observed Effect remains a typed failure unless the specific assertion contract later defines retryable failures.
+A timeout records the last observed value and fails the assertion. Typed failures, defects, throwing predicates, and interruption record one failed assertion before preserving the original Effect cause. When no observation completed, the operation records `{ "_tag": "NotObserved" }` rather than inventing an actual value.
 
 ### Grouping combinators
 
@@ -997,15 +1000,20 @@ afterAll
 
 ## Effect service and Layer design
 
-Expected services:
+Expected services and explicit values:
 
 ```text
-TestRunStorage         run-scoped backend CRUD authority
-FixtureRegistry        test-data generation capability
-TestEvidenceRecorder   fresh mutable state for one test execution
-TestAssert             assertion capability backed by the recorder
-TestEvidence           attachment capability backed by recorder and storage
+Services
+├── TestRunStorage         run-scoped backend CRUD authority
+├── TestEvidenceRecorder   fresh mutable state for one test execution
+├── TestAssert             assertion capability backed by the recorder
+└── TestEvidence           attachment capability backed by recorder and storage
+
+Explicit per-execution values
+└── FixtureRegistry        isolated deterministic factories with in-memory cursors
 ```
+
+`FixtureRegistry` is deliberately not an Effect service. It owns no I/O, credentials, runtime resource, acquisition failure, or cleanup. Constructing it per test execution prevents its mutable generation cursors from coupling fixture values to test order, skipping, retries, or concurrent execution.
 
 Runtime modules import tags and Layers, never service constructors:
 
@@ -1026,7 +1034,7 @@ Per-test mutable services must be freshly acquired for every test. Layer memoiza
 ```text
 apps/api/test/e2e/
 ├── overseer-test-harness.ts       # test registration and lifecycle composition
-├── fixture-registry.ts            # eventually migrated to service and Layer wiring
+├── fixture-registry.ts            # constructs isolated per-execution fixture values
 └── evidence/
     ├── test-run.ts                 # TestRun aggregate Schemas and IDs
     ├── test-assertion.ts           # assertion operation and outcome Schemas

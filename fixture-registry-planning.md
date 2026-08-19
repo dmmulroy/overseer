@@ -178,9 +178,9 @@ OverseerTestHarness.fromStack
 ├── wait for deployment
 │   └── construct OverseerApiClient Layer
 └── harness.test(name, makeEffect)
-    ├── construct an isolated FixtureRegistry
     ├── register with Alchemy Vitest
-    └── at test execution
+    └── at each test execution
+        ├── construct an isolated FixtureRegistry
         ├── provide OverseerApiClient Layer
         ├── yield OverseerApiClient internally
         └── makeEffect({ client, fixtures })
