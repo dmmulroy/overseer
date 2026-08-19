@@ -1,38 +1,41 @@
 import { DateTime, Effect } from "effect";
 import { WorkspaceId } from "../../src/domain/workspace.ts";
 import { WorkspaceNotFoundApiError } from "../../src/overseer-http-api.ts";
-import type { ITestAssert } from "./evidence/test-assert.ts";
 import type { OverseerTestHarness } from "./overseer-test-harness.ts";
 
 /** Registers deterministic Workspace guarantees against the selected Stack. */
 export const registerWorkspaceTestSuite = (harness: OverseerTestHarness): void => {
   harness.test(
     "a Workspace completes its persisted lifecycle",
-    (context) =>
+    ({ assert, client, fixtures }) =>
       Effect.gen(function* () {
-        const assert: ITestAssert = context.assert;
-        const { client, fixtures } = context;
         const { initialName, renamedName } = fixtures.scenarios.workspaceRename.make();
 
         const created = yield* client.overseer.createWorkspace({
           payload: { name: initialName },
         });
+
         const initialRead = yield* client.overseer.getWorkspace({
           params: { workspaceId: created.id },
         });
+
         const renamed = yield* client.overseer.renameWorkspace({
           params: { workspaceId: created.id },
           payload: { name: renamedName },
         });
+
         const archived = yield* client.overseer.archiveWorkspace({
           params: { workspaceId: created.id },
         });
+
         const archivedRead = yield* client.overseer.getWorkspace({
           params: { workspaceId: created.id },
         });
+
         const unarchived = yield* client.overseer.unarchiveWorkspace({
           params: { workspaceId: created.id },
         });
+
         const activeRead = yield* client.overseer.getWorkspace({
           params: { workspaceId: created.id },
         });
@@ -61,8 +64,10 @@ export const registerWorkspaceTestSuite = (harness: OverseerTestHarness): void =
           DateTime.toEpochMillis(workspace.updatedAt),
         );
         assert.each("Workspace update timestamps", updateTimes.slice(1), (current, index) => {
-          const previous = updateTimes[index];
-          assert.isDefined("the previous Workspace update timestamp exists", previous);
+          const previous = assert.isDefined(
+            "the previous Workspace update timestamp exists",
+            updateTimes[index],
+          );
           assert.greaterThanOrEqual(
             "the Workspace update timestamp does not move backwards",
             current,
@@ -75,18 +80,17 @@ export const registerWorkspaceTestSuite = (harness: OverseerTestHarness): void =
 
   harness.test(
     "a valid unknown Workspace ID returns the public not-found contract",
-    (context) =>
+    ({ assert, client }) =>
       Effect.gen(function* () {
-        const assert: ITestAssert = context.assert;
         const workspaceId = WorkspaceId.make("workspace_00000000000000000000000000");
 
-        const error = yield* context.client.overseer
+        const unknownError = yield* client.overseer
           .getWorkspace({ params: { workspaceId } })
           .pipe(Effect.flip);
 
-        assert.instanceOf(
+        const error = assert.instanceOf(
           "an unknown Workspace returns the public not-found error",
-          error,
+          unknownError,
           WorkspaceNotFoundApiError,
         );
         assert.equal(

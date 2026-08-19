@@ -35,18 +35,14 @@ export interface TestEvidenceRecorderInput {
 
 /** Fresh mutable evidence authority scoped to one test execution. */
 export interface ITestEvidenceRecorder {
-  /** Reserve the next deterministic assertion identity and capture invocation context. */
-  readonly reserveAssertion: () => TestAssertionReservation;
+  /** Reserve the next deterministic assertion identity with its fiber-resolved group path. */
+  readonly reserveAssertion: (groupPath: ReadonlyArray<string>) => TestAssertionReservation;
   /** Append one completed assertion in its reserved sequence position. */
   readonly appendAssertion: (assertion: TestAssertionRecord) => void;
   /** Reserve the next deterministic artifact identity. */
   readonly reserveArtifactId: () => TestArtifactId;
   /** Append one immediately persisted artifact reference. */
   readonly appendArtifact: (artifact: TestArtifactRef) => void;
-  /** Enter one assertion evidence group until the matching leave operation. */
-  readonly enterGroup: (description: string) => void;
-  /** Leave the innermost assertion evidence group. */
-  readonly leaveGroup: () => void;
   /** Read an immutable copy of all evidence accumulated so far. */
   readonly snapshot: () => TestEvidenceSnapshot;
 }
@@ -63,12 +59,11 @@ export const makeTestEvidenceRecorder = (
 ): TestEvidenceRecorder["Service"] => {
   const assertions: Array<TestAssertionRecord> = [];
   const artifacts: Array<TestArtifactRef> = [];
-  const groupPath: Array<string> = [];
   let assertionSequence = 0;
   let artifactSequence = 0;
 
   return TestEvidenceRecorder.of({
-    reserveAssertion: () => {
+    reserveAssertion: (groupPath) => {
       const sequence = assertionSequence;
       assertionSequence += 1;
       return {
@@ -90,12 +85,6 @@ export const makeTestEvidenceRecorder = (
     },
     appendArtifact: (artifact) => {
       artifacts.push(artifact);
-    },
-    enterGroup: (description) => {
-      groupPath.push(description);
-    },
-    leaveGroup: () => {
-      groupPath.pop();
     },
     snapshot: () => ({ assertions: [...assertions], artifacts: [...artifacts] }),
   });

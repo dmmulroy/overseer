@@ -65,7 +65,7 @@ export const TestAssertionOperation = Schema.TaggedUnion({
   NotHasProperty: { actual: Schema.Json, unexpectedProperty: Schema.Json },
   Throws: { actualError: Schema.Json },
   ThrowsInstanceOf: { actualError: Schema.Json, expectedClass: Schema.String },
-  DoesNotThrow: { completion: Schema.Json },
+  DoesNotThrow: { completion: TestAssertionObservation },
   Fail: { actual: Schema.Json },
   Satisfies: { actual: Schema.Json, expectation: Schema.NonEmptyString },
   EventuallyEqual: {
@@ -74,6 +74,7 @@ export const TestAssertionOperation = Schema.TaggedUnion({
     attempts: Schema.Natural,
     timeoutMs: Schema.Natural,
     intervalMs: Schema.Natural,
+    elapsedMs: Schema.Natural,
   },
   EventuallyDeepEqual: {
     observation: TestAssertionObservation,
@@ -81,6 +82,7 @@ export const TestAssertionOperation = Schema.TaggedUnion({
     attempts: Schema.Natural,
     timeoutMs: Schema.Natural,
     intervalMs: Schema.Natural,
+    elapsedMs: Schema.Natural,
   },
   EventuallyMatch: {
     observation: TestAssertionObservation,
@@ -88,6 +90,7 @@ export const TestAssertionOperation = Schema.TaggedUnion({
     attempts: Schema.Natural,
     timeoutMs: Schema.Natural,
     intervalMs: Schema.Natural,
+    elapsedMs: Schema.Natural,
   },
   EventuallySatisfies: {
     observation: TestAssertionObservation,
@@ -95,6 +98,7 @@ export const TestAssertionOperation = Schema.TaggedUnion({
     attempts: Schema.Natural,
     timeoutMs: Schema.Natural,
     intervalMs: Schema.Natural,
+    elapsedMs: Schema.Natural,
   },
 });
 

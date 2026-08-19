@@ -3,20 +3,10 @@ import type { CompiledStack } from "alchemy/Stack";
 import * as Test from "alchemy/Test/Vitest";
 import { DateTime, Effect, Layer, ManagedRuntime, Option } from "effect";
 import { afterAll, beforeAll } from "vite-plus/test";
-import {
-  type ITestAssert,
-  TestAssert,
-  testAssertLayerWithoutDependencies,
-} from "./evidence/test-assert.ts";
-import {
-  type ITestEvidence,
-  TestEvidence,
-  testEvidenceLayerWithoutDependencies,
-} from "./evidence/test-evidence.ts";
-import {
-  TestEvidenceRecorder,
-  testEvidenceRecorderLayer,
-} from "./evidence/test-evidence-recorder.ts";
+import { type ITestAssert, TestAssert } from "./evidence/test-assert.ts";
+import { type ITestEvidence, TestEvidence } from "./evidence/test-evidence.ts";
+import { TestEvidenceRecorder } from "./evidence/test-evidence-recorder.ts";
+import { testExecutionEvidenceLayer } from "./evidence/test-execution-evidence.ts";
 import { TestExecutionId, TestId, TestRunId } from "./evidence/test-evidence-identity.ts";
 import {
   deriveTestRunStatus,
@@ -26,7 +16,10 @@ import {
 } from "./evidence/test-run-lifecycle.ts";
 import { TestRun, type TestRecord, type TestRun as TestRunSnapshot } from "./evidence/test-run.ts";
 import { type ITestRunStorage, TestRunStorage } from "./evidence/test-run-storage.ts";
-import { localTestRunStorageLayer } from "./evidence/test-run-storage-local.ts";
+import {
+  localTestRunStorageDirectoryConfig,
+  testRunStorageLocalLayerAt,
+} from "./evidence/test-run-storage-local.ts";
 import { createFixtureRegistry, type FixtureRegistry } from "./fixture-registry.ts";
 import {
   type IOverseerApiClient,
@@ -93,10 +86,11 @@ export class OverseerTestHarness {
   static fromStack(stack: OverseerStack): OverseerTestHarness {
     const testRun = Effect.runSync(overseerTestRunConfig);
     const runId = TestRunId.make(`test-run_${testRun.stage}`);
+    const evidenceDirectory = Effect.runSync(localTestRunStorageDirectoryConfig);
     const registeredTests: Array<TestRecord> = [];
     let infrastructureFailed = false;
     let runSnapshot = Option.none<TestRunSnapshot>();
-    const storageRuntime = ManagedRuntime.make(localTestRunStorageLayer);
+    const storageRuntime = ManagedRuntime.make(testRunStorageLocalLayerAt(evidenceDirectory));
     const storageReady = Promise.withResolvers<ITestRunStorage>();
     const sharedStorageLayer = Layer.effect(
       TestRunStorage,
@@ -122,7 +116,6 @@ export class OverseerTestHarness {
           tests: snapshot.tests.map((existing) =>
             existing.registrationIndex === registrationIndex ? test : existing,
           ),
-          artifacts: snapshot.artifacts,
         }),
       );
     };
@@ -141,7 +134,6 @@ export class OverseerTestHarness {
           startedAt,
           timing: { _tag: "Running" },
           tests: registeredTests,
-          artifacts: [],
         }),
       );
       await storageRuntime.runPromise(storage.createTestRun(currentRun()));
@@ -193,7 +185,6 @@ export class OverseerTestHarness {
               ),
             },
             tests,
-            artifacts: snapshot.artifacts,
           }),
         );
         const storage = await storageReady.promise;
@@ -296,14 +287,10 @@ export class OverseerTestHarness {
         );
       });
 
-      const recorderLayer = testEvidenceRecorderLayer({ testExecutionId });
-      const evidenceCapabilitiesLayer = Layer.mergeAll(
-        recorderLayer,
-        testAssertLayerWithoutDependencies.pipe(Layer.provide(recorderLayer)),
-        testEvidenceLayerWithoutDependencies({ runId, testExecutionId }).pipe(
-          Layer.provide(recorderLayer),
-        ),
-      );
+      const evidenceCapabilitiesLayer = testExecutionEvidenceLayer({
+        runId,
+        testExecutionId,
+      });
       const runnable = effect.pipe(
         Effect.provide(evidenceCapabilitiesLayer),
         Effect.provide(apiClientLayer),

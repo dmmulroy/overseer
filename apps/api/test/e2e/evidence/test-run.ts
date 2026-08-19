@@ -105,7 +105,6 @@ export const TestRun = Schema.Struct({
   startedAt: Schema.DateTimeUtcFromString,
   timing: TestRunTiming,
   tests: Schema.Array(TestRecord),
-  artifacts: Schema.Array(TestArtifactRef),
 });
 
 /** Persistable aggregate snapshot for one end-to-end test command invocation. */

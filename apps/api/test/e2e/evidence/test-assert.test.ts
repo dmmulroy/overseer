@@ -1,5 +1,6 @@
 import { assert, describe, it } from "@effect/vitest";
 import { Cause, Deferred, Duration, Effect, Exit, Fiber, Layer, Option } from "effect";
+import { TestClock } from "effect/testing";
 import { type ITestAssert, TestAssert, testAssertLayerWithoutDependencies } from "./test-assert.ts";
 import { TestEvidenceRecorder, testEvidenceRecorderLayer } from "./test-evidence-recorder.ts";
 import { TestExecutionId } from "./test-evidence-identity.ts";
@@ -30,10 +31,15 @@ describe("Test assertions", () => {
       testAssert.deepOneOf("structure is allowed", { value: 1 }, [{ value: 1 }]);
       testAssert.isTrue("boolean is true", true);
       testAssert.isFalse("boolean is false", false);
-      testAssert.isDefined("value is defined", value);
+      const definedValue = testAssert.isDefined("value is defined", value);
       testAssert.isUndefined("value is undefined", undefined);
       testAssert.isNull("value is null", null);
-      testAssert.instanceOf("error has expected class", new ExpectedError(), ExpectedError);
+      const expectedError = new ExpectedError();
+      const narrowedError = testAssert.instanceOf(
+        "error has expected class",
+        expectedError,
+        ExpectedError,
+      );
       testAssert.greaterThan("number is greater", 2, 1);
       testAssert.greaterThanOrEqual("number is at least", 2, 2);
       testAssert.lessThan("number is less", 1, 2);
@@ -60,8 +66,9 @@ describe("Test assertions", () => {
         [{ value: 1 }, { value: 2 }],
         [{ value: 2 }, { value: 1 }],
       );
-      testAssert.hasProperty("object owns property", { value: 1 }, "value");
-      testAssert.notHasProperty("object excludes property", { value: 1 }, "other");
+      const object = { value: 1 };
+      const objectWithValue = testAssert.hasProperty("object owns property", object, "value");
+      testAssert.notHasProperty("object excludes property", object, "other");
       testAssert.throws("operation throws", () => {
         throw new ExpectedError();
       });
@@ -79,6 +86,10 @@ describe("Test assertions", () => {
         "number is even",
         (actual) => actual % 2 === 0,
       );
+
+      assert.strictEqual(definedValue, value);
+      assert.strictEqual(narrowedError, expectedError);
+      assert.strictEqual(objectWithValue, object);
 
       const snapshot = recorder.snapshot();
       assert.strictEqual(snapshot.assertions.length, 40);
@@ -104,6 +115,32 @@ describe("Test assertions", () => {
       assert.strictEqual(thrown?.name, "AssertionError");
       assert.strictEqual(record?.outcome._tag, "Failed");
       assert.strictEqual(record?.description, "strict values should match");
+    }).pipe(Effect.provide(assertionsLayer())),
+  );
+
+  it.effect("turns an unexpected callback error into a recorded AssertionError", () =>
+    Effect.gen(function* () {
+      const testAssert: ITestAssert = yield* TestAssert;
+      const recorder = yield* TestEvidenceRecorder;
+      const callbackError = new ExpectedError("callback failure");
+
+      let thrown: Error | undefined;
+      try {
+        testAssert.doesNotThrow("callback should complete", () => {
+          throw callbackError;
+        });
+      } catch (error) {
+        if (error instanceof Error) thrown = error;
+      }
+
+      assert.strictEqual(thrown?.name, "AssertionError");
+      assert.notStrictEqual(thrown, callbackError);
+      const record = recorder.snapshot().assertions[0];
+      assert.strictEqual(record?.outcome._tag, "Failed");
+      assert.deepStrictEqual(record?.operation, {
+        _tag: "DoesNotThrow",
+        completion: { _tag: "NotObserved" },
+      });
     }).pipe(Effect.provide(assertionsLayer())),
   );
 
@@ -155,6 +192,7 @@ describe("Test assertions", () => {
         attempts: 1,
         timeoutMs: 0,
         intervalMs: 10,
+        elapsedMs: 0,
       });
     }).pipe(Effect.provide(assertionsLayer())),
   );
@@ -185,6 +223,7 @@ describe("Test assertions", () => {
         attempts: 1,
         timeoutMs: 1_000,
         intervalMs: 10,
+        elapsedMs: 0,
       });
     }).pipe(Effect.provide(assertionsLayer())),
   );
@@ -217,6 +256,7 @@ describe("Test assertions", () => {
         attempts: 1,
         timeoutMs: 1_000,
         intervalMs: 10,
+        elapsedMs: 0,
       });
     }).pipe(Effect.provide(assertionsLayer())),
   );
@@ -248,7 +288,73 @@ describe("Test assertions", () => {
         attempts: 1,
         timeoutMs: 1_000,
         intervalMs: 10,
+        elapsedMs: 0,
       });
+    }).pipe(Effect.provide(assertionsLayer())),
+  );
+
+  it.effect("records eventual elapsed time from the Effect clock", () =>
+    Effect.gen(function* () {
+      const testAssert: ITestAssert = yield* TestAssert;
+      const recorder = yield* TestEvidenceRecorder;
+      let observation = "pending";
+      const assertion = testAssert.eventuallyEqual(
+        "Workspace eventually becomes active",
+        Effect.sync(() => observation),
+        "active",
+        { timeout: Duration.seconds(1), interval: Duration.millis(100) },
+      );
+
+      const fiber = yield* assertion.pipe(Effect.forkScoped);
+      yield* Effect.yieldNow;
+      observation = "active";
+      yield* TestClock.adjust(Duration.millis(100));
+      yield* Fiber.join(fiber);
+
+      const operation = recorder.snapshot().assertions[0]?.operation;
+      assert.strictEqual(operation?._tag, "EventuallyEqual");
+      if (operation?._tag === "EventuallyEqual") {
+        assert.strictEqual(operation.elapsedMs, 100);
+        assert.strictEqual(operation.attempts, 2);
+      }
+    }).pipe(Effect.provide(assertionsLayer())),
+  );
+
+  it.effect("keeps concurrent Effect group paths isolated by fiber", () =>
+    Effect.gen(function* () {
+      const testAssert: ITestAssert = yield* TestAssert;
+      const recorder = yield* TestEvidenceRecorder;
+      const firstReady = yield* Deferred.make<void>();
+      const secondReady = yield* Deferred.make<void>();
+
+      const first = testAssert.groupEffect(
+        "first group",
+        Deferred.succeed(firstReady, undefined).pipe(
+          Effect.andThen(Deferred.await(secondReady)),
+          Effect.andThen(
+            Effect.sync(() => testAssert.equal("first grouped assertion", "first", "first")),
+          ),
+        ),
+      );
+      const second = testAssert.groupEffect(
+        "second group",
+        Deferred.succeed(secondReady, undefined).pipe(
+          Effect.andThen(Deferred.await(firstReady)),
+          Effect.andThen(
+            Effect.sync(() => testAssert.equal("second grouped assertion", "second", "second")),
+          ),
+        ),
+      );
+
+      yield* Effect.all([first, second], { concurrency: "unbounded" });
+
+      const pathsByDescription = new Map(
+        recorder
+          .snapshot()
+          .assertions.map((assertion) => [assertion.description, assertion.groupPath]),
+      );
+      assert.deepStrictEqual(pathsByDescription.get("first grouped assertion"), ["first group"]);
+      assert.deepStrictEqual(pathsByDescription.get("second grouped assertion"), ["second group"]);
     }).pipe(Effect.provide(assertionsLayer())),
   );
 

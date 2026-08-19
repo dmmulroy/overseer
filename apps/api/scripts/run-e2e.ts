@@ -1,6 +1,11 @@
+import { resolve } from "node:path";
 import { NodeRuntime, NodeServices } from "@effect/platform-node";
-import { Clock, Crypto, Effect, Exit, Runtime, Schema } from "effect";
+import { Clock, Config, Crypto, Effect, Exit, Runtime, Schema } from "effect";
 import { ChildProcess, ChildProcessSpawner } from "effect/unstable/process";
+import {
+  LocalTestRunStorageDirectory,
+  localTestRunStorageDirectoryConfig,
+} from "../test/e2e/evidence/test-run-storage-local.ts";
 import {
   OverseerTestTarget,
   type OverseerTestTarget as OverseerTestTargetValue,
@@ -24,6 +29,12 @@ class OverseerEndToEndCommandFailed extends Schema.TaggedError<OverseerEndToEndC
     return `Overseer E2E ${this.command} command failed with exit code ${this.exitCode}.`;
   }
 }
+
+/** Selects the absolute local evidence directory owned by the E2E runner. */
+export const makeOverseerEvidenceDirectory = (
+  workingDirectory: string,
+): LocalTestRunStorageDirectory =>
+  LocalTestRunStorageDirectory.make(resolve(workingDirectory, ".overseer", "evidence"));
 
 /** Generates a unique, test-only Alchemy stage for the selected target. */
 export const makeOverseerTestRun = Effect.fn("makeOverseerTestRun")(function* (
@@ -54,6 +65,9 @@ const runOverseerEndToEndTests = Effect.fn("runOverseerEndToEndTests")(function*
   target: OverseerTestTargetValue,
 ) {
   const testRun = yield* makeOverseerTestRun(target);
+  const evidenceDirectory = yield* localTestRunStorageDirectoryConfig.pipe(
+    Config.withDefault(makeOverseerEvidenceDirectory(process.cwd())),
+  );
   const alchemyDev = target === "local" ? "true" : "false";
 
   const runTests = runOverseerCommand(
@@ -68,6 +82,7 @@ const runOverseerEndToEndTests = Effect.fn("runOverseerEndToEndTests")(function*
         ALCHEMY_TEST_STAGE: testRun.stage,
         OVERSEER_TEST_TARGET: testRun.target,
         OVERSEER_TEST_STAGE: testRun.stage,
+        OVERSEER_EVIDENCE_DIRECTORY: evidenceDirectory,
       },
     }),
   );

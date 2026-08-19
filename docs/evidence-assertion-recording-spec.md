@@ -294,16 +294,16 @@ interface ITestAssert {
   readonly isTrue: (description: string, actual: boolean) => void;
   readonly isFalse: (description: string, actual: boolean) => void;
 
-  readonly isDefined: <A>(description: string, actual: A | null | undefined) => asserts actual is A;
+  readonly isDefined: <A>(description: string, actual: A | null | undefined) => A;
 
-  readonly isUndefined: (description: string, actual: unknown) => void;
-  readonly isNull: (description: string, actual: unknown) => void;
+  readonly isUndefined: <A>(description: string, actual: A) => void;
+  readonly isNull: <A>(description: string, actual: A) => void;
 
-  readonly instanceOf: <A>(
+  readonly instanceOf: <A, B>(
     description: string,
-    actual: unknown,
+    actual: B,
     expected: abstract new (...args: never[]) => A,
-  ) => asserts actual is A;
+  ) => B & A;
 }
 ```
 
@@ -316,7 +316,7 @@ interface ITestAssert {
 | `isNull`      | `{ _tag: "IsNull", actual }`                    |
 | `instanceOf`  | `{ _tag: "InstanceOf", actual, expectedClass }` |
 
-The API intentionally omits vague truthiness and falsiness assertions. Boolean guarantees use `isTrue` or `isFalse`; value guarantees use their specific operator.
+The API intentionally omits vague truthiness and falsiness assertions. Boolean guarantees use `isTrue` or `isFalse`; value guarantees use their specific operator. Refining assertions return the original value with its stronger type so callback-context destructuring works without TypeScript assertion-function annotations.
 
 ### Numeric and ordering
 
@@ -463,13 +463,17 @@ Member comparisons account for duplicate counts. `["a", "a"]` does not have the 
 
 ```ts
 interface ITestAssert {
-  readonly hasProperty: <K extends PropertyKey>(
+  readonly hasProperty: <A extends object, K extends PropertyKey>(
     description: string,
-    actual: object,
+    actual: A,
     expected: K,
-  ) => asserts actual is object & { readonly [P in K]: unknown };
+  ) => A & { readonly [P in K]: unknown };
 
-  readonly notHasProperty: (description: string, actual: object, unexpected: PropertyKey) => void;
+  readonly notHasProperty: <A extends object>(
+    description: string,
+    actual: A,
+    unexpected: PropertyKey,
+  ) => void;
 }
 ```
 
@@ -504,6 +508,8 @@ interface ITestAssert {
 | `throwsInstanceOf` | `{ _tag: "ThrowsInstanceOf", actualError, expectedClass }` |
 | `doesNotThrow`     | `{ _tag: "DoesNotThrow", completion }`                     |
 | `fail`             | `{ _tag: "Fail", actual }`                                 |
+
+`doesNotThrow` records completion as `Observed` only when the callback returns. If the callback throws, completion is `NotObserved`, Node's assertion implementation converts the callback error into an `AssertionError`, and that same assertion error is recorded and rethrown.
 
 Effect failures remain values and do not use Promise-style rejection assertions:
 
@@ -586,7 +592,7 @@ interface ITestAssert {
 }
 ```
 
-Recorded operations include the final observation, expected value or expectation, number of attempts, timeout, and interval. The assertion envelope records total elapsed duration. A tagged observation distinguishes a completed value from failure or interruption before any value completed.
+Recorded operations include the final observation, expected value or expectation, number of attempts, timeout, interval, and Effect-clock elapsed duration. The assertion envelope separately records wall-clock duration. A tagged observation distinguishes a completed value from failure or interruption before any value completed.
 
 ```json
 {
@@ -598,7 +604,8 @@ Recorded operations include the final observation, expected value or expectation
   "expected": "archived",
   "attempts": 3,
   "timeoutMs": 10000,
-  "intervalMs": 100
+  "intervalMs": 100,
+  "elapsedMs": 200
 }
 ```
 
@@ -640,7 +647,7 @@ Nested assertions record their full group path:
 }
 ```
 
-`each` and `eachEffect` append the item index to the group path. They remain fail-fast.
+`groupEffect` and `eachEffect` carry group paths through a fiber-local Effect context, so concurrent sibling groups cannot contaminate one another. Synchronous groups use a call-scoped stack because their callbacks cannot yield. `each` and `eachEffect` append the item index to the group path. They remain fail-fast.
 
 ## Explicitly omitted assertion styles
 
@@ -704,6 +711,10 @@ interface ITestEvidence {
 Generic attachment input follows the useful portion of Playwright's `testInfo.attach` model:
 
 ```ts
+type TestEvidenceSource =
+  | { readonly _tag: "Path"; readonly path: string }
+  | { readonly _tag: "Bytes"; readonly body: Uint8Array };
+
 type TestEvidenceAttachment =
   | {
       readonly name: string;
@@ -723,6 +734,36 @@ type TestEvidenceAttachment =
     };
 ```
 
+Convenience file-like attachments accept the same path-or-bytes source model:
+
+```ts
+interface FileEvidenceAttachment {
+  readonly name: string;
+  readonly source: TestEvidenceSource;
+  readonly contentType?: string;
+}
+
+interface ScreenshotEvidenceAttachment {
+  readonly name: string;
+  readonly source: TestEvidenceSource;
+  readonly contentType?: "image/png" | "image/jpeg";
+}
+
+type VideoEvidenceAttachment =
+  | {
+      readonly name: string;
+      readonly source: { readonly _tag: "Path"; readonly path: string };
+      readonly contentType?: string;
+    }
+  | {
+      readonly name: string;
+      readonly source: { readonly _tag: "Bytes"; readonly body: Uint8Array };
+      readonly contentType: string;
+    };
+```
+
+Path-based file and video attachments infer media type from the extension. Byte-based files default to `application/octet-stream`; byte-based videos require an explicit media type. Screenshots default to PNG.
+
 Convenience methods choose the artifact kind and content type:
 
 | Method             | Artifact kind | Default content type                   |
@@ -734,6 +775,8 @@ Convenience methods choose the artifact kind and content type:
 | `attachJson`       | `Json`        | `application/json`                     |
 
 `attachJson` uses the same best-effort assertion value encoder. Awaiting an attachment guarantees that the backend has copied or accepted its content; the caller may then remove the source file.
+
+All artifacts in the initial model belong to one test execution. The run aggregate does not carry a separate run-level artifact collection; add that ownership concept only when a concrete suite-level producer exists.
 
 Explicit attachments are returned as references and automatically added to the current recorder:
 
@@ -751,12 +794,11 @@ evidence.attachScreenshot
 TestRun
 ├── identity and target metadata
 ├── run status and timing
-├── registered tests
-│   └── test executions
-│       ├── status and timing
-│       ├── assertions
-│       └── artifact references
-└── run-level artifact references
+└── registered tests
+    └── test executions
+        ├── status and timing
+        ├── assertions
+        └── artifact references
 ```
 
 Conceptual aggregate:
@@ -770,7 +812,6 @@ interface TestRun {
   readonly startedAt: DateTime.Utc;
   readonly timing: TestRunTiming;
   readonly tests: ReadonlyArray<TestRecord>;
-  readonly artifacts: ReadonlyArray<TestArtifactRef>;
 }
 
 interface TestRecord {
@@ -906,12 +947,16 @@ The initial implementation includes only local storage:
 
 ```text
 TestRunStorage
-└── localTestRunStorageLayer
-    ├── SQLite structured metadata
-    └── local artifact directory
+└── configured localTestRunStorageLayer
+    ├── SQLite canonical snapshots and indexed metadata
+    └── immutable content-addressed artifact blobs
 ```
 
-Both local and deployed tests initially persist evidence through this local Layer because Vitest executes in the Node test runner even when the application Stack is deployed.
+Both local and deployed tests initially persist evidence through this local Layer because Vitest executes in the Node test runner even when the application Stack is deployed. The E2E runner selects an absolute storage directory through `OVERSEER_EVIDENCE_DIRECTORY`; the storage Adapter does not derive its location from `process.cwd()`.
+
+SQLite keeps the complete Schema-encoded `TestRun` snapshot as the canonical aggregate and projects list-oriented metadata—target, stage, status, timing, and test count—into indexed columns. `listTestRuns` filters, sorts, and limits in SQLite; `findTestRun` decodes the canonical snapshot. Tests, executions, and assertions remain inside the aggregate until a concrete cross-run query requires further normalization.
+
+Artifact content uses immutable, SHA-256-addressed files. A write first flushes a staging file and atomically renames it into the blob directory, then transactionally points SQLite metadata at that completed blob. A failed metadata write can leave only an unreferenced blob; acquisition removes abandoned staging files and unreferenced blobs. Updates atomically switch metadata between immutable blobs, and deletion garbage-collects blobs after metadata removal.
 
 ### Future Cloudflare option — out of scope
 
@@ -1015,15 +1060,19 @@ Explicit per-execution values
 
 `FixtureRegistry` is deliberately not an Effect service. It owns no I/O, credentials, runtime resource, acquisition failure, or cleanup. Constructing it per test execution prevents its mutable generation cursors from coupling fixture values to test order, skipping, retries, or concurrent execution.
 
-Runtime modules import tags and Layers, never service constructors:
+Runtime modules import tags and Layers, never service constructors. The harness uses one canonical per-execution composition Layer so `TestAssert` and `TestEvidence` share exactly one fresh recorder while the suite-scoped storage requirement remains visible:
 
-```diff
--import { makeTestAssert } from "./test-assert";
-+import { TestAssert, testAssertLayer } from "./test-assert";
+```ts
+const evidenceCapabilitiesLayer = testExecutionEvidenceLayer({
+  runId,
+  testExecutionId,
+});
 
--const assert = makeTestAssert(recorder);
-+const assert = yield* TestAssert;
+const assert = yield * TestAssert;
+const evidence = yield * TestEvidence;
 ```
+
+The lower-level `testAssertLayerWithoutDependencies`, `testEvidenceLayerWithoutDependencies`, and `testEvidenceRecorderLayer` exports remain available to their composition owner and focused tests. They are not aliased as ready Layers because doing so would hide or misstate their recorder and storage requirements.
 
 Each owning service module may declare its `make<Capability>` constructor and use it to define Layers. Only `*.test.*` and `*.spec.*` files may import those constructors for focused construction tests.
 
@@ -1043,7 +1092,8 @@ apps/api/test/e2e/
     ├── test-run-storage-local.ts   # SQLite and local-file ready Layer
     ├── test-evidence-recorder.ts   # fresh per-test recording service and Layer
     ├── test-assert.ts              # comprehensive assertion service and Layer
-    └── test-evidence.ts            # attachment service and Layer
+    ├── test-evidence.ts            # attachment service and Layer
+    └── test-execution-evidence.ts  # canonical per-execution capability composition
 ```
 
 Each file owns one searchable concept. Split implementation internals further only after size or reuse earns it.

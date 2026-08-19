@@ -2,9 +2,16 @@ import { NodeCrypto } from "@effect/platform-node";
 import { assert, describe, it } from "@effect/vitest";
 import { Effect, Schema } from "effect";
 import { TestRun } from "../test/e2e/overseer-test-run.ts";
-import { makeOverseerTestRun } from "./run-e2e.ts";
+import { makeOverseerEvidenceDirectory, makeOverseerTestRun } from "./run-e2e.ts";
 
 describe("Overseer end-to-end test runner", () => {
+  it("selects an absolute evidence directory from the runner working directory", () => {
+    assert.strictEqual(
+      makeOverseerEvidenceDirectory("/repo/apps/api"),
+      "/repo/apps/api/.overseer/evidence",
+    );
+  });
+
   it.effect("generates distinct schema-valid local stages", () =>
     Effect.gen(function* () {
       const first = yield* makeOverseerTestRun("local");

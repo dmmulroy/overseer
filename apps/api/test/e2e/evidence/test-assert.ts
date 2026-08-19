@@ -1,6 +1,17 @@
 import nodeAssert from "node:assert/strict";
 import { isDeepStrictEqual } from "node:util";
-import { Cause, Context, Duration, Effect, Exit, Inspectable, Layer, Option, Schema } from "effect";
+import {
+  Cause,
+  Context,
+  Duration,
+  Effect,
+  Exit,
+  Fiber,
+  Inspectable,
+  Layer,
+  Option,
+  Schema,
+} from "effect";
 import type {
   TestAssertionObservation,
   TestAssertionOperation,
@@ -40,14 +51,14 @@ export interface ITestAssert {
   readonly deepOneOf: <A>(description: string, actual: A, expected: ReadonlyArray<A>) => void;
   readonly isTrue: (description: string, actual: boolean) => void;
   readonly isFalse: (description: string, actual: boolean) => void;
-  readonly isDefined: <A>(description: string, actual: A | null | undefined) => asserts actual is A;
+  readonly isDefined: <A>(description: string, actual: A | null | undefined) => A;
   readonly isUndefined: <A>(description: string, actual: A) => void;
   readonly isNull: <A>(description: string, actual: A) => void;
   readonly instanceOf: <A, B>(
     description: string,
     actual: B,
     expected: abstract new (...args: never[]) => A,
-  ) => asserts actual is B & A;
+  ) => B & A;
   readonly greaterThan: (
     description: string,
     actual: OrderedTestValue,
@@ -122,7 +133,7 @@ export interface ITestAssert {
     description: string,
     actual: A,
     expected: K,
-  ) => asserts actual is A & { readonly [P in K]: unknown };
+  ) => A & { readonly [P in K]: unknown };
   readonly notHasProperty: <A extends object>(
     description: string,
     actual: A,
@@ -191,6 +202,11 @@ export class TestAssert extends Context.Service<TestAssert, ITestAssert>()(
 
 const encodeAssertionValue = encodeTestEvidenceJson;
 
+const CurrentTestAssertionGroupPath = Context.Reference<ReadonlyArray<string>>(
+  "@overseer/CurrentTestAssertionGroupPath",
+  { defaultValue: () => [] },
+);
+
 const recordedAssertionError = <A>(error: A) => {
   if (error instanceof Error) {
     return {
@@ -211,6 +227,14 @@ const requireAssertionDescription = (description: string): void => {
 
 const collectionSize = (actual: { readonly length: number } | { readonly size: number }): number =>
   "length" in actual ? actual.length : actual.size;
+
+function assertOwnProperty<A extends object, K extends PropertyKey>(
+  actual: A,
+  expected: K,
+  description: string,
+): asserts actual is A & { readonly [P in K]: unknown } {
+  nodeAssert.ok(Object.hasOwn(actual, expected), description);
+}
 
 const hasSameMembers = <A>(
   actual: ReadonlyArray<A>,
@@ -245,16 +269,17 @@ const makeEventualAssertionOperation = (
   attempts: number,
   timeoutMs: number,
   intervalMs: number,
+  elapsedMs: number,
 ): TestAssertionOperation => {
   switch (config._tag) {
     case "EventuallyEqual":
-      return { ...config, observation, attempts, timeoutMs, intervalMs };
+      return { ...config, observation, attempts, timeoutMs, intervalMs, elapsedMs };
     case "EventuallyDeepEqual":
-      return { ...config, observation, attempts, timeoutMs, intervalMs };
+      return { ...config, observation, attempts, timeoutMs, intervalMs, elapsedMs };
     case "EventuallyMatch":
-      return { ...config, observation, attempts, timeoutMs, intervalMs };
+      return { ...config, observation, attempts, timeoutMs, intervalMs, elapsedMs };
     case "EventuallySatisfies":
-      return { ...config, observation, attempts, timeoutMs, intervalMs };
+      return { ...config, observation, attempts, timeoutMs, intervalMs, elapsedMs };
   }
 };
 
@@ -266,6 +291,13 @@ const eventualAssertionErrorFromCause = <E>(cause: Cause.Cause<E>): Error => {
 /** Constructs assertions while preserving the current recorder requirement. */
 export const makeTestAssert = Effect.gen(function* () {
   const recorder = yield* TestEvidenceRecorder;
+  const synchronousGroupPath: Array<string> = [];
+
+  const currentGroupPath = (): ReadonlyArray<string> => {
+    const fiber = Fiber.getCurrent();
+    const effectGroupPath = fiber === undefined ? [] : fiber.getRef(CurrentTestAssertionGroupPath);
+    return [...effectGroupPath, ...synchronousGroupPath];
+  };
 
   const appendOutcome = (
     reservation: TestAssertionReservation,
@@ -299,7 +331,7 @@ export const makeTestAssert = Effect.gen(function* () {
     comparison: () => A,
   ): A => {
     requireAssertionDescription(description);
-    const reservation = recorder.reserveAssertion();
+    const reservation = recorder.reserveAssertion(currentGroupPath());
     try {
       const result = comparison();
       appendOutcome(reservation, description, operation(), undefined);
@@ -323,7 +355,7 @@ export const makeTestAssert = Effect.gen(function* () {
     Effect.suspend(() => {
       requireAssertionDescription(input.description);
       requireAssertionDescription(input.expectation);
-      const reservation = recorder.reserveAssertion();
+      const reservation = recorder.reserveAssertion(currentGroupPath());
       const timeoutMs = Math.max(0, Math.floor(Duration.toMillis(input.options.timeout)));
       const intervalMs = Math.max(0, Math.floor(Duration.toMillis(input.options.interval)));
       let attempts = 0;
@@ -335,7 +367,7 @@ export const makeTestAssert = Effect.gen(function* () {
           onNone: () => ({ _tag: "NotObserved" }),
           onSome: (actual) => ({ _tag: "Observed", value: encodeAssertionValue(actual) }),
         });
-      const complete = (error: Error | undefined): void => {
+      const complete = (error: Error | undefined, elapsedMs: number): void => {
         if (recorded) return;
         appendOutcome(
           reservation,
@@ -346,15 +378,18 @@ export const makeTestAssert = Effect.gen(function* () {
             attempts,
             timeoutMs,
             intervalMs,
+            elapsedMs,
           ),
           error,
         );
         recorded = true;
       };
 
+      let startedAtMillis = Option.none<number>();
       const poll = Effect.gen(function* () {
         const startedAt = yield* Effect.clockWith((clock) => clock.currentTimeMillis);
-        const matched = yield* Effect.gen(function* () {
+        startedAtMillis = Option.some(startedAt);
+        yield* Effect.gen(function* () {
           attempts += 1;
           const actual = yield* input.actual;
           lastObservation = Option.some(actual);
@@ -374,26 +409,31 @@ export const makeTestAssert = Effect.gen(function* () {
           yield* Effect.sleep(input.options.interval);
           return false;
         }).pipe(Effect.repeat({ until: (matches) => matches }));
-
-        if (matched) complete(undefined);
       });
 
       return poll.pipe(
         Effect.onExit((exit) =>
-          Exit.isFailure(exit)
-            ? Effect.sync(() => complete(eventualAssertionErrorFromCause(exit.cause)))
-            : Effect.void,
+          Effect.gen(function* () {
+            const finishedAtMillis = yield* Effect.clockWith((clock) => clock.currentTimeMillis);
+            complete(
+              Exit.isFailure(exit) ? eventualAssertionErrorFromCause(exit.cause) : undefined,
+              Option.match(startedAtMillis, {
+                onNone: () => 0,
+                onSome: (startedAt) => Math.max(0, finishedAtMillis - startedAt),
+              }),
+            );
+          }),
         ),
       );
     });
 
   const group = <A>(description: string, run: () => A): A => {
     requireAssertionDescription(description);
-    recorder.enterGroup(description);
+    synchronousGroupPath.push(description);
     try {
       return run();
     } finally {
-      recorder.leaveGroup();
+      synchronousGroupPath.pop();
     }
   };
 
@@ -402,10 +442,12 @@ export const makeTestAssert = Effect.gen(function* () {
     effect: Effect.Effect<A, E, R>,
   ): Effect.Effect<A, E, R> => {
     requireAssertionDescription(description);
-    return Effect.sync(() => recorder.enterGroup(description)).pipe(
-      Effect.andThen(effect),
-      Effect.ensuring(Effect.sync(recorder.leaveGroup)),
-    );
+    return Effect.gen(function* () {
+      const parentGroupPath = yield* CurrentTestAssertionGroupPath;
+      return yield* effect.pipe(
+        Effect.provideService(CurrentTestAssertionGroupPath, [...parentGroupPath, description]),
+      );
+    });
   };
 
   const satisfies = <A>(
@@ -423,14 +465,18 @@ export const makeTestAssert = Effect.gen(function* () {
   };
 
   const doesNotThrow = <A>(description: string, operation: () => A): A => {
-    let completion = encodeAssertionValue("operation did not complete");
+    let result = Option.none<A>();
+    let completion: TestAssertionObservation = { _tag: "NotObserved" };
     return runAssertion(
       description,
       () => ({ _tag: "DoesNotThrow", completion }),
       () => {
-        const value = operation();
-        completion = encodeAssertionValue(value);
-        return value;
+        nodeAssert.doesNotThrow(() => {
+          const value = operation();
+          result = Option.some(value);
+          completion = { _tag: "Observed", value: encodeAssertionValue(value) };
+        }, description);
+        return Option.getOrThrow(result);
       },
     );
   };
@@ -520,7 +566,10 @@ export const makeTestAssert = Effect.gen(function* () {
       runAssertion(
         description,
         () => ({ _tag: "IsDefined", actual: encodeAssertionValue(actual) }),
-        () => nodeAssert.ok(actual !== null && actual !== undefined, description),
+        () => {
+          nodeAssert.ok(actual !== null && actual !== undefined, description);
+          return actual;
+        },
       ),
     isUndefined: (description, actual) =>
       runAssertion(
@@ -542,7 +591,10 @@ export const makeTestAssert = Effect.gen(function* () {
           actual: encodeAssertionValue(actual),
           expectedClass: expected.name,
         }),
-        () => nodeAssert.ok(actual instanceof expected, description),
+        () => {
+          nodeAssert.ok(actual instanceof expected, description);
+          return actual;
+        },
       ),
     greaterThan: (description, actual, expected) =>
       runAssertion(
@@ -733,7 +785,10 @@ export const makeTestAssert = Effect.gen(function* () {
           actual: encodeAssertionValue(actual),
           expectedProperty: encodeAssertionValue(expected),
         }),
-        () => nodeAssert.ok(Object.hasOwn(actual, expected), description),
+        () => {
+          assertOwnProperty(actual, expected, description);
+          return actual;
+        },
       ),
     notHasProperty: (description, actual, unexpected) =>
       runAssertion(

@@ -23,25 +23,32 @@ export interface TestEvidenceAttachment {
   readonly source: TestEvidenceSource;
 }
 
-/** File evidence attachment whose media type may be inferred from its extension. */
+/** File evidence supplied as a path or bytes, with extension inference for paths. */
 export interface FileEvidenceAttachment {
   readonly name: string;
-  readonly path: string;
+  readonly source: TestEvidenceSource;
   readonly contentType?: string;
 }
 
-/** PNG screenshot evidence supplied as a path or in-memory bytes. */
+/** Screenshot evidence supplied as a path or bytes and defaulting to PNG. */
 export interface ScreenshotEvidenceAttachment {
   readonly name: string;
   readonly source: TestEvidenceSource;
+  readonly contentType?: "image/png" | "image/jpeg";
 }
 
-/** Video evidence copied from a local file before attachment returns. */
-export interface VideoEvidenceAttachment {
-  readonly name: string;
-  readonly path: string;
-  readonly contentType?: string;
-}
+/** Video path with inferred media type, or bytes with an explicit media type. */
+export type VideoEvidenceAttachment =
+  | {
+      readonly name: string;
+      readonly source: { readonly _tag: "Path"; readonly path: string };
+      readonly contentType?: string;
+    }
+  | {
+      readonly name: string;
+      readonly source: { readonly _tag: "Bytes"; readonly body: Uint8Array };
+      readonly contentType: string;
+    };
 
 /** UTF-8 text attached directly to the current test execution. */
 export interface TextEvidenceAttachment {
@@ -134,6 +141,11 @@ const inferredContentType = (path: string): string => {
   }
 };
 
+const videoContentType = (attachment: VideoEvidenceAttachment): string =>
+  attachment.source._tag === "Bytes"
+    ? (attachment.contentType ?? "application/octet-stream")
+    : (attachment.contentType ?? inferredContentType(attachment.source.path));
+
 const readEvidenceSource = (
   source: TestEvidenceSource,
   operation: TestEvidenceOperation,
@@ -202,20 +214,24 @@ export const makeTestEvidence = (
       attachFile: (attachment) =>
         persistAttachment("attachFile", "File", {
           name: attachment.name,
-          contentType: attachment.contentType ?? inferredContentType(attachment.path),
-          source: { _tag: "Path", path: attachment.path },
+          contentType:
+            attachment.contentType ??
+            (attachment.source._tag === "Path"
+              ? inferredContentType(attachment.source.path)
+              : "application/octet-stream"),
+          source: attachment.source,
         }),
       attachScreenshot: (attachment) =>
         persistAttachment("attachScreenshot", "Screenshot", {
           name: attachment.name,
-          contentType: "image/png",
+          contentType: attachment.contentType ?? "image/png",
           source: attachment.source,
         }),
       attachVideo: (attachment) =>
         persistAttachment("attachVideo", "Video", {
           name: attachment.name,
-          contentType: attachment.contentType ?? inferredContentType(attachment.path),
-          source: { _tag: "Path", path: attachment.path },
+          contentType: videoContentType(attachment),
+          source: attachment.source,
         }),
       attachText: (attachment) =>
         persistAttachment("attachText", "Text", {

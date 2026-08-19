@@ -52,7 +52,6 @@ describe("Test run evidence", () => {
           ],
         },
       ],
-      artifacts: [],
     } as const;
 
     const run = Schema.decodeUnknownSync(TestRun)(storedRun);
