@@ -1,5 +1,7 @@
 import { definePlugin, defineRule } from "@oxlint/plugins";
 import type { ESTree } from "@oxlint/plugins";
+import { noBypassedE2eEvidenceRule } from "./rules/no-bypassed-e2e-evidence.ts";
+import { noServiceConstructorImportsRule } from "./rules/no-service-constructor-imports.ts";
 
 const DOMAIN_APPLICATION_PATH =
   /(?:^|\/)src\/(?:domain|application)(?:\/|$)|\.(?:domain|application)\.[cm]?[jt]sx?$/u;
@@ -177,6 +179,8 @@ export const requireOptionForOptionalValuesRule = defineRule({
 export default definePlugin({
   meta: { name: "overseer" },
   rules: {
+    "no-bypassed-e2e-evidence": noBypassedE2eEvidenceRule,
+    "no-service-constructor-imports": noServiceConstructorImportsRule,
     "require-option-for-optional-values": requireOptionForOptionalValuesRule,
   },
 });

@@ -1,105 +1,135 @@
-import { spawn, type ChildProcess } from "node:child_process";
-import { randomUUID } from "node:crypto";
-import { userInfo } from "node:os";
-import { pathToFileURL } from "node:url";
-import { Schema } from "effect";
+import { NodeRuntime, NodeServices } from "@effect/platform-node";
+import { Clock, Crypto, Effect, Exit, Runtime, Schema } from "effect";
+import { ChildProcess, ChildProcessSpawner } from "effect/unstable/process";
 import {
   OverseerTestTarget,
   type OverseerTestTarget as OverseerTestTargetValue,
   TestRun,
 } from "../test/e2e/overseer-test-run.ts";
 
-const forwardedSignals: ReadonlyArray<NodeJS.Signals> = ["SIGINT", "SIGTERM", "SIGHUP"];
+class OverseerEndToEndCommandFailed extends Schema.TaggedError<OverseerEndToEndCommandFailed>()(
+  "OverseerEndToEndCommandFailed",
+  {
+    command: Schema.Literals(["alchemy destroy", "vp test"]),
+    exitCode: Schema.Number,
+  },
+) {
+  readonly [Runtime.errorReported] = false;
 
-interface ChildProcessOutcome {
-  readonly code: number;
-  readonly signal: NodeJS.Signals | undefined;
+  get [Runtime.errorExitCode](): number {
+    return this.exitCode;
+  }
+
+  override get message(): string {
+    return `Overseer E2E ${this.command} command failed with exit code ${this.exitCode}.`;
+  }
 }
 
 /** Generates a unique, test-only Alchemy stage for the selected target. */
-export const makeOverseerTestRun = (target: OverseerTestTargetValue): TestRun => {
-  const entropy = randomUUID().replaceAll("-", "").slice(0, 12);
-  const timestamp = Date.now().toString(36);
-  const username = userInfo()
-    .username.toLowerCase()
-    .replaceAll(/[^a-z0-9]+/g, "-")
-    .replaceAll(/^-|-$/g, "")
-    .slice(0, 12);
-  const stageOwner = username.length === 0 ? "user" : username;
-  return Schema.decodeUnknownSync(TestRun)({
+export const makeOverseerTestRun = Effect.fn("makeOverseerTestRun")(function* (
+  target: OverseerTestTargetValue,
+) {
+  const crypto = yield* Crypto.Crypto;
+  const entropy = (yield* crypto.randomUUIDv4).replaceAll("-", "").slice(0, 12);
+  const timestamp = (yield* Clock.currentTimeMillis).toString(36);
+
+  return yield* Schema.decodeEffect(TestRun)({
     target,
-    stage: `test-${stageOwner}-${timestamp}-${entropy}`,
+    stage: `test-${timestamp}-${entropy}`,
   });
-};
+});
 
-const waitForChildProcess = (child: ChildProcess): Promise<ChildProcessOutcome> =>
-  new Promise((complete) => {
-    child.once("error", (error) => {
-      console.error("Overseer E2E runner failed to start a child process:", error);
-      complete({ code: 1, signal: undefined });
-    });
-    child.once("exit", (code, signal) => {
-      complete({ code: code ?? 1, signal: signal ?? undefined });
+const runOverseerCommand = Effect.fn("runOverseerCommand")(function* (
+  name: "alchemy destroy" | "vp test",
+  command: ChildProcess.Command,
+) {
+  const childProcessSpawner = yield* ChildProcessSpawner.ChildProcessSpawner;
+  const exitCode = yield* childProcessSpawner.exitCode(command);
+  if (exitCode !== ChildProcessSpawner.ExitCode(0)) {
+    return yield* Effect.fail(new OverseerEndToEndCommandFailed({ command: name, exitCode }));
+  }
+});
+
+const runOverseerEndToEndTests = Effect.fn("runOverseerEndToEndTests")(function* (
+  target: OverseerTestTargetValue,
+) {
+  const testRun = yield* makeOverseerTestRun(target);
+  const alchemyDev = target === "local" ? "true" : "false";
+
+  const runTests = runOverseerCommand(
+    "vp test",
+    ChildProcess.make("vp", ["test", "run", "test/e2e.test.ts"], {
+      stdin: "inherit",
+      stdout: "inherit",
+      stderr: "inherit",
+      extendEnv: true,
+      env: {
+        ALCHEMY_DEV: alchemyDev,
+        ALCHEMY_TEST_STAGE: testRun.stage,
+        OVERSEER_TEST_TARGET: testRun.target,
+        OVERSEER_TEST_STAGE: testRun.stage,
+      },
+    }),
+  );
+
+  const destroyTestStack = runOverseerCommand(
+    "alchemy destroy",
+    ChildProcess.make("alchemy", ["destroy", "--yes", "--stage", testRun.stage, "alchemy.run.ts"], {
+      stdin: "inherit",
+      stdout: "inherit",
+      stderr: "inherit",
+      extendEnv: true,
+      env: { ALCHEMY_DEV: alchemyDev },
+    }),
+  );
+
+  return yield* runTests.pipe(
+    Effect.onExit((testExit) => {
+      if (target !== "local" && Exit.isSuccess(testExit)) return Effect.void;
+      return Exit.isFailure(testExit) ? Effect.ignore(destroyTestStack) : destroyTestStack;
+    }),
+  );
+});
+
+if (import.meta.main) {
+  const terminationSignals = ["SIGINT", "SIGTERM", "SIGHUP"] as const;
+  let receivedTerminationSignal: (typeof terminationSignals)[number] | undefined;
+  const interruptOnTerminationSignal = Effect.callback<never>((resume) => {
+    const signalHandlers = new Map<(typeof terminationSignals)[number], () => void>();
+    for (const signal of terminationSignals) {
+      const handler = () => {
+        if (receivedTerminationSignal !== undefined) return;
+        receivedTerminationSignal = signal;
+        resume(Effect.interrupt);
+      };
+      signalHandlers.set(signal, handler);
+      process.on(signal, handler);
+    }
+
+    return Effect.sync(() => {
+      for (const [signal, handler] of signalHandlers) {
+        process.off(signal, handler);
+      }
     });
   });
 
-const runOverseerEndToEndTests = async (target: OverseerTestTargetValue): Promise<number> => {
-  const testRun = makeOverseerTestRun(target);
+  const main = Effect.gen(function* () {
+    const target = yield* Schema.decodeUnknownEffect(OverseerTestTarget)(process.argv[2]);
+    yield* runOverseerEndToEndTests(target);
+  }).pipe(Effect.provide(NodeServices.layer), Effect.raceFirst(interruptOnTerminationSignal));
 
-  const testProcess = spawn("vp", ["test", "run", "test/e2e.test.ts"], {
-    stdio: "inherit",
-    env: {
-      ...process.env,
-      ALCHEMY_DEV: target === "local" ? "true" : "false",
-      ALCHEMY_TEST_STAGE: testRun.stage,
-      OVERSEER_TEST_TARGET: testRun.target,
-      OVERSEER_TEST_STAGE: testRun.stage,
+  NodeRuntime.runMain(main, {
+    teardown: (exit, onExit) => {
+      switch (receivedTerminationSignal) {
+        case "SIGHUP":
+          return onExit(129);
+        case "SIGINT":
+          return onExit(130);
+        case "SIGTERM":
+          return onExit(143);
+        case undefined:
+          return Runtime.defaultTeardown(exit, onExit);
+      }
     },
   });
-
-  let forwardedSignal: NodeJS.Signals | undefined;
-  const signalHandlers = new Map<NodeJS.Signals, () => void>();
-  for (const signal of forwardedSignals) {
-    const handler = () => {
-      forwardedSignal ??= signal;
-      testProcess.kill(signal);
-    };
-    signalHandlers.set(signal, handler);
-    process.on(signal, handler);
-  }
-
-  const testOutcome = await waitForChildProcess(testProcess);
-  for (const [signal, handler] of signalHandlers) {
-    process.off(signal, handler);
-  }
-
-  const needsOuterCleanup =
-    target === "local" ||
-    forwardedSignal !== undefined ||
-    testOutcome.signal !== undefined ||
-    testOutcome.code !== 0;
-  const destroyOutcome = needsOuterCleanup
-    ? await waitForChildProcess(
-        spawn("alchemy", ["destroy", "--yes", "--stage", testRun.stage, "alchemy.run.ts"], {
-          stdio: "inherit",
-          env: {
-            ...process.env,
-            ALCHEMY_DEV: target === "local" ? "true" : "false",
-          },
-        }),
-      )
-    : { code: 0, signal: undefined };
-
-  if (forwardedSignal !== undefined || testOutcome.signal !== undefined) {
-    const signal = forwardedSignal ?? testOutcome.signal;
-    return signal === "SIGINT" ? 130 : 143;
-  }
-  if (testOutcome.code !== 0) return testOutcome.code;
-  return destroyOutcome.code;
-};
-
-const entrypoint = process.argv[1];
-if (entrypoint !== undefined && import.meta.url === pathToFileURL(entrypoint).href) {
-  const target = Schema.decodeUnknownSync(OverseerTestTarget)(process.argv[2]);
-  process.exitCode = await runOverseerEndToEndTests(target);
 }

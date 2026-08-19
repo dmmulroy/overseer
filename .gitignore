@@ -9,6 +9,7 @@ lerna-debug.log*
 
 node_modules
 .alchemy
+.overseer
 dist
 dist-ssr
 *.local

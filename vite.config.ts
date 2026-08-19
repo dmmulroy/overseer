@@ -19,6 +19,8 @@ export default defineConfig({
       "anti-slop/no-unknown-parameters": "error",
       "anti-slop/no-unknown-type-aliases": "error",
       "anti-slop/no-widen-then-assert": "error",
+      "overseer/no-bypassed-e2e-evidence": "error",
+      "overseer/no-service-constructor-imports": "error",
       "overseer/require-option-for-optional-values": "error",
       "typescript/consistent-type-assertions": ["error", { assertionStyle: "never" }],
       "typescript/no-explicit-any": "error",

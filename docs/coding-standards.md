@@ -452,6 +452,43 @@ or a test Layer, then provide that Layer to the dependency-preserving Layer unde
 
 ## Effect Service Modules
 
+### Service Constructor Locality
+
+Do not pass dependency-bearing constructor functions through application code or import them into
+runtime composition modules. In an Effect project, an exported free function named
+`make<CapabilityName>` is reserved for constructing the contextual service declared in the same
+capability module.
+
+The owning service module may use its constructor to define dependency-preserving and ready Layers.
+All non-test consumers import those Layers, yield the contextual service, and allow requirements to
+propagate to the composition root. They must not import or invoke the constructor directly. Only
+files matching the repository's test conventions (`*.test.*` and `*.spec.*`) may import an exported
+service constructor, and only when focused verification genuinely needs to exercise construction
+without the ready Layer.
+
+```ts
+// issue-service.ts
+export const makeIssueService = Effect.gen(function* () {
+  const issueStore = yield* IssueStore;
+  return IssueService.of({/* operations */});
+});
+
+export const issueServiceLayerWithoutDependencies = Layer.effect(IssueService, makeIssueService);
+
+// Runtime modules import the Layer and yield IssueService. They never import makeIssueService.
+```
+
+Do not introduce exported `make<X>` functions for dependency bundles, runtime registries, test
+harness capabilities, or alternate manual dependency injection. Model them as contextual services
+with Layers when they own capabilities or runtime state; keep genuinely pure construction local to
+its owning module or expose a domain-named operation that describes the value being derived rather
+than a generic constructor seam.
+
+Enforce this with a project lint rule that rejects project-local imports whose imported name matches
+`make[A-Z]` unless the importing file matches `*.test.*` or `*.spec.*`. The diagnostic should direct
+runtime callers to import the owning Layer and yield the contextual service. Library imports and
+schema-owned static constructors such as `WorkspaceName.make` are outside this rule.
+
 Put each new Effect service in a file named for its capability. Keep the service declaration and
 its construction in this order:
 
