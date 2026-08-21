@@ -1,6 +1,8 @@
 import { assert, it } from "@effect/vitest";
-import { Effect, Layer, Option, Redacted, Ref } from "effect";
+import { Effect, Exit, Fiber, Layer, Option, Redacted, Ref } from "effect";
+import { TestClock } from "effect/testing";
 import { HttpClient, HttpClientResponse } from "effect/unstable/http";
+import { HttpClientError, TransportError } from "effect/unstable/http/HttpClientError";
 import { OverseerApiClient, overseerApiClientLayer } from "./overseer-api-client.ts";
 import {
   type OverseerApiDeployment,
@@ -71,4 +73,97 @@ it.effect("sends deployed API calls with Agent Access credentials", () =>
     assert.strictEqual(observed.request.headers["cf-access-client-id"], "agent-client-id");
     assert.strictEqual(observed.request.headers["cf-access-client-secret"], "access-secret");
   }),
+);
+
+it.effect("retries transient deployed responses while Cloudflare bindings converge", () =>
+  Effect.gen(function* () {
+    const deployment = yield* parseOverseerApiDeployment("deployed")({
+      url: "https://overseer-api-test-user-run.mulroy.ai",
+      agentClientId: "agent-client-id",
+      agentClientSecret: Redacted.make("access-secret"),
+    });
+    const attempts = yield* Ref.make(0);
+    const convergingHttpClient = HttpClient.make((request) =>
+      Ref.updateAndGet(attempts, (count) => count + 1).pipe(
+        Effect.map((attempt) =>
+          HttpClientResponse.fromWeb(
+            request,
+            attempt === 1
+              ? new Response(undefined, { status: 500 })
+              : new Response(JSON.stringify("Overseer API"), {
+                  status: 200,
+                  headers: { "content-type": "application/json" },
+                }),
+          ),
+        ),
+      ),
+    );
+
+    const identityFiber = yield* Effect.gen(function* () {
+      const client = yield* OverseerApiClient;
+      return yield* client.overseer.getApiIdentity({});
+    }).pipe(
+      Effect.provide(
+        overseerApiClientLayer(deployment).pipe(
+          Layer.provide(Layer.succeed(HttpClient.HttpClient, convergingHttpClient)),
+        ),
+      ),
+      Effect.forkScoped,
+    );
+    yield* TestClock.adjust("2 seconds");
+
+    assert.strictEqual(yield* Fiber.join(identityFiber), "Overseer API");
+    assert.strictEqual(yield* Ref.get(attempts), 2);
+  }).pipe(Effect.scoped),
+);
+
+it.effect("does not retry ambiguous deployed transport failures", () =>
+  Effect.gen(function* () {
+    const deployment = yield* parseOverseerApiDeployment("deployed")({
+      url: "https://overseer-api-test-user-run.mulroy.ai",
+      agentClientId: "agent-client-id",
+      agentClientSecret: Redacted.make("access-secret"),
+    });
+    const attempts = yield* Ref.make(0);
+    const ambiguousHttpClient = HttpClient.make((request) =>
+      Ref.updateAndGet(attempts, (count) => count + 1).pipe(
+        Effect.flatMap((attempt) =>
+          attempt === 1
+            ? Effect.fail(
+                new HttpClientError({
+                  reason: new TransportError({
+                    request,
+                    description: "ambiguous test transport failure",
+                  }),
+                }),
+              )
+            : Effect.succeed(
+                HttpClientResponse.fromWeb(
+                  request,
+                  new Response(JSON.stringify("Overseer API"), {
+                    status: 200,
+                    headers: { "content-type": "application/json" },
+                  }),
+                ),
+              ),
+        ),
+      ),
+    );
+
+    const identityFiber = yield* Effect.gen(function* () {
+      const client = yield* OverseerApiClient;
+      return yield* client.overseer.getApiIdentity({});
+    }).pipe(
+      Effect.provide(
+        overseerApiClientLayer(deployment).pipe(
+          Layer.provide(Layer.succeed(HttpClient.HttpClient, ambiguousHttpClient)),
+        ),
+      ),
+      Effect.forkScoped,
+    );
+    yield* TestClock.adjust("2 seconds");
+
+    assert.isTrue(Exit.isFailure(yield* Fiber.await(identityFiber)));
+    assert.strictEqual(yield* Ref.get(attempts), 1);
+  }).pipe(Effect.scoped),
 );
