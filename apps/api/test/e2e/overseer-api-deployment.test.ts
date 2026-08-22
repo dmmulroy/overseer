@@ -44,6 +44,7 @@ it.effect("rejects deployed output with no fresh Access secret", () =>
       parseOverseerApiDeployment("deployed")({
         url: "https://overseer-api-test-user-run.mulroy.ai",
         agentClientId: "agent-client-id",
+        agentClientSecret: undefined,
       }),
     );
 

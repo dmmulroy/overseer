@@ -147,9 +147,11 @@ Do not build an in-memory trace adapter. The harness uses one execution-scoped E
 
 Deploy the OTLP ingress Worker and its Durable Object namespace as a dedicated application under `apps/`, with an independently managed Alchemy Stack. Do not bundle or tear down collector infrastructure with each Overseer E2E stage. Address one Durable Object per `TestRun`; retain ingested trace spans for later retrieval while still attaching an immutable trace document to the owning `TestExecution` evidence.
 
-### Initial collector scope excludes finalization, authentication, and configuration design
+### Initial collector scope excludes finalization and configuration design
 
-The first collector implementation persists idempotent spans and returns current trace snapshots. It does not add a persisted collecting/finalized state machine, late-span policy, authentication abstraction, or configuration system. Add those only when the E2E integration establishes a concrete requirement. Do not mistake the immutable execution evidence artifact for mutable collector storage.
+The first collector implementation persists idempotent spans and returns current trace snapshots. It does not add a persisted collecting/finalized state machine, late-span policy, or configuration system. Add those only when the E2E integration establishes a concrete requirement. Do not mistake the immutable execution evidence artifact for mutable collector storage.
+
+Shared infrastructure owns one service token and a `non_identity` policy for Overseer runtimes; deployed collectors reference that policy without owning the credential. Production is Access-protected at `ttc.mulroy.cloud` with `workers.dev` disabled. Preview is Access-protected at its stage-specific `workers.dev` hostname. Local development remains local and does not provision Access.
 
 Before implementation, this section must settle:
 

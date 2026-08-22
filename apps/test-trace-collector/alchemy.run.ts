@@ -1,6 +1,7 @@
 import * as Alchemy from "alchemy";
 import * as Cloudflare from "alchemy/Cloudflare";
-import { Effect } from "effect";
+import { Effect, Option } from "effect";
+import { TestTraceCollectorAccessDeployment } from "./src/test-trace-collector-access.ts";
 import testTraceCollectorWorkerLayer, {
   TestTraceCollectorWorker,
 } from "./src/test-trace-collector-worker.ts";
@@ -14,6 +15,14 @@ export default Alchemy.Stack(
   },
   Effect.gen(function* () {
     const collector = yield* TestTraceCollectorWorker;
-    return { url: collector.url };
+    const access = yield* TestTraceCollectorAccessDeployment;
+
+    return Option.match(access, {
+      onNone: () => ({ url: collector.url }),
+      onSome: (application) => ({
+        url: collector.url,
+        accessAudience: application.aud,
+      }),
+    });
   }).pipe(Effect.provide(testTraceCollectorWorkerLayer)),
 );

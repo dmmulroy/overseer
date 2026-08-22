@@ -242,6 +242,9 @@ importers:
       '@effect/sql-sqlite-do':
         specifier: 4.0.0-beta.107
         version: 4.0.0-beta.107(effect@4.0.0-beta.107)
+      '@overseer/shared-infrastructure':
+        specifier: workspace:*
+        version: link:../../packages/shared-infrastructure
       effect:
         specifier: 4.0.0-beta.107
         version: 4.0.0-beta.107
@@ -273,6 +276,9 @@ importers:
       '@effect/sql-sqlite-do':
         specifier: 4.0.0-beta.107
         version: 4.0.0-beta.107(effect@4.0.0-beta.107)
+      '@overseer/shared-infrastructure':
+        specifier: workspace:*
+        version: link:../../packages/shared-infrastructure
       effect:
         specifier: 4.0.0-beta.107
         version: 4.0.0-beta.107
@@ -280,6 +286,9 @@ importers:
       '@cloudflare/workers-types':
         specifier: 5.20260812.1
         version: 5.20260812.1
+      '@effect/platform-node':
+        specifier: 4.0.0-beta.107
+        version: 4.0.0-beta.107(effect@4.0.0-beta.107)(ioredis@5.11.1)
       '@effect/sql-sqlite-node':
         specifier: 4.0.0-beta.107
         version: 4.0.0-beta.107(effect@4.0.0-beta.107)
@@ -295,6 +304,25 @@ importers:
       typescript:
         specifier: 7.0.2
         version: 7.0.2
+      vite-plus:
+        specifier: 0.2.9
+        version: 0.2.9(@types/node@26.2.0)(@voidzero-dev/vite-plus-core@0.2.9(@types/node@26.2.0)(typescript@7.0.2)(yaml@2.9.0))(typescript@7.0.2)(yaml@2.9.0)
+
+  packages/shared-infrastructure:
+    dependencies:
+      alchemy:
+        specifier: 2.0.0-beta.72
+        version: 2.0.0-beta.72(@effect/platform-node@4.0.0-beta.107(effect@4.0.0-beta.107)(ioredis@5.11.1))(@vercel/nft@1.10.2)(@voidzero-dev/vite-plus-core@0.2.9(@types/node@26.2.0)(typescript@7.0.2)(yaml@2.9.0))(effect@4.0.0-beta.107)(mongodb@6.21.0(@aws-sdk/credential-providers@3.1107.0)(socks@2.8.9))(mysql2@3.23.2(@types/node@26.2.0))(pg@8.22.0)(typescript@7.0.2)(vitest@4.1.10)(ws@8.21.3)
+      effect:
+        specifier: 4.0.0-beta.107
+        version: 4.0.0-beta.107
+    devDependencies:
+      typescript:
+        specifier: 7.0.2
+        version: 7.0.2
+      vite-plus:
+        specifier: 0.2.9
+        version: 0.2.9(@types/node@26.2.0)(@voidzero-dev/vite-plus-core@0.2.9(@types/node@26.2.0)(typescript@7.0.2)(yaml@2.9.0))(typescript@7.0.2)(yaml@2.9.0)
 
 packages:
 

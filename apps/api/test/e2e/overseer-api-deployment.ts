@@ -1,6 +1,6 @@
 import { Resolver } from "node:dns/promises";
 import * as Test from "alchemy/Test/Vitest";
-import { Data, Effect, flow, Redacted, Schedule, Schema } from "effect";
+import { Data, Effect, flow, Option, Redacted, Schedule, Schema } from "effect";
 import { HttpClient, HttpClientRequest } from "effect/unstable/http";
 import { isHttpClientError } from "effect/unstable/http/HttpClientError";
 import { AgentId } from "../../src/domain/actor.ts";
@@ -38,8 +38,14 @@ const LocalOverseerApiStackOutput = Schema.Struct({
 const DeployedOverseerApiStackOutput = Schema.Struct({
   url: Schema.URLFromString,
   agentClientId: AgentId,
-  agentClientSecret: Schema.Redacted(Schema.NonEmptyString),
+  agentClientSecret: Schema.UndefinedOr(Schema.Redacted(Schema.NonEmptyString)),
 });
+
+/** Failure to recover the Access service-token secret required by a deployed E2E client. */
+class OverseerApiAccessSecretUnavailable extends Schema.TaggedError<OverseerApiAccessSecretUnavailable>()(
+  "OverseerApiAccessSecretUnavailable",
+  { message: Schema.String },
+) {}
 
 const parseLocalOverseerApiStackOutput = Schema.decodeUnknownEffect(LocalOverseerApiStackOutput);
 const parseDeployedOverseerApiStackOutput = Schema.decodeUnknownEffect(
@@ -58,22 +64,32 @@ const parseLocalOverseerApiDeployment = flow(
 
 const parseDeployedOverseerApiDeployment = flow(
   parseDeployedOverseerApiStackOutput,
-  Effect.map((output) =>
-    OverseerApiDeployment.make({
-      target: "deployed",
-      url: output.url,
-      access: {
-        clientId: output.agentClientId,
-        clientSecret: output.agentClientSecret,
-      },
+  Effect.flatMap((output) =>
+    Option.match(Option.fromUndefinedOr(output.agentClientSecret), {
+      onNone: () =>
+        Effect.fail(
+          new OverseerApiAccessSecretUnavailable({
+            message:
+              "Overseer API Access service-token secret is unavailable. Rotate the service token before running deployed end-to-end tests.",
+          }),
+        ),
+      onSome: (clientSecret) =>
+        Effect.succeed(
+          OverseerApiDeployment.make({
+            target: "deployed",
+            url: output.url,
+            access: {
+              clientId: output.agentClientId,
+              clientSecret,
+            },
+          }),
+        ),
     }),
   ),
 );
 
 /** Selects the Stack-output parser for the configured local or deployed target. */
-export const parseOverseerApiDeployment = (
-  target: OverseerTestTarget,
-): typeof parseLocalOverseerApiDeployment =>
+export const parseOverseerApiDeployment = (target: OverseerTestTarget) =>
   target === "local" ? parseLocalOverseerApiDeployment : parseDeployedOverseerApiDeployment;
 
 class OverseerApiDnsNotReady extends Data.TaggedError("OverseerApiDnsNotReady")<{

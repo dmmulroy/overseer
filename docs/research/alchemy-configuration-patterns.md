@@ -2,6 +2,8 @@
 
 _Research snapshot: Overseer pins `alchemy@2.0.0-beta.67`. The checked-in Alchemy source and installed `node_modules/alchemy` implementation are byte-for-byte identical for the relevant runtime and test-harness files. I also compared current upstream `main` at [`f6ad48d`](https://github.com/alchemy-run/alchemy/commit/f6ad48d1ed2fc64aa7fa0614595398df35efeea8) (`2.0.0-beta.70`); the configuration model described here has not materially changed._
 
+> **Implementation update:** `OVERSEER_OWNER_EMAIL` is no longer an API deployment input. The independently deployed `@overseer/shared-infrastructure` Stack reads the replacement `OVERSEER_ACCESS_ALLOWED_EMAIL`, owns the reusable single-address email-allowlist Access policy, and lets application Stacks reference that policy. The discussion below remains a historical analysis of the earlier app-owned policy failure.
+
 ## Direct answers
 
 1. **Alchemy does not recommend a centralized application-config service.** Its documented default is to use `effect/Config` directly where a deploy-time value is consumed, especially in a Function's outer Init Effect. Alchemy documents `Context.Service` and `Layer` for application capabilities and infrastructure-bearing implementations, but neither the config docs nor representative examples introduce one global config service ([Secrets & Config](../../repos/alchemy/website/src/content/docs/environments/secrets.mdx), [Layers](../../repos/alchemy/website/src/content/docs/infrastructure-as-effects/layers.mdx), [Functions & Servers](../../repos/alchemy/website/src/content/docs/infrastructure-as-effects/functions-and-servers.mdx)).

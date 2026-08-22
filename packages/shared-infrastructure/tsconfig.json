@@ -1,0 +1,9 @@
+{
+  "extends": "../../tsconfig.json",
+  "compilerOptions": {
+    "lib": ["ES2024"],
+    "module": "ESNext",
+    "moduleResolution": "Bundler"
+  },
+  "include": ["alchemy.run.ts", "src", "vite.config.ts"]
+}

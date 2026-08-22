@@ -31,12 +31,13 @@ Feature suites consume the same `OverseerApiClient` service for both targets. Ta
 
 Every deployed test invocation:
 
-1. Generates a unique DNS-safe Alchemy stage such as `test-<user>-<timestamp>-<entropy>`.
-2. Deploys a fresh `OverseerApi` Stack through the real providers.
-3. Waits for the Access-protected API Worker and Workspace Durable Object to become ready.
-4. Runs the registered feature tests.
-5. Destroys the Stack and its test data through the Vitest lifecycle hook.
-6. Runs outer fallback cleanup only if the deployed test process fails or is interrupted.
+1. Reconciles the independently managed production shared-infrastructure Stack that owns the reusable human Access policy, using `OVERSEER_ACCESS_ALLOWED_EMAIL` as its single allowlisted address.
+2. Generates a unique DNS-safe Alchemy stage such as `test-<user>-<timestamp>-<entropy>`.
+3. Deploys a fresh `OverseerApi` Stack through the real providers and references that shared policy without transferring ownership.
+4. Waits for the Access-protected API Worker and Workspace Durable Object to become ready.
+5. Runs the registered feature tests.
+6. Destroys the Stack and its test data through the Vitest lifecycle hook.
+7. Runs outer fallback cleanup only if the deployed test process fails or is interrupted.
 
 Assume provisioning test infrastructure is cheap, fast, and free. Cost is not a reason to reuse infrastructure, skip a deployed provider boundary, or replace deployed-stack coverage with a local runtime.
 
@@ -202,7 +203,9 @@ pnpm test                 # unit tests, then real Cloudflare acceptance
 pnpm test:unit            # unit tests only
 pnpm test:e2e:local       # fast workerd end-to-end feedback
 pnpm test:e2e             # real Cloudflare acceptance
-pnpm test:e2e:deployed    # explicit alias for real Cloudflare acceptance
+pnpm test:e2e:deployed    # explicit alias for real Cloudflare API acceptance
+pnpm test:e2e:test-trace-collector       # temporary Preview collector and Access acceptance
+pnpm test:e2e:test-trace-collector:local # local collector without Access
 ```
 
 `pnpm test` is the complete suite. `test:e2e` runs without task caching so every invocation deploys and verifies a fresh Stack. `test:unit` is an explicit narrower choice and must not be described as equivalent confidence.

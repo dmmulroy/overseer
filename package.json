@@ -9,12 +9,22 @@
   "type": "module",
   "scripts": {
     "check": "vp check && pnpm test:unit",
+    "deploy:api": "vp run @overseer/api#deploy:production",
+    "deploy:shared-infrastructure": "vp run @overseer/shared-infrastructure#deploy:production",
+    "deploy:test-trace-collector": "vp run @overseer/test-trace-collector#deploy:production",
+    "destroy:production:api": "vp run @overseer/api#destroy:production",
+    "destroy:production:shared-infrastructure": "vp run @overseer/shared-infrastructure#destroy:production",
+    "destroy:production:test-trace-collector": "vp run @overseer/test-trace-collector#destroy:production",
+    "plan:shared-infrastructure": "vp run @overseer/shared-infrastructure#plan:production",
+    "plan:test-trace-collector": "vp run @overseer/test-trace-collector#plan:production",
     "ready": "vp run check",
     "test": "pnpm test:unit && pnpm test:e2e",
-    "test:e2e": "vp run --no-cache @overseer/api#test:e2e",
+    "test:e2e": "vp run --no-cache @overseer/api#test:e2e:deployed",
     "test:e2e:deployed": "vp run --no-cache @overseer/api#test:e2e:deployed",
     "test:e2e:local": "vp run --no-cache @overseer/api#test:e2e:local",
-    "test:unit": "vp test run tools/oxlint && vp run @overseer/api#test:unit"
+    "test:e2e:test-trace-collector": "vp run --no-cache @overseer/test-trace-collector#test:e2e:preview",
+    "test:e2e:test-trace-collector:local": "vp run --no-cache @overseer/test-trace-collector#test:e2e:local",
+    "test:unit": "vp test run tools/oxlint && vp run @overseer/api#test:unit && vp run @overseer/test-trace-collector#test:unit"
   },
   "devDependencies": {
     "@effect/platform-node": "4.0.0-beta.107",

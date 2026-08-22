@@ -7,6 +7,7 @@ import {
   testRunTraceClientLayer,
 } from "./test-run-traces/test-run-trace-client.ts";
 import type { TestRunTraceServer } from "./test-run-traces/test-run-trace-server.ts";
+import { resolveTestTraceCollectorDeploymentTarget } from "./test-trace-collector-deployment-target.ts";
 import { TraceCollectorHttpApi } from "./trace-collector-http-api.ts";
 import { traceCollectorHttpHandlersLayer } from "./trace-collector-http-handlers.ts";
 import { traceCollectorHttpServerLayer } from "./trace-collector-http-server-layer.ts";
@@ -20,13 +21,24 @@ export class TestTraceCollectorWorker extends Cloudflare.Worker<
 
 /** Provides the independently deployed test trace collector Worker and Durable Objects. */
 const testTraceCollectorWorkerLayer = TestTraceCollectorWorker.make(
-  Effect.succeed({
-    main: import.meta.url,
-    dev: {
-      port: 8790,
-      strictPort: true,
-    },
-    workersDev: true,
+  Effect.gen(function* () {
+    const deploymentTarget = yield* resolveTestTraceCollectorDeploymentTarget;
+    const commonProps = {
+      main: import.meta.url,
+      dev: {
+        port: 8790,
+        strictPort: true,
+      },
+      workersDev: deploymentTarget.workersDev,
+    } as const;
+
+    return deploymentTarget._tag === "Production"
+      ? {
+          ...commonProps,
+          domain: { name: deploymentTarget.domain },
+          name: deploymentTarget.workerName,
+        }
+      : commonProps;
   }),
   Effect.gen(function* () {
     const testRunTraceClient = yield* TestRunTraceClient;

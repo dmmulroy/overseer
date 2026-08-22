@@ -1,3 +1,7 @@
+import {
+  OverseerEmailAllowlistAccessPolicyReference,
+  OverseerEmailOneTimePinIdentityProviderLookup,
+} from "@overseer/shared-infrastructure";
 import { ALCHEMY_DEV } from "alchemy";
 import * as Cloudflare from "alchemy/Cloudflare";
 import { Config, Effect, Option } from "effect";
@@ -8,14 +12,10 @@ export const OverseerApiAgentAccessToken = Cloudflare.Access.ServiceToken("Overs
   duration: "2160h",
 });
 
-const makeOverseerApiAccessApplication = Effect.fn(function* (ownerEmail: string) {
+const makeOverseerApiAccessApplication = Effect.fn(function* () {
   const hostname = yield* OverseerApiHostname;
   const agentToken = yield* OverseerApiAgentAccessToken;
-
-  const humanPolicy = yield* Cloudflare.Access.Policy("OverseerApiHumanAccess", {
-    decision: "allow",
-    include: [{ email: { email: ownerEmail } }],
-  });
+  const humanPolicy = yield* OverseerEmailAllowlistAccessPolicyReference;
 
   const agentPolicy = yield* Cloudflare.Access.Policy("OverseerApiAgentAccess", {
     decision: "non_identity",
@@ -24,6 +24,7 @@ const makeOverseerApiAccessApplication = Effect.fn(function* (ownerEmail: string
 
   return yield* Cloudflare.Access.Application("OverseerApiAccess", {
     type: "self_hosted",
+    allowedIdps: [OverseerEmailOneTimePinIdentityProviderLookup.identityProviderId.as<string>()],
     domain: hostname,
     policies: [humanPolicy.policyId, agentPolicy.policyId],
     sessionDuration: "168h",
@@ -37,10 +38,9 @@ export const OverseerApiAccessDeployment = Effect.gen(function* () {
   }
 
   // Read all deploy configuration before provisioning any Cloudflare resource.
-  const ownerEmail = yield* Config.string("OVERSEER_OWNER_EMAIL");
   const accessTeamDomain = yield* Config.string("CLOUDFLARE_ACCESS_TEAM_DOMAIN");
   const agentToken = yield* OverseerApiAgentAccessToken;
-  const application = yield* makeOverseerApiAccessApplication(ownerEmail);
+  const application = yield* makeOverseerApiAccessApplication();
 
   return Option.some({ accessTeamDomain, agentToken, application });
 });

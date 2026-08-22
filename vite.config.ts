@@ -32,17 +32,19 @@ export default defineConfig({
     options: { typeAware: true, typeCheck: true },
   },
   run: {
-    cache: true,
+    cache: {
+      scripts: false,
+      tasks: true,
+    },
     tasks: {
       "generate:openapi": {
         command: ["node apps/api/scripts/generate-openapi.ts", "vp fmt apps/api/openapi.json"],
         output: ["apps/api/openapi.json"],
       },
       "sync:yaak": {
+        cache: false,
         command: "node apps/api/scripts/sync-yaak-openapi.ts",
         dependsOn: ["generate:openapi"],
-        input: ["apps/api/openapi.json", "apps/api/scripts/sync-yaak-openapi.ts"],
-        output: [],
       },
     },
   },
