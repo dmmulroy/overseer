@@ -56,3 +56,41 @@ it.effect("parses Effect OTLP trace data and restores an omitted root parent", (
     );
   }),
 );
+
+it.effect("rejects OTLP spans whose trace identity cannot be retrieved", () =>
+  Effect.gen(function* () {
+    const result = yield* Effect.result(
+      parseOtlpTraceData({
+        resourceSpans: [
+          {
+            resource: { attributes: [], droppedAttributesCount: 0 },
+            scopeSpans: [
+              {
+                scope: { name: "invalid-trace-test" },
+                spans: [
+                  {
+                    traceId: "not-a-trace-id",
+                    spanId: "0123456789abcdef",
+                    name: "invalid trace",
+                    kind: 1,
+                    startTimeUnixNano: "1000000",
+                    endTimeUnixNano: "2000000",
+                    attributes: [],
+                    droppedAttributesCount: 0,
+                    events: [],
+                    droppedEventsCount: 0,
+                    status: { code: 1 },
+                    links: [],
+                    droppedLinksCount: 0,
+                  },
+                ],
+              },
+            ],
+          },
+        ],
+      }),
+    );
+
+    assert.strictEqual(result._tag, "Failure");
+  }),
+);

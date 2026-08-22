@@ -1,5 +1,6 @@
 import { Effect, Schema } from "effect";
 import type { OtlpResource, OtlpTracer } from "effect/unstable/observability";
+import { TestSpanId, TestTraceId } from "./test-trace-identity.ts";
 
 const OtlpAnyValue: Schema.Codec<OtlpResource.AnyValue> = Schema.suspend(() =>
   Schema.Struct({
@@ -35,8 +36,8 @@ const OtlpEvent = Schema.Struct({
 
 const OtlpLink = Schema.Struct({
   attributes: Schema.mutable(Schema.Array(OtlpKeyValue)),
-  spanId: Schema.String,
-  traceId: Schema.String,
+  spanId: TestSpanId,
+  traceId: TestTraceId,
   droppedAttributesCount: Schema.Number,
 });
 
@@ -46,9 +47,9 @@ const OtlpStatus = Schema.Struct({
 });
 
 const OtlpSpan = Schema.Struct({
-  traceId: Schema.String,
-  spanId: Schema.String,
-  parentSpanId: Schema.UndefinedOr(Schema.String).pipe(
+  traceId: TestTraceId,
+  spanId: TestSpanId,
+  parentSpanId: Schema.UndefinedOr(TestSpanId).pipe(
     Schema.withDecodingDefaultKey(Effect.succeed(undefined), { encodingStrategy: "omit" }),
   ),
   name: Schema.String,
@@ -83,6 +84,9 @@ const OtlpResourceSpan = Schema.Struct({
 export const OtlpTraceData = Schema.Struct({
   resourceSpans: Schema.mutable(Schema.Array(OtlpResourceSpan)),
 }) satisfies Schema.Schema<OtlpTracer.TraceData>;
+
+/** Parsed Effect OTLP trace data whose trace and span identities are retrievable. */
+export type OtlpTraceData = typeof OtlpTraceData.Type;
 
 /** Parse an untrusted OTLP JSON value into Effect's trace data model. */
 export const parseOtlpTraceData = Schema.decodeUnknownEffect(OtlpTraceData);

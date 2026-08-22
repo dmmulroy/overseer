@@ -1,8 +1,9 @@
 import * as Cloudflare from "alchemy/Cloudflare";
 import { makeExecutionMemo } from "alchemy/Runtime/ExecutionMemo";
-import { Cache, Context, Effect, Layer } from "effect";
-import type { OtlpTracer } from "effect/unstable/observability";
+import { Cache, Context, Effect, Layer, Option } from "effect";
 import { HttpApiClient } from "effect/unstable/httpapi";
+import type { OtlpTraceData } from "../otlp-trace-data.ts";
+import { TestTraceCollectorUnavailableError } from "../test-trace-error.ts";
 import type { TestRunId, TestTraceId } from "../test-trace-identity.ts";
 import { TestRunTraceHttpApi } from "./test-run-trace-http-api.ts";
 import testRunTraceServerLayer, { TestRunTraceServer } from "./test-run-trace-server.ts";
@@ -12,13 +13,13 @@ export interface ITestRunTraceClient {
   /** Forward one parsed OTLP export to the Durable Object selected by test-run identity. */
   readonly ingestOtlpTraces: (
     testRunId: TestRunId,
-    traceData: OtlpTracer.TraceData,
-  ) => Effect.Effect<void>;
-  /** Retrieve one retained trace from the Durable Object selected by test-run identity. */
-  readonly getTestTrace: (
+    traceData: OtlpTraceData,
+  ) => Effect.Effect<void, TestTraceCollectorUnavailableError>;
+  /** Find one retained trace in the Durable Object selected by test-run identity. */
+  readonly findTestTrace: (
     testRunId: TestRunId,
     traceId: TestTraceId,
-  ) => Effect.Effect<OtlpTracer.TraceData>;
+  ) => Effect.Effect<Option.Option<OtlpTraceData>, TestTraceCollectorUnavailableError>;
 }
 
 type TestRunTraceHttpClient = HttpApiClient.ForApi<typeof TestRunTraceHttpApi>;
@@ -54,12 +55,34 @@ export const makeTestRunTraceClient: Effect.Effect<
     ingestOtlpTraces: Effect.fn("TestRunTraceClient.ingestOtlpTraces")(
       function* (testRunId, traceData) {
         const client = yield* testRunTraceHttpClient(testRunId);
-        yield* client.testRunTrace.ingestOtlpTraces({ payload: traceData }).pipe(Effect.orDie);
+        yield* client.testRunTrace.ingestOtlpTraces({ payload: traceData }).pipe(
+          Effect.mapError(
+            () =>
+              new TestTraceCollectorUnavailableError({
+                code: "test_trace_collector_unavailable",
+                message: `Test trace collector failed to ingest telemetry for test run ${testRunId}. Retry the export.`,
+                operation: "ingestOtlpTraces",
+                testRunId,
+                retryable: true,
+              }),
+          ),
+        );
       },
     ),
-    getTestTrace: Effect.fn("TestRunTraceClient.getTestTrace")(function* (testRunId, traceId) {
+    findTestTrace: Effect.fn("TestRunTraceClient.findTestTrace")(function* (testRunId, traceId) {
       const client = yield* testRunTraceHttpClient(testRunId);
-      return yield* client.testRunTrace.getTestTrace({ params: { traceId } }).pipe(Effect.orDie);
+      return yield* client.testRunTrace.findTestTrace({ params: { traceId } }).pipe(
+        Effect.mapError(
+          () =>
+            new TestTraceCollectorUnavailableError({
+              code: "test_trace_collector_unavailable",
+              message: `Test trace collector failed to read telemetry for test run ${testRunId}. Retry the lookup.`,
+              operation: "findTestTrace",
+              testRunId,
+              retryable: true,
+            }),
+        ),
+      );
     }),
   });
 });

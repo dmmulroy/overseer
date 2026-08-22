@@ -12,7 +12,11 @@ export const testRunTraceHttpHandlersLayer = HttpApiBuilder.group(
       const database = yield* TestRunTraceDatabase;
 
       return handlers
-        .handle("ingestOtlpTraces", ({ payload }) => database.ingestOtlpTraces(payload))
-        .handle("getTestTrace", ({ params }) => database.getTestTrace(params.traceId));
+        .handle("ingestOtlpTraces", ({ payload }) =>
+          database.ingestOtlpTraces(payload).pipe(Effect.orDie),
+        )
+        .handle("findTestTrace", ({ params }) =>
+          database.findTestTrace(params.traceId).pipe(Effect.orDie),
+        );
     }),
 );

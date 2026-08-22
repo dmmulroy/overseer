@@ -10,15 +10,15 @@ const ingestOtlpTracesEndpoint = HttpApiEndpoint.post("ingestOtlpTraces", "/trac
   success: Schema.Void,
 });
 
-const getTestTraceEndpoint = HttpApiEndpoint.get("getTestTrace", "/traces/:traceId", {
+const findTestTraceEndpoint = HttpApiEndpoint.get("findTestTrace", "/traces/:traceId", {
   params: TestTraceParams,
-  success: OtlpTraceData,
+  success: Schema.OptionFromNullOr(OtlpTraceData),
 });
 
 /** Versioned internal HTTP endpoints served by one test-run trace Durable Object. */
 export class TestRunTraceHttpApiGroup extends HttpApiGroup.make("testRunTrace")
   .add(ingestOtlpTracesEndpoint)
-  .add(getTestTraceEndpoint) {}
+  .add(findTestTraceEndpoint) {}
 
 /** Shared HTTP contract used by the test-run trace Durable Object server and client. */
 export class TestRunTraceHttpApi extends HttpApi.make("TestRunTraceHttpApi")

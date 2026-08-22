@@ -8,8 +8,8 @@
     "deploy": "alchemy deploy --stage production",
     "destroy:production": "alchemy destroy --stage production",
     "dev": "alchemy dev --stage local",
-    "test": "vp test run src --passWithNoTests",
-    "test:unit": "vp test run src --passWithNoTests"
+    "test": "vp test run src",
+    "test:unit": "vp test run src"
   },
   "dependencies": {
     "@effect/sql-sqlite-do": "4.0.0-beta.107",
@@ -17,6 +17,7 @@
   },
   "devDependencies": {
     "@cloudflare/workers-types": "5.20260812.1",
+    "@effect/sql-sqlite-node": "4.0.0-beta.107",
     "@effect/vitest": "4.0.0-beta.107",
     "@types/node": "26.2.0",
     "alchemy": "2.0.0-beta.72",

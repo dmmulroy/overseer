@@ -1,6 +1,7 @@
 import { Schema } from "effect";
 import { HttpApi, HttpApiEndpoint, HttpApiGroup } from "effect/unstable/httpapi";
 import { OtlpTraceData } from "./otlp-trace-data.ts";
+import { TestTraceCollectorUnavailableError, TestTraceNotFoundError } from "./test-trace-error.ts";
 import { TestRunId, TestTraceId } from "./test-trace-identity.ts";
 
 const TestRunParams = Schema.Struct({ testRunId: TestRunId });
@@ -13,6 +14,7 @@ const ingestOtlpTracesEndpoint = HttpApiEndpoint.post(
     params: TestRunParams,
     payload: OtlpTraceData,
     success: Schema.Void,
+    error: TestTraceCollectorUnavailableError,
   },
 );
 
@@ -22,6 +24,7 @@ const getTestTraceEndpoint = HttpApiEndpoint.get(
   {
     params: TestTraceParams,
     success: OtlpTraceData,
+    error: [TestTraceNotFoundError, TestTraceCollectorUnavailableError],
   },
 );
 
