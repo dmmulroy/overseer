@@ -1,7 +1,10 @@
 import { Schema } from "effect";
 import { HttpApi, HttpApiEndpoint, HttpApiGroup } from "effect/unstable/httpapi";
 import { OtlpTraceData } from "./otlp-trace-data.ts";
-import { TestTraceCollectorUnavailableError, TestTraceNotFoundError } from "./test-trace-error.ts";
+import {
+  TestTraceCollectorUnavailableError,
+  TestTraceNotFoundError,
+} from "./test-trace-collector-error.ts";
 import { TestRunId, TestTraceId } from "./test-trace-identity.ts";
 
 const TestRunParams = Schema.Struct({ testRunId: TestRunId });

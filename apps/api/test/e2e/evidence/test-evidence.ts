@@ -1,5 +1,6 @@
 import { readFile } from "node:fs/promises";
 import { extname } from "node:path";
+import type { TestRunId } from "@overseer/test-trace-protocol";
 import { Context, DateTime, Effect, Layer, Schema } from "effect";
 import {
   TestArtifactRef,
@@ -8,7 +9,7 @@ import {
 } from "./test-artifact.ts";
 import { TestEvidenceRecorder } from "./test-evidence-recorder.ts";
 import { encodeTestEvidenceJson } from "./test-evidence-json.ts";
-import type { TestExecutionId, TestRunId } from "./test-evidence-identity.ts";
+import type { TestExecutionId } from "./test-evidence-identity.ts";
 import { TestRunStorage } from "./test-run-storage.ts";
 
 /** Path or in-memory bytes copied into evidence storage. */

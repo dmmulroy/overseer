@@ -1,8 +1,9 @@
 import { assert, describe, it } from "@effect/vitest";
+import { TestRunId } from "@overseer/test-trace-protocol";
 import { Effect, Layer, Option } from "effect";
 import { TestEvidence, testEvidenceLayerWithoutDependencies } from "./test-evidence.ts";
 import { TestEvidenceRecorder, testEvidenceRecorderLayer } from "./test-evidence-recorder.ts";
-import { TestExecutionId, TestRunId } from "./test-evidence-identity.ts";
+import { TestExecutionId } from "./test-evidence-identity.ts";
 import { TestRunStorage, testRunStorageMemoryLayer } from "./test-run-storage.ts";
 
 const runId = TestRunId.make("test-run_attachments");

@@ -1,7 +1,6 @@
+import { OtlpTraceData, TestTraceId } from "@overseer/test-trace-protocol";
 import { Schema } from "effect";
 import { HttpApi, HttpApiEndpoint, HttpApiGroup } from "effect/unstable/httpapi";
-import { OtlpTraceData } from "../otlp-trace-data.ts";
-import { TestTraceId } from "../test-trace-identity.ts";
 
 const TestTraceParams = Schema.Struct({ traceId: TestTraceId });
 

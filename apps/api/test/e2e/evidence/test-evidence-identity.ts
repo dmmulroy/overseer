@@ -1,13 +1,5 @@
 import { Schema } from "effect";
 
-/** Identity of one end-to-end test command invocation. */
-export const TestRunId = Schema.String.check(Schema.isPattern(/^test-run_[A-Za-z0-9_-]+$/)).pipe(
-  Schema.brand("TestRunId"),
-);
-
-/** Identity shared by every persisted snapshot of one test run. */
-export type TestRunId = typeof TestRunId.Type;
-
 /** Deterministic identity of one test registered within a test run. */
 export const TestId = Schema.String.check(Schema.isPattern(/^test_[A-Za-z0-9_-]+$/)).pipe(
   Schema.brand("TestId"),

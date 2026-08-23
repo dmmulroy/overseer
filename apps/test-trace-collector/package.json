@@ -12,6 +12,7 @@
   "dependencies": {
     "@effect/sql-sqlite-do": "4.0.0-beta.107",
     "@overseer/shared-infrastructure": "workspace:*",
+    "@overseer/test-trace-protocol": "workspace:*",
     "effect": "4.0.0-beta.107"
   },
   "devDependencies": {

@@ -1,10 +1,13 @@
+import {
+  type OtlpTraceData,
+  type TestRunId,
+  TestTraceCollectorUnavailableError,
+  type TestTraceId,
+} from "@overseer/test-trace-protocol";
 import * as Cloudflare from "alchemy/Cloudflare";
 import { makeExecutionMemo } from "alchemy/Runtime/ExecutionMemo";
 import { Cache, Context, Effect, Layer, Option } from "effect";
 import { HttpApiClient } from "effect/unstable/httpapi";
-import type { OtlpTraceData } from "../otlp-trace-data.ts";
-import { TestTraceCollectorUnavailableError } from "../test-trace-error.ts";
-import type { TestRunId, TestTraceId } from "../test-trace-identity.ts";
 import { TestRunTraceHttpApi } from "./test-run-trace-http-api.ts";
 import testRunTraceServerLayer, { TestRunTraceServer } from "./test-run-trace-server.ts";
 

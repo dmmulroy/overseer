@@ -1,8 +1,9 @@
+import { TestRunId } from "@overseer/test-trace-protocol";
 import { Schema } from "effect";
 import { OverseerTestTarget, TestStage } from "../overseer-test-run.ts";
 import { TestArtifactRef } from "./test-artifact.ts";
 import { TestAssertionRecord } from "./test-assertion.ts";
-import { TestExecutionId, TestId, TestRunId } from "./test-evidence-identity.ts";
+import { TestExecutionId, TestId } from "./test-evidence-identity.ts";
 
 /** Lifecycle status of a complete end-to-end test run. */
 export const TestRunStatus = Schema.Literals([

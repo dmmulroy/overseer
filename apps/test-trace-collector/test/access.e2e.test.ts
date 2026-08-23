@@ -1,13 +1,13 @@
 import { OverseerSharedInfrastructureStack } from "@overseer/shared-infrastructure";
+import { parseOtlpTraceData, TestRunId, TestTraceId } from "@overseer/test-trace-protocol";
 import { assert, describe } from "@effect/vitest";
 import * as Alchemy from "alchemy";
 import * as Cloudflare from "alchemy/Cloudflare";
 import * as Test from "alchemy/Test/Vitest";
-import { Config, Effect, Option, Redacted, Schema } from "effect";
+import { Config, Effect, Layer, Option, Redacted, Schema } from "effect";
 import { HttpClientRequest } from "effect/unstable/http";
+import { OtlpExporter, OtlpSerialization, OtlpTracer } from "effect/unstable/observability";
 import TestTraceCollectorStack from "../alchemy.run.ts";
-import { parseOtlpTraceData } from "../src/otlp-trace-data.ts";
-import { TestRunId, TestTraceId } from "../src/test-trace-identity.ts";
 
 const TestTraceCollectorLocalDeployment = Schema.Struct({
   url: Schema.URLFromString,
@@ -65,39 +65,9 @@ const TestTraceCollectorAccessCredentialsStack = Alchemy.Stack(
   }),
 );
 
-const traceId = TestTraceId.make("0123456789abcdef0123456789abcdef");
-const traceData = {
-  resourceSpans: [
-    {
-      resource: {
-        attributes: [{ key: "service.name", value: { stringValue: "collector-access-e2e" } }],
-        droppedAttributesCount: 0,
-      },
-      scopeSpans: [
-        {
-          scope: { name: "collector-access-e2e" },
-          spans: [
-            {
-              traceId,
-              spanId: "0123456789abcdef",
-              name: "collector access acceptance",
-              kind: 1,
-              startTimeUnixNano: "1000000",
-              endTimeUnixNano: "2000000",
-              attributes: [],
-              droppedAttributesCount: 0,
-              events: [],
-              droppedEventsCount: 0,
-              status: { code: 1 },
-              links: [],
-              droppedLinksCount: 0,
-            },
-          ],
-        },
-      ],
-    },
-  ],
-};
+const unavailableTraceId = TestTraceId.make("0123456789abcdef0123456789abcdef");
+const parseExportedTestTraceId = Schema.decodeUnknownEffect(TestTraceId);
+const collectorAcceptanceSpanName = "test trace collector accepts Effect OTLP exports";
 
 type TestTraceCollectorAuthenticatedAccessCredentials = {
   readonly clientId: string;
@@ -118,30 +88,51 @@ const withAccessCredentials =
 const verifyTestTraceRoundTrip = (
   deploymentUrl: URL,
   credentials: Option.Option<TestTraceCollectorAuthenticatedAccessCredentials>,
-) =>
-  Effect.gen(function* () {
-    const testRunId = TestRunId.make(`test-run_${testStage}`);
-    const traceUrl = new URL(`/v1/test-runs/${testRunId}/traces/${traceId}`, deploymentUrl).href;
-    const ingestionUrl = new URL(`/v1/test-runs/${testRunId}/traces`, deploymentUrl).href;
+) => {
+  const testRunId = TestRunId.make(`test-run_${testStage}`);
+  const ingestionUrl = new URL(`/v1/test-runs/${testRunId}/traces`, deploymentUrl).href;
+  const exporterHeaders = Option.match(credentials, {
+    onNone: () => undefined,
+    onSome: ({ clientId, clientSecret }) => ({
+      "CF-Access-Client-Id": clientId,
+      "CF-Access-Client-Secret": Redacted.value(clientSecret),
+    }),
+  });
+  const tracerLayer = OtlpTracer.layer({
+    url: ingestionUrl,
+    resource: { serviceName: "collector-access-e2e" },
+    headers: exporterHeaders,
+    exportInterval: "1 hour",
+  }).pipe(Layer.provide(OtlpSerialization.layerJson));
+
+  return Effect.gen(function* () {
+    const traceId = yield* Effect.currentSpan.pipe(
+      Effect.map((span) => span.traceId),
+      Effect.flatMap(parseExportedTestTraceId),
+      Effect.withSpan(collectorAcceptanceSpanName, { root: true }),
+    );
+    const flusher = yield* OtlpExporter.Flusher;
+    yield* flusher.flush;
+
     const authorize = Option.match(credentials, {
       onNone: () => (request: HttpClientRequest.HttpClientRequest) => request,
       onSome: withAccessCredentials,
     });
-    const ingestionRequest = yield* HttpClientRequest.post(ingestionUrl).pipe(
-      authorize,
-      HttpClientRequest.bodyJson(traceData),
-    );
-    const ingestionResponse = yield* Test.executeWhenReady(ingestionRequest, { times: 60 });
-    assert.strictEqual(ingestionResponse.status, 200);
-
+    const traceUrl = new URL(`/v1/test-runs/${testRunId}/traces/${traceId}`, deploymentUrl).href;
     const retrievalResponse = yield* Test.executeWhenReady(
       HttpClientRequest.get(traceUrl).pipe(authorize),
       { times: 60 },
     );
     assert.strictEqual(retrievalResponse.status, 200);
     const retrievedTrace = yield* retrievalResponse.json.pipe(Effect.flatMap(parseOtlpTraceData));
-    assert.strictEqual(retrievedTrace.resourceSpans[0]?.scopeSpans[0]?.spans[0]?.traceId, traceId);
-  });
+    const retrievedSpans = retrievedTrace.resourceSpans.flatMap((resourceSpan) =>
+      resourceSpan.scopeSpans.flatMap((scopeSpan) => scopeSpan.spans),
+    );
+    assert.strictEqual(retrievedSpans.length, 1);
+    assert.strictEqual(retrievedSpans[0]?.traceId, traceId);
+    assert.strictEqual(retrievedSpans[0]?.name, collectorAcceptanceSpanName);
+  }).pipe(Effect.provide(tracerLayer));
+};
 
 if (testTarget === "local") {
   describe("test trace collector Local access", () => {
@@ -220,7 +211,10 @@ if (testTarget === "local") {
         const deployed = yield* deployment;
         const credentials = yield* accessCredentials;
         const testRunId = TestRunId.make(`test-run_${testStage}`);
-        const traceUrl = new URL(`/v1/test-runs/${testRunId}/traces/${traceId}`, deployed.url).href;
+        const traceUrl = new URL(
+          `/v1/test-runs/${testRunId}/traces/${unavailableTraceId}`,
+          deployed.url,
+        ).href;
 
         const missingCredentialsResponse = yield* Test.executeWhenReady(
           HttpClientRequest.get(traceUrl),

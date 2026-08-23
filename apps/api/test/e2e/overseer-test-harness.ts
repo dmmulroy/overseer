@@ -1,3 +1,4 @@
+import { TestRunId } from "@overseer/test-trace-protocol";
 import * as Cloudflare from "alchemy/Cloudflare";
 import type { CompiledStack } from "alchemy/Stack";
 import * as Test from "alchemy/Test/Vitest";
@@ -7,7 +8,7 @@ import { type ITestAssert, TestAssert } from "./evidence/test-assert.ts";
 import { type ITestEvidence, TestEvidence } from "./evidence/test-evidence.ts";
 import { TestEvidenceRecorder } from "./evidence/test-evidence-recorder.ts";
 import { testExecutionEvidenceLayer } from "./evidence/test-execution-evidence.ts";
-import { TestExecutionId, TestId, TestRunId } from "./evidence/test-evidence-identity.ts";
+import { TestExecutionId, TestId } from "./evidence/test-evidence-identity.ts";
 import {
   deriveTestRunStatus,
   type FinishedTestExecutionStatus,

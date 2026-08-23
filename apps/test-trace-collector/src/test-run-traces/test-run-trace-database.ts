@@ -1,8 +1,11 @@
 import { SqliteMigrator } from "@effect/sql-sqlite-do";
+import {
+  OtlpTraceData,
+  type OtlpTraceData as OtlpTraceDataValue,
+  type TestTraceId,
+} from "@overseer/test-trace-protocol";
 import { Context, Effect, Layer, Option, Schema } from "effect";
 import { SqlClient, SqlError } from "effect/unstable/sql";
-import { OtlpTraceData, type OtlpTraceData as OtlpTraceDataValue } from "../otlp-trace-data.ts";
-import type { TestTraceId } from "../test-trace-identity.ts";
 
 /** Test-run trace persistence operations reported by the Durable Object database. */
 export const TestRunTraceDatabaseOperation = Schema.Literals(["ingestOtlpTraces", "findTestTrace"]);

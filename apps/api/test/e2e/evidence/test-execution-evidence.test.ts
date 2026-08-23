@@ -1,9 +1,10 @@
 import { assert, describe, it } from "@effect/vitest";
+import { TestRunId } from "@overseer/test-trace-protocol";
 import { Effect, Layer } from "effect";
 import { TestAssert } from "./test-assert.ts";
 import { TestEvidence } from "./test-evidence.ts";
 import { TestEvidenceRecorder } from "./test-evidence-recorder.ts";
-import { TestExecutionId, TestRunId } from "./test-evidence-identity.ts";
+import { TestExecutionId } from "./test-evidence-identity.ts";
 import { testExecutionEvidenceLayer } from "./test-execution-evidence.ts";
 import { testRunStorageMemoryLayer } from "./test-run-storage.ts";
 

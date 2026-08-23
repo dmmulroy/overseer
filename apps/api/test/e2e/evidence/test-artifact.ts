@@ -1,5 +1,6 @@
+import { TestRunId } from "@overseer/test-trace-protocol";
 import { Schema } from "effect";
-import { TestArtifactId, TestExecutionId, TestRunId } from "./test-evidence-identity.ts";
+import { TestArtifactId, TestExecutionId } from "./test-evidence-identity.ts";
 
 /** Evidence artifact categories rendered by the test-run viewer. */
 export const TestArtifactKind = Schema.Literals(["File", "Screenshot", "Video", "Text", "Json"]);

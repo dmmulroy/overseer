@@ -1,10 +1,11 @@
+import { TestRunId } from "@overseer/test-trace-protocol";
 import { Context, DateTime, Effect, Layer, Option, Schema } from "effect";
 import {
   type TestArtifact,
   type TestArtifactRef,
   type TestArtifactWrite,
 } from "./test-artifact.ts";
-import { TestArtifactId, TestRunId } from "./test-evidence-identity.ts";
+import { TestArtifactId } from "./test-evidence-identity.ts";
 import { TestRun, type TestRunStatus, type TestRun as TestRunValue } from "./test-run.ts";
 import type { OverseerTestTarget } from "../overseer-test-run.ts";
 

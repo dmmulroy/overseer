@@ -1,8 +1,7 @@
 import { SqliteClient } from "@effect/sql-sqlite-node";
 import { assert, it } from "@effect/vitest";
+import { type OtlpTraceData, TestSpanId, TestTraceId } from "@overseer/test-trace-protocol";
 import { Effect, Layer, Option } from "effect";
-import type { OtlpTraceData } from "../otlp-trace-data.ts";
-import { TestSpanId, TestTraceId } from "../test-trace-identity.ts";
 import {
   TestRunTraceDatabase,
   testRunTraceDatabaseLayerWithoutDependencies,

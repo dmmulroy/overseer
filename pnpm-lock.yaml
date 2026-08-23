@@ -245,6 +245,9 @@ importers:
       '@overseer/shared-infrastructure':
         specifier: workspace:*
         version: link:../../packages/shared-infrastructure
+      '@overseer/test-trace-protocol':
+        specifier: workspace:*
+        version: link:../../packages/test-trace-protocol
       effect:
         specifier: 4.0.0-beta.107
         version: 4.0.0-beta.107
@@ -279,6 +282,9 @@ importers:
       '@overseer/shared-infrastructure':
         specifier: workspace:*
         version: link:../../packages/shared-infrastructure
+      '@overseer/test-trace-protocol':
+        specifier: workspace:*
+        version: link:../../packages/test-trace-protocol
       effect:
         specifier: 4.0.0-beta.107
         version: 4.0.0-beta.107
@@ -317,6 +323,22 @@ importers:
         specifier: 4.0.0-beta.107
         version: 4.0.0-beta.107
     devDependencies:
+      typescript:
+        specifier: 7.0.2
+        version: 7.0.2
+      vite-plus:
+        specifier: 0.2.9
+        version: 0.2.9(@types/node@26.2.0)(@voidzero-dev/vite-plus-core@0.2.9(@types/node@26.2.0)(typescript@7.0.2)(yaml@2.9.0))(typescript@7.0.2)(yaml@2.9.0)
+
+  packages/test-trace-protocol:
+    dependencies:
+      effect:
+        specifier: 4.0.0-beta.107
+        version: 4.0.0-beta.107
+    devDependencies:
+      '@effect/vitest':
+        specifier: 4.0.0-beta.107
+        version: 4.0.0-beta.107(effect@4.0.0-beta.107)(vitest@4.1.10)
       typescript:
         specifier: 7.0.2
         version: 7.0.2

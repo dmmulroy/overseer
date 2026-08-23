@@ -1,3 +1,4 @@
+import { TraceCollectorHttpApi } from "@overseer/test-trace-protocol";
 import * as Cloudflare from "alchemy/Cloudflare";
 import { Effect, Layer } from "effect";
 import { HttpRouter } from "effect/unstable/http";
@@ -8,7 +9,6 @@ import {
 } from "./test-run-traces/test-run-trace-client.ts";
 import type { TestRunTraceServer } from "./test-run-traces/test-run-trace-server.ts";
 import { resolveTestTraceCollectorDeploymentTarget } from "./test-trace-collector-deployment-target.ts";
-import { TraceCollectorHttpApi } from "./trace-collector-http-api.ts";
 import { traceCollectorHttpHandlersLayer } from "./trace-collector-http-handlers.ts";
 import { traceCollectorHttpServerLayer } from "./trace-collector-http-server-layer.ts";
 

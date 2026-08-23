@@ -1,8 +1,7 @@
+import { TestTraceNotFoundError, TraceCollectorHttpApi } from "@overseer/test-trace-protocol";
 import { Effect, Option } from "effect";
 import { HttpApiBuilder } from "effect/unstable/httpapi";
 import { TestRunTraceClient } from "./test-run-traces/test-run-trace-client.ts";
-import { TestTraceNotFoundError } from "./test-trace-error.ts";
-import { TraceCollectorHttpApi } from "./trace-collector-http-api.ts";
 
 /** Public trace collector HTTP handlers that delegate to test-run Durable Objects. */
 export const traceCollectorHttpHandlersLayer = HttpApiBuilder.group(
