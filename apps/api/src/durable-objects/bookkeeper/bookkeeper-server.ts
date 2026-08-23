@@ -8,6 +8,7 @@ import {
   BookkeeperDatabase,
   bookkeeperDatabaseLayerWithoutDependencies,
 } from "./bookkeeper-database.ts";
+import { withOverseerHttpObservability } from "../../overseer-http-observability.ts";
 import { durableObjectBaseHttpServerLayer } from "../durable-object-base-http-server-layer.ts";
 import {
   BookkeeperHttpApi,
@@ -99,7 +100,9 @@ const bookkeeperServerLayer: Layer.Layer<BookkeeperServer, never, Cloudflare.Wor
           Layer.provide(durableObjectBaseHttpServerLayer),
         );
         const fetch = yield* HttpRouter.toHttpEffect(httpLayer);
-        return { fetch };
+        return {
+          fetch: withOverseerHttpObservability(fetch, "overseer-bookkeeper-durable-object"),
+        };
       }).pipe(Effect.orDie);
     }),
   );

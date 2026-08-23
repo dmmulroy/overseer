@@ -1,7 +1,9 @@
 import { SqliteMigrator } from "@effect/sql-sqlite-do";
 import {
-  OtlpTraceData,
+  encodeOtlpTraceDataJson,
   type OtlpTraceData as OtlpTraceDataValue,
+  parseOtlpTraceDataJson,
+  sanitizeOverseerOtlpHttpTraceData,
   type TestTraceId,
 } from "@overseer/test-trace-protocol";
 import { Context, Effect, Layer, Option, Schema } from "effect";
@@ -44,9 +46,6 @@ export class TestRunTraceDatabase extends Context.Service<
 const StoredTraceSpanRow = Schema.Struct({ trace_data_json: Schema.String });
 type EncodedStoredTraceSpanRow = typeof StoredTraceSpanRow.Encoded;
 const parseStoredTraceSpanRows = Schema.decodeUnknownEffect(Schema.Array(StoredTraceSpanRow));
-const StoredTraceDataJson = Schema.fromJsonString(OtlpTraceData);
-const parseStoredTraceDataJson = Schema.decodeUnknownEffect(StoredTraceDataJson);
-const encodeStoredTraceDataJson = Schema.encodeEffect(StoredTraceDataJson);
 
 const initialTestRunTraceMigration = Effect.gen(function* () {
   const sql = yield* SqlClient.SqlClient;
@@ -81,21 +80,38 @@ const singleSpanTraceData = (
   resourceSpan: OtlpResourceSpanValue,
   scopeSpan: OtlpScopeSpanValue,
   span: OtlpSpanValue,
-): OtlpTraceDataValue => ({
-  resourceSpans: [
-    {
-      resource: resourceSpan.resource,
-      scopeSpans: [
-        {
-          scope: scopeSpan.scope,
-          spans: [span],
-          schemaUrl: scopeSpan.schemaUrl,
-        },
-      ],
-      schemaUrl: resourceSpan.schemaUrl,
-    },
-  ],
-});
+): OtlpTraceDataValue => {
+  const spanServiceName = span.attributes.find((attribute) => attribute.key === "service.name")
+    ?.value.stringValue;
+  const resource =
+    spanServiceName === undefined || spanServiceName === null
+      ? resourceSpan.resource
+      : {
+          ...resourceSpan.resource,
+          attributes: [
+            ...resourceSpan.resource.attributes.filter(
+              (attribute) => attribute.key !== "service.name",
+            ),
+            { key: "service.name", value: { stringValue: spanServiceName } },
+          ],
+        };
+
+  return {
+    resourceSpans: [
+      {
+        resource,
+        scopeSpans: [
+          {
+            scope: scopeSpan.scope,
+            spans: [span],
+            schemaUrl: scopeSpan.schemaUrl,
+          },
+        ],
+        schemaUrl: resourceSpan.schemaUrl,
+      },
+    ],
+  };
+};
 
 /** Constructs Durable Object SQLite persistence after bundled migrations complete. */
 export const makeTestRunTraceDatabase: Effect.Effect<
@@ -111,14 +127,15 @@ export const makeTestRunTraceDatabase: Effect.Effect<
 
   const ingestOtlpTraces = Effect.fn("TestRunTraceDatabase.ingestOtlpTraces")(
     function* (traceData: OtlpTraceDataValue) {
+      const sanitizedTraceData = sanitizeOverseerOtlpHttpTraceData(traceData);
       const writes = [];
-      for (const resourceSpan of traceData.resourceSpans) {
+      for (const resourceSpan of sanitizedTraceData.resourceSpans) {
         for (const scopeSpan of resourceSpan.scopeSpans) {
           for (const span of scopeSpan.spans) {
             writes.push({
               traceId: span.traceId,
               spanId: span.spanId,
-              traceDataJson: yield* encodeStoredTraceDataJson(
+              traceDataJson: yield* encodeOtlpTraceDataJson(
                 singleSpanTraceData(resourceSpan, scopeSpan, span),
               ),
             });
@@ -158,7 +175,7 @@ export const makeTestRunTraceDatabase: Effect.Effect<
       if (storedRows.length === 0) return Option.none<OtlpTraceDataValue>();
 
       const traceData = yield* Effect.forEach(storedRows, (row) =>
-        parseStoredTraceDataJson(row.trace_data_json),
+        parseOtlpTraceDataJson(row.trace_data_json),
       );
       return Option.some<OtlpTraceDataValue>({
         resourceSpans: traceData.flatMap((entry) => entry.resourceSpans),

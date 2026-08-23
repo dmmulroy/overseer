@@ -1,15 +1,17 @@
-import { TestRunId } from "@overseer/test-trace-protocol";
+import { makeTestRunIdFromStage } from "@overseer/test-trace-protocol";
 import * as Cloudflare from "alchemy/Cloudflare";
 import type { CompiledStack } from "alchemy/Stack";
 import type { OverseerApiStackOutput } from "../../alchemy.run.ts";
 import * as Test from "alchemy/Test/Vitest";
-import { DateTime, Effect, Layer, ManagedRuntime, Option } from "effect";
+import { DateTime, Effect, Exit, Layer, ManagedRuntime, Option } from "effect";
+import { FetchHttpClient } from "effect/unstable/http";
 import { afterAll, beforeAll } from "vite-plus/test";
 import { type ITestAssert, TestAssert } from "./evidence/test-assert.ts";
 import { type ITestEvidence, TestEvidence } from "./evidence/test-evidence.ts";
 import { TestEvidenceRecorder } from "./evidence/test-evidence-recorder.ts";
 import { testExecutionEvidenceLayer } from "./evidence/test-execution-evidence.ts";
 import { TestExecutionId, TestId } from "./evidence/test-evidence-identity.ts";
+import { TestExecutionTraceEvidence } from "./evidence/test-execution-trace-ref.ts";
 import {
   deriveTestRunStatus,
   type FinishedTestExecutionStatus,
@@ -33,10 +35,14 @@ import {
   waitForOverseerApiDeployment,
 } from "./overseer-api-deployment.ts";
 import {
+  type ITestTraceCollectorConnection,
   OverseerTestTraceCollectorDeploymentStack,
-  resolveTestTraceCollectorDeployment,
-  waitForTestTraceCollectorDeployment,
+  resolveTestTraceCollectorConnection,
 } from "./test-trace-collector-deployment.ts";
+import {
+  TestTraceCollector,
+  testTraceCollectorLayerFromConnection,
+} from "./test-trace-collector.ts";
 import { overseerTestRunConfig } from "./overseer-test-run.ts";
 
 /** Timeout options passed to one registered end-to-end test. */
@@ -47,6 +53,14 @@ export interface OverseerTestOptions {
 
 type OverseerStack = Test.TestEffect<CompiledStack<OverseerApiStackOutput>, never>;
 type RegisteredTestMode = "run" | "skip";
+
+interface RegisteredAfterRunCheck {
+  readonly makeEffect: (
+    context: OverseerAfterRunContext,
+  ) => Effect.Effect<void, unknown, TestTraceCollector>;
+}
+
+const testEvidenceFinalizationTimeoutMs = 25_000;
 
 /** Extensible values supplied when a harness constructs one end-to-end test Effect. */
 export interface OverseerTestContext {
@@ -60,6 +74,12 @@ export interface OverseerTestContext {
   readonly fixtures: FixtureRegistry;
 }
 
+/** E2E values supplied after product executions and before final run persistence. */
+export interface OverseerAfterRunContext {
+  /** Current test-run snapshot after every registered product execution has completed. */
+  readonly run: TestRunSnapshot;
+}
+
 /** Registration-time harness that shares one local or deployed Stack across feature test suites. */
 export class OverseerTestHarness {
   private constructor(
@@ -69,6 +89,7 @@ export class OverseerTestHarness {
       makeEffect: (context: OverseerTestContext) => Effect.Effect<void, unknown>,
       options?: OverseerTestOptions,
     ) => void,
+    private readonly registerAfterRunCheck: (check: RegisteredAfterRunCheck) => void,
   ) {}
 
   /** Registers one deterministic product guarantee against the selected target. */
@@ -89,14 +110,23 @@ export class OverseerTestHarness {
     this.registerTest("skip", name, makeEffect, options);
   };
 
+  /** Registers an explicit acceptance check that can inspect TTC after all product tests finish. */
+  readonly afterRun = <E>(
+    makeEffect: (context: OverseerAfterRunContext) => Effect.Effect<void, E, TestTraceCollector>,
+  ): void => {
+    this.registerAfterRunCheck({ makeEffect });
+  };
+
   /** Configures Alchemy deployment, readiness, evidence persistence, and teardown for one Stack. */
   static fromStack(stack: OverseerStack): OverseerTestHarness {
     const testRun = Effect.runSync(overseerTestRunConfig);
-    const runId = TestRunId.make(`test-run_${testRun.stage}`);
+    const runId = makeTestRunIdFromStage(testRun.stage);
     const evidenceDirectory = Effect.runSync(localTestRunStorageDirectoryConfig);
     const registeredTests: Array<TestRecord> = [];
+    const afterRunChecks: Array<RegisteredAfterRunCheck> = [];
     let infrastructureFailed = false;
     let runSnapshot = Option.none<TestRunSnapshot>();
+    let resolvedTraceCollectorConnection = Option.none<ITestTraceCollectorConnection>();
     const storageRuntime = ManagedRuntime.make(testRunStorageLocalLayerAt(evidenceDirectory));
     const storageReady = Promise.withResolvers<ITestRunStorage>();
     const sharedStorageLayer = Layer.effect(
@@ -152,14 +182,18 @@ export class OverseerTestHarness {
       stage: testRun.stage,
       dev: false,
     });
-    traceCollectorAlchemyTest.beforeAll(
+    const traceCollectorConnection = traceCollectorAlchemyTest.beforeAll(
       Effect.gen(function* () {
         const { clientId, clientSecret } = yield* traceCollectorAlchemyTest.deploy(
           OverseerTestTraceCollectorDeploymentStack,
         );
-        const deployment = yield* resolveTestTraceCollectorDeployment(clientId, clientSecret);
-        yield* waitForTestTraceCollectorDeployment(deployment, runId);
-        return deployment;
+        const connection = yield* resolveTestTraceCollectorConnection(clientId, clientSecret);
+        resolvedTraceCollectorConnection = Option.some(connection);
+        yield* Effect.gen(function* () {
+          const collector = yield* TestTraceCollector;
+          yield* collector.checkReadiness(runId);
+        }).pipe(Effect.provide(testTraceCollectorLayerFromConnection(connection)));
+        return connection;
       }).pipe(
         Effect.onExit((exit) =>
           Effect.sync(() => {
@@ -228,114 +262,161 @@ export class OverseerTestHarness {
       }
     });
 
-    const apiClientLayer = Layer.unwrap(deployment.pipe(Effect.map(overseerApiClientLayer)));
-
-    return new OverseerTestHarness((mode, name, makeEffect, options) => {
-      const registrationIndex = registeredTests.length;
-      const testId = TestId.make(`test_${registrationIndex}`);
-      const testExecutionId = TestExecutionId.make(`test-execution_${registrationIndex}_0`);
-      registeredTests.push({
-        id: testId,
-        name,
-        registrationIndex,
-        executions: [
-          {
-            _tag: "Pending",
-            id: testExecutionId,
-            attempt: 0,
-            status: "pending",
-          },
-        ],
-      });
-
-      const timeoutMs = options?.timeout ?? 120_000;
-      const effect = Effect.gen(function* () {
-        const storage = yield* TestRunStorage;
-        const startedAt = DateTime.nowUnsafe();
-        const registered = currentRun().tests[registrationIndex];
-        if (registered === undefined) {
-          return yield* Effect.die(
-            new Error(`Overseer test registration ${registrationIndex} was not found`),
-          );
-        }
-        const runningTest: TestRecord = {
-          id: registered.id,
-          name: registered.name,
-          registrationIndex: registered.registrationIndex,
-          executions: [
-            {
-              _tag: "Running",
-              id: testExecutionId,
-              attempt: 0,
-              status: "running",
-              startedAt,
-              assertions: [],
-              artifacts: [],
-            },
-          ],
-        };
-        replaceTest(registrationIndex, runningTest);
-        yield* storage.updateTestRun(currentRun());
-
-        const client = yield* OverseerApiClient;
-        const assert: ITestAssert = yield* TestAssert;
-        const evidence: ITestEvidence = yield* TestEvidence;
-        const recorder = yield* TestEvidenceRecorder;
-        // Fixture factories own mutable generation cursors but no resources; isolate them per execution without adding a service or finalizer.
-        const fixtures = createFixtureRegistry();
-
-        return yield* makeEffect({ assert, client, evidence, fixtures }).pipe(
-          Effect.timeout(timeoutMs),
-          Effect.onExit((testExit) =>
-            Effect.gen(function* () {
-              const finishedAt = DateTime.nowUnsafe();
-              const recorded = recorder.snapshot();
-              const status: FinishedTestExecutionStatus =
-                testExit._tag === "Success"
-                  ? "passed"
-                  : testExecutionStatusFromCause(testExit.cause);
-              replaceTest(registrationIndex, {
-                id: runningTest.id,
-                name: runningTest.name,
-                registrationIndex: runningTest.registrationIndex,
-                executions: [
-                  {
-                    _tag: "Finished",
-                    id: testExecutionId,
-                    attempt: 0,
-                    status,
-                    startedAt,
-                    finishedAt,
-                    durationMs: Math.max(
-                      0,
-                      DateTime.toEpochMillis(finishedAt) - DateTime.toEpochMillis(startedAt),
-                    ),
-                    assertions: recorded.assertions,
-                    artifacts: recorded.artifacts,
-                  },
-                ],
-              });
-              yield* storage.updateTestRun(currentRun());
+    afterAll(async () => {
+      if (
+        afterRunChecks.length === 0 ||
+        Option.isNone(resolvedTraceCollectorConnection) ||
+        Option.isNone(runSnapshot)
+      ) {
+        return;
+      }
+      const completedRun = runSnapshot.value;
+      await Effect.runPromise(
+        Effect.forEach(afterRunChecks, (check) => check.makeEffect({ run: completedRun }), {
+          discard: true,
+        }).pipe(
+          Effect.provide(
+            testTraceCollectorLayerFromConnection(resolvedTraceCollectorConnection.value),
+          ),
+          Effect.provide(FetchHttpClient.layer),
+          Effect.onExit((exit) =>
+            Effect.sync(() => {
+              if (Exit.isFailure(exit)) infrastructureFailed = true;
             }),
           ),
-        );
-      });
-
-      const evidenceCapabilitiesLayer = testExecutionEvidenceLayer({
-        runId,
-        testExecutionId,
-      });
-      const runnable = effect.pipe(
-        Effect.provide(evidenceCapabilitiesLayer),
-        Effect.provide(apiClientLayer),
-        Effect.provide(sharedStorageLayer),
+        ),
       );
-      const runnerOptions = { timeout: timeoutMs + 5_000 };
-      if (mode === "skip") {
-        alchemyTest.test.skip(name, runnable, runnerOptions);
-      } else {
-        alchemyTest.test(name, runnable, runnerOptions);
-      }
-    });
+    }, 35_000);
+
+    const apiClientLayer = Layer.unwrap(deployment.pipe(Effect.map(overseerApiClientLayer)));
+    const traceCollectorLayer = Layer.unwrap(
+      traceCollectorConnection.pipe(Effect.map(testTraceCollectorLayerFromConnection)),
+    );
+
+    return new OverseerTestHarness(
+      (mode, name, makeEffect, options) => {
+        const registrationIndex = registeredTests.length;
+        const testId = TestId.make(`test_${registrationIndex}`);
+        const testExecutionId = TestExecutionId.make(`test-execution_${registrationIndex}_0`);
+        registeredTests.push({
+          id: testId,
+          name,
+          registrationIndex,
+          executions: [
+            {
+              _tag: "Pending",
+              id: testExecutionId,
+              attempt: 0,
+              status: "pending",
+            },
+          ],
+        });
+
+        const timeoutMs = options?.timeout ?? 120_000;
+        const effect = Effect.uninterruptibleMask((restore) =>
+          Effect.gen(function* () {
+            const storage = yield* TestRunStorage;
+            const startedAt = DateTime.nowUnsafe();
+            const registered = currentRun().tests[registrationIndex];
+            if (registered === undefined) {
+              return yield* Effect.die(
+                new Error(`Overseer test registration ${registrationIndex} was not found`),
+              );
+            }
+            const runningTest: TestRecord = {
+              id: registered.id,
+              name: registered.name,
+              registrationIndex: registered.registrationIndex,
+              executions: [
+                {
+                  _tag: "Running",
+                  id: testExecutionId,
+                  attempt: 0,
+                  status: "running",
+                  startedAt,
+                  assertions: [],
+                  artifacts: [],
+                  trace: { _tag: "Pending" },
+                },
+              ],
+            };
+            replaceTest(registrationIndex, runningTest);
+            yield* storage.updateTestRun(currentRun());
+
+            const client = yield* OverseerApiClient;
+            const assert: ITestAssert = yield* TestAssert;
+            const evidence: ITestEvidence = yield* TestEvidence;
+            const recorder = yield* TestEvidenceRecorder;
+            // Fixture factories own mutable generation cursors but no resources; isolate them per execution without adding a service or finalizer.
+            const fixtures = createFixtureRegistry();
+
+            const collector = yield* TestTraceCollector;
+            const tracedExecution = yield* collector.traceExecution(
+              { runId, spanName: name },
+              restore(
+                makeEffect({ assert, client, evidence, fixtures }).pipe(Effect.timeout(timeoutMs)),
+              ),
+            );
+            const finishedAt = DateTime.nowUnsafe();
+            const recorded = recorder.snapshot();
+            const status: FinishedTestExecutionStatus =
+              tracedExecution.testExit._tag === "Failure"
+                ? testExecutionStatusFromCause(tracedExecution.testExit.cause)
+                : "passed";
+            replaceTest(registrationIndex, {
+              id: runningTest.id,
+              name: runningTest.name,
+              registrationIndex: runningTest.registrationIndex,
+              executions: [
+                {
+                  _tag: "Finished",
+                  id: testExecutionId,
+                  attempt: 0,
+                  status,
+                  startedAt,
+                  finishedAt,
+                  durationMs: Math.max(
+                    0,
+                    DateTime.toEpochMillis(finishedAt) - DateTime.toEpochMillis(startedAt),
+                  ),
+                  assertions: recorded.assertions,
+                  artifacts: recorded.artifacts,
+                  trace: TestExecutionTraceEvidence.cases.Completed.make({
+                    traceId: tracedExecution.traceId,
+                    url: tracedExecution.traceUrl,
+                  }),
+                },
+              ],
+            });
+            yield* storage.updateTestRun(currentRun());
+
+            if (Exit.isFailure(tracedExecution.testExit)) {
+              return yield* Effect.failCause(tracedExecution.testExit.cause);
+            }
+            return tracedExecution.testExit.value;
+          }),
+        );
+
+        const evidenceCapabilitiesLayer = testExecutionEvidenceLayer({
+          runId,
+          testExecutionId,
+        });
+        const runnable = effect.pipe(
+          Effect.provide(traceCollectorLayer),
+          Effect.provide(evidenceCapabilitiesLayer),
+          Effect.provide(apiClientLayer),
+          Effect.provide(sharedStorageLayer),
+        );
+        const runnerOptions = { timeout: timeoutMs + testEvidenceFinalizationTimeoutMs };
+        if (mode === "skip") {
+          alchemyTest.test.skip(name, runnable, runnerOptions);
+        } else {
+          alchemyTest.test(name, runnable, runnerOptions);
+        }
+      },
+      (check) => {
+        afterRunChecks.push(check);
+      },
+    );
   }
 }

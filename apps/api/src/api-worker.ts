@@ -17,6 +17,8 @@ import {
   RequestIdMiddleware,
   cloudflareRequestIdMiddlewareLayer,
 } from "./request-id-middleware.ts";
+import { withOverseerHttpObservability } from "./overseer-http-observability.ts";
+import { overseerTestTraceTelemetryLayer } from "./overseer-test-trace-telemetry.ts";
 
 const overseerHttpServerLayer = Layer.mergeAll(
   Etag.layer,
@@ -78,19 +80,22 @@ const apiWorkerLayer = ApiWorker.make(
     const accessAuthenticationMiddleware = yield* AccessAuthenticationMiddleware;
     const requestIdMiddleware = yield* RequestIdMiddleware;
 
-    return {
-      fetch: yield* HttpRouter.toHttpEffect(
-        HttpApiBuilder.layer(OverseerHttpApi).pipe(
-          Layer.provide(overseerHttpHandlersLayer),
-          Layer.provide(
-            Layer.succeed(AccessAuthenticationMiddleware, accessAuthenticationMiddleware),
-          ),
-          Layer.provide(Layer.succeed(RequestIdMiddleware, requestIdMiddleware)),
-          Layer.provide(overseerHttpServerLayer),
+    const fetch = yield* HttpRouter.toHttpEffect(
+      HttpApiBuilder.layer(OverseerHttpApi).pipe(
+        Layer.provide(overseerHttpHandlersLayer),
+        Layer.provide(
+          Layer.succeed(AccessAuthenticationMiddleware, accessAuthenticationMiddleware),
         ),
+        Layer.provide(Layer.succeed(RequestIdMiddleware, requestIdMiddleware)),
+        Layer.provide(overseerHttpServerLayer),
       ),
+    );
+
+    return {
+      fetch: withOverseerHttpObservability(fetch, "overseer-api-worker"),
     };
   }).pipe(
+    Effect.provide(overseerTestTraceTelemetryLayer),
     Effect.provide(overseerSdkLayer),
     Effect.provide(accessAuthenticationMiddlewareLayer),
     Effect.provide(cloudflareRequestIdMiddlewareLayer),

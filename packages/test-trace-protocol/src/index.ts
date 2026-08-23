@@ -1,4 +1,13 @@
-export { OtlpTraceData, parseOtlpTraceData } from "./otlp-trace-data.ts";
+export {
+  OtlpTraceData,
+  encodeOtlpTraceDataJson,
+  parseOtlpTraceData,
+  parseOtlpTraceDataJson,
+} from "./otlp-trace-data.ts";
+export {
+  includeOverseerHttpTraceHeader,
+  sanitizeOverseerOtlpHttpTraceData,
+} from "./overseer-http-trace-policy.ts";
 export {
   TestTraceCollectorOperation,
   TestTraceCollectorUnavailableError,
@@ -8,4 +17,10 @@ export {
   TraceCollectorHttpApi,
   TraceCollectorHttpApiGroup,
 } from "./test-trace-collector-http-api.ts";
-export { TestRunId, TestSpanId, TestTraceId } from "./test-trace-identity.ts";
+export {
+  makeTestRunIdFromStage,
+  TestRunId,
+  TestSpanId,
+  TestStage,
+  TestTraceId,
+} from "./test-trace-identity.ts";

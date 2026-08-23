@@ -1,9 +1,10 @@
-import { TestRunId } from "@overseer/test-trace-protocol";
+import { TestRunId, TestStage } from "@overseer/test-trace-protocol";
 import { Schema } from "effect";
-import { OverseerTestTarget, TestStage } from "../overseer-test-run.ts";
+import { OverseerTestTarget } from "../overseer-test-run.ts";
 import { TestArtifactRef } from "./test-artifact.ts";
 import { TestAssertionRecord } from "./test-assertion.ts";
 import { TestExecutionId, TestId } from "./test-evidence-identity.ts";
+import { TestExecutionTraceEvidence } from "./test-execution-trace-ref.ts";
 
 /** Lifecycle status of a complete end-to-end test run. */
 export const TestRunStatus = Schema.Literals([
@@ -64,6 +65,7 @@ export const TestExecution = Schema.TaggedUnion({
     startedAt: Schema.DateTimeUtcFromString,
     assertions: Schema.Array(TestAssertionRecord),
     artifacts: Schema.Array(TestArtifactRef),
+    trace: TestExecutionTraceEvidence.cases.Pending,
   },
   Finished: {
     id: TestExecutionId,
@@ -74,6 +76,7 @@ export const TestExecution = Schema.TaggedUnion({
     durationMs: Schema.Natural,
     assertions: Schema.Array(TestAssertionRecord),
     artifacts: Schema.Array(TestArtifactRef),
+    trace: TestExecutionTraceEvidence.cases.Completed,
   },
   Skipped: {
     id: TestExecutionId,

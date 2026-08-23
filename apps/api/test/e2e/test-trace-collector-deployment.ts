@@ -3,28 +3,30 @@ import {
   OVERSEER_TEST_TRACE_COLLECTOR_PRODUCTION_DOMAIN,
   OverseerSharedInfrastructureStack,
 } from "@overseer/shared-infrastructure";
-import {
-  TestRunId,
-  TestTraceCollectorUnavailableError,
-  TestTraceId,
-  TestTraceNotFoundError,
-  TraceCollectorHttpApi,
-} from "@overseer/test-trace-protocol";
 import * as Alchemy from "alchemy";
 import * as Cloudflare from "alchemy/Cloudflare";
-import { Effect, Redacted, Schedule, Schema } from "effect";
-import { HttpClient, HttpClientRequest } from "effect/unstable/http";
-import { isHttpClientError } from "effect/unstable/http/HttpClientError";
-import { HttpApiClient } from "effect/unstable/httpapi";
+import { Context, Effect, Layer, Redacted, Schema } from "effect";
 
 /** Production trace collector URL and redacted Access credentials used by the E2E harness. */
-export interface TestTraceCollectorDeployment {
+export interface ITestTraceCollectorConnection {
   readonly url: URL;
   readonly access: {
     readonly clientId: string;
     readonly clientSecret: Redacted.Redacted<string>;
   };
 }
+
+/** Provides the resolved suite-wide test trace collector connection. */
+export class TestTraceCollectorConnection extends Context.Service<
+  TestTraceCollectorConnection,
+  ITestTraceCollectorConnection
+>()("@overseer/test/TestTraceCollectorConnection") {}
+
+/** Provides one already-resolved test trace collector connection value. */
+export const testTraceCollectorConnectionLayer = (
+  connection: ITestTraceCollectorConnection,
+): Layer.Layer<TestTraceCollectorConnection> =>
+  Layer.succeed(TestTraceCollectorConnection, TestTraceCollectorConnection.of(connection));
 
 const testTraceCollectorProductionUrl = new URL(
   `https://${OVERSEER_TEST_TRACE_COLLECTOR_PRODUCTION_DOMAIN}`,
@@ -36,8 +38,8 @@ class TestTraceCollectorAccessSecretUnavailable extends Schema.TaggedError<TestT
 ) {}
 
 /** Resolve an authenticated production trace collector connection from typed Alchemy outputs. */
-export const resolveTestTraceCollectorDeployment = Effect.fn(
-  "TestTraceCollectorDeployment.resolve",
+export const resolveTestTraceCollectorConnection = Effect.fn(
+  "TestTraceCollectorConnection.resolve",
 )(function* (clientId: string, clientSecret: Redacted.Redacted<string> | undefined) {
   if (clientSecret === undefined) {
     return yield* Effect.fail(
@@ -51,7 +53,7 @@ export const resolveTestTraceCollectorDeployment = Effect.fn(
   return {
     url: testTraceCollectorProductionUrl,
     access: { clientId, clientSecret },
-  } satisfies TestTraceCollectorDeployment;
+  } satisfies ITestTraceCollectorConnection;
 });
 
 /** Resolves the persistent production trace collector and its shared Access credentials. */
@@ -75,46 +77,5 @@ export const OverseerTestTraceCollectorDeploymentStack = Alchemy.Stack(
       clientId: sharedInfrastructure.traceCollectorAccessClientId,
       clientSecret: sharedInfrastructure.traceCollectorAccessClientSecret,
     };
-  }),
-);
-
-const readinessTraceId = TestTraceId.make("0123456789abcdef0123456789abcdef");
-
-/** Verify that the E2E harness can authenticate to the collector's typed lookup boundary. */
-export const waitForTestTraceCollectorDeployment = Effect.fn(
-  "TestTraceCollectorDeployment.waitUntilReady",
-)(
-  function* (deployment: TestTraceCollectorDeployment, testRunId: TestRunId) {
-    const httpClient = yield* HttpClient.HttpClient;
-    const authenticatedHttpClient = httpClient.pipe(
-      HttpClient.mapRequest((request) =>
-        request.pipe(
-          HttpClientRequest.setHeader("CF-Access-Client-Id", deployment.access.clientId),
-          HttpClientRequest.setHeader(
-            "CF-Access-Client-Secret",
-            Redacted.value(deployment.access.clientSecret),
-          ),
-        ),
-      ),
-    );
-    const client = yield* HttpApiClient.makeWith(TraceCollectorHttpApi, {
-      baseUrl: deployment.url,
-      httpClient: authenticatedHttpClient,
-    });
-
-    yield* client.traceCollector.getTestTrace({
-      params: { testRunId, traceId: readinessTraceId },
-    });
-  },
-  Effect.catchIf(
-    (error): error is TestTraceNotFoundError => error instanceof TestTraceNotFoundError,
-    () => Effect.void,
-  ),
-  Effect.retry({
-    while: (error) =>
-      error instanceof TestTraceCollectorUnavailableError ||
-      (isHttpClientError(error) && error.reason._tag === "TransportError"),
-    schedule: Schedule.min([Schedule.exponential("500 millis"), Schedule.spaced("3 seconds")]),
-    times: 60,
   }),
 );

@@ -8,6 +8,7 @@ import { BookkeeperClient, bookkeeperClientLayer } from "../bookkeeper/bookkeepe
 import { durableObjectBaseHttpServerLayer } from "../durable-object-base-http-server-layer.ts";
 import { workspaceDatabaseLayerWithoutDependencies } from "./workspace-database.ts";
 import { workspaceHttpHandlersLayer } from "./workspace-http-handlers.ts";
+import { withOverseerHttpObservability } from "../../overseer-http-observability.ts";
 import { WorkspaceHttpApi } from "./workspace-http-api.ts";
 
 interface WorkspaceServerContract {
@@ -45,7 +46,9 @@ export const workspaceServerLayerWithoutDependencies: Layer.Layer<
       );
 
       const fetch = yield* HttpRouter.toHttpEffect(workspaceHttpLayer);
-      return { fetch };
+      return {
+        fetch: withOverseerHttpObservability(fetch, "overseer-workspace-durable-object"),
+      };
     }).pipe(Effect.orDie);
   }),
 );

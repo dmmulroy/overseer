@@ -31,6 +31,11 @@ describe("Test run evidence", () => {
               finishedAt: "2026-08-17T14:22:31.442Z",
               durationMs: 1,
               artifacts: [],
+              trace: {
+                _tag: "Completed",
+                traceId: "0123456789abcdef0123456789abcdef",
+                url: "https://ttc.mulroy.cloud/v1/test-runs/test-run_01KZGWRATYFXD8QCG7QTKG5C3S/traces/0123456789abcdef0123456789abcdef",
+              },
               assertions: [
                 {
                   id: "assertion_test-execution_0_0_0",

@@ -1,5 +1,13 @@
 import { Schema } from "effect";
 
+/** DNS-safe infrastructure stage reserved for one isolated end-to-end test run. */
+export const TestStage = Schema.String.check(
+  Schema.isPattern(/^test-[a-z0-9](?:[a-z0-9-]{0,43}[a-z0-9])?$/),
+).pipe(Schema.brand("TestStage"));
+
+/** Parsed infrastructure stage that cannot name local or production resources. */
+export type TestStage = typeof TestStage.Type;
+
 /** Identity of one end-to-end test run accepted by the trace collector. */
 export const TestRunId = Schema.String.check(Schema.isPattern(/^test-run_[A-Za-z0-9_-]+$/)).pipe(
   Schema.brand("TestRunId"),
@@ -7,6 +15,10 @@ export const TestRunId = Schema.String.check(Schema.isPattern(/^test-run_[A-Za-z
 
 /** Parsed identity used to select one test-run trace Durable Object. */
 export type TestRunId = typeof TestRunId.Type;
+
+/** Derive the canonical TTC test-run identity from an isolated infrastructure stage. */
+export const makeTestRunIdFromStage = (stage: TestStage): TestRunId =>
+  TestRunId.make(`test-run_${stage}`);
 
 /** W3C-compatible 128-bit trace identity represented as lowercase hexadecimal. */
 export const TestTraceId = Schema.String.check(Schema.isPattern(/^[0-9a-f]{32}$/)).pipe(

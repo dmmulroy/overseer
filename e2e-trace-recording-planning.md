@@ -22,10 +22,9 @@ Effect's pinned tracing APIs and runtime semantics are documented in [`docs/rese
 
 These terms are candidates until agreed:
 
-- **Execution trace** — the trace data retained for one `TestExecution`. Whether this must be exactly one OpenTelemetry trace is unresolved.
-- **Trace document** — a versioned, serialized representation of completed spans suitable for evidence persistence.
-- **Trace recorder** — the candidate owner of execution-scoped span collection, final flush, serialization, and attachment. Whether this should be a service or part of an existing evidence primitive is unresolved.
-- **Trace projection** — searchable metadata stored outside the trace document. The first slice may not need one.
+- **Execution trace** — the one OpenTelemetry trace correlated with a `TestExecution`.
+- **Trace reference** — the trace ID and exact Access-protected TTC lookup URL retained by a finished `TestExecution`.
+- **Trace collector** — the persistent TTC service that receives standard OTLP and remains the canonical trace store.
 
 ## Current model to test
 
@@ -34,10 +33,12 @@ TestRun
   TestExecution
     assertions
     artifacts
-      possible versioned execution trace document
+    trace
+      trace ID
+      TTC lookup URL
 ```
 
-The key modeling question is whether an execution trace is completely represented as an ordinary execution artifact, or whether retrieval requires an additional indexed projection. This scratchpad must not add run-level artifact ownership.
+The execution trace is first-class execution evidence stored by reference. TTC remains the canonical trace store, and consumers query it lazily by the exact Access-protected URL retained on the execution. This scratchpad must not add run-level trace ownership.
 
 ## Design questions
 
@@ -81,37 +82,37 @@ For a deployed boundary, establish how W3C trace context crosses the schema-deri
 
 ### 5. Persistence and retrieval
 
-- Is the trace document stored through the existing content-addressed execution artifact path?
-- What versioned schema, media type, and artifact name identify it?
-- Is one document per execution sufficient initially?
-- Is execution-level correlation sufficient, or must assertions/requests link to individual spans?
-- Which, if any, fields need SQLite projections for historical lookup?
+- TTC stores the standard OTLP trace and accepts late spans from Cloudflare `waitUntil` exports.
+- A finished execution stores one trace ID and exact TTC lookup URL.
+- Trace consumers authenticate to TTC and retrieve the current snapshot lazily.
+- Execution-level correlation is sufficient initially; assertions and requests do not store individual span references.
 
-### 6. Source redaction configuration
+### 6. HTTP trace disclosure policy
 
-Do not design a trace-sanitizer abstraction for the initial system. Sensitive values remain wrapped in Effect `Redacted` values, and sensitive HTTP header names must be added to Effect's runtime redaction configuration before tracing is enabled. Initial trace instrumentation must not deliberately annotate request/response bodies or unwrapped secrets.
+Sensitive values remain wrapped in Effect `Redacted` values, and sensitive HTTP header names are added to Effect's runtime redaction configuration before tracing is enabled. Initial trace instrumentation does not deliberately annotate request/response bodies or unwrapped secrets.
 
-No credential or authorization material may enter the serialized trace document. If source redaction proves insufficient in practice, trace-document sanitization can be designed later from a concrete failure.
+Effect exposes a client header filter but no equivalent server header filter. TTC therefore reapplies the shared request/response header allowlist before persistence, removes raw query, user-agent, and client-address attributes, and strips query and credential components from full URLs. `cf-access-authenticated-user-email` is explicitly approved for trace diagnostics; credentials and other personal request metadata are not.
 
 ## Selected primitive direction
 
-Use one execution-scoped `TestExecutionTrace` capability to wrap the product test in an Effect root span, coordinate OTLP flushing and collector completion, encode the resulting trace document, and attach it as ordinary execution evidence. The capability composes Effect's existing `OtlpTracer` and `OtlpExporter.Flusher`; Overseer does not define its own exporter or flusher interface.
+Use the `TestTraceCollector` service to wrap each test Effect in an execution root span, flush the harness exporter, and retain the generated trace ID plus exact TTC lookup URL as first-class execution evidence. The service composes Effect's existing `OtlpTracer` and `OtlpExporter.Flusher`; Overseer does not define its own exporter or flusher interface.
 
-A standalone, persistently deployed trace-collector application receives standard OTLP from the harness and application runtimes. It routes each test run to one Durable Object, which partitions retained spans by trace ID and returns trace snapshots. The collector does not initially own a trace-finalization state machine. Completeness coordination remains a later `TestExecutionTrace` concern, while the immutable trace document copied into the existing `TestExecution` artifact path remains the evidence record.
+A standalone, persistently deployed trace-collector application receives standard OTLP from the harness and application runtimes. It routes each test run to one Durable Object, which partitions retained spans by trace ID and returns current trace snapshots. TTC remains the canonical trace store. Consumers query lazily, allowing Worker and Durable Object spans scheduled through Cloudflare `waitUntil` to arrive after the product response without adding trace-finalization semantics to the test lifecycle.
 
 Do not add an in-memory capture adapter or a temporary harness-only recording path. Both local-workerd and deployed E2E runs cross process boundaries, so the first implementation slice must exercise the real OTLP path.
 
-## Candidate first vertical slice
+## First vertical slice
 
-Not approved. The narrowest non-throwaway experiment is:
+Approved. The narrowest non-throwaway integration is:
 
-1. Start one root span for one focused local-workerd `TestExecution` with an execution-scoped harness `OtlpTracer`.
+1. Start one root span for each `TestExecution` with an execution-scoped harness `OtlpTracer`.
 2. Export the harness span through the real run-scoped OTLP collector boundary.
-3. Finalize a versioned trace document on both pass and deliberate failure.
-4. Persist it as a `TestExecution` artifact through the existing evidence interface.
-5. Retrieve and decode it from SQLite plus the content-addressed blob store.
+3. Preserve the test Effect exit independently from trace export.
+4. Persist `Completed` evidence containing the generated trace ID and exact TTC lookup URL on the finished execution.
+5. Retrieve the eventually complete trace lazily from TTC.
+6. Run one explicit after-run acceptance check that requires all logical Overseer services to appear in one TTC trace without asserting incidental span topology.
 
-This proves the real export and evidence path while intentionally deferring Worker/Durable Object instrumentation, remote flush coordination, trace indexing, and infrastructure lifecycle spans.
+This proves the real export and correlation path without duplicating TTC data in the evidence artifact store or coordinating remote Cloudflare `waitUntil` completion in the test lifecycle.
 
 ## Grounded findings from Effect research
 
@@ -135,9 +136,13 @@ This proves the real export and evidence path while intentionally deferring Work
 
 ## Decisions
 
-### No initial trace-sanitizer abstraction
+### Trace evidence is a first-class execution sibling backed by TTC
 
-The initial design relies on source-level safety: Effect `Redacted` values for sensitive data and Effect's HTTP header redaction configuration for sensitive header names. Trace-document sanitization, an attribute allowlist, and a standalone sanitizer service are out of scope until a concrete need appears.
+`TestExecution.trace` owns the trace identity and exact Access-protected TTC lookup URL. TTC remains the canonical trace store; automatic trace data is not duplicated in the author-attached `TestExecution.artifacts` collection.
+
+### TTC enforces the shared HTTP trace disclosure policy
+
+Source-level safety uses Effect `Redacted` values, client header filtering, and HTTP header redaction. Because Effect's server tracer records broader request metadata without a server-side filter, TTC also applies the shared HTTP attribute allowlist before persistence. This is a persistence-boundary policy, not a standalone sanitizer service.
 
 ### OTLP is the only capture path
 
@@ -145,21 +150,21 @@ Do not build an in-memory trace adapter. The harness uses one execution-scoped E
 
 ### The collector is standalone persistent infrastructure
 
-Deploy the OTLP ingress Worker and its Durable Object namespace as a dedicated application under `apps/`, with an independently managed Alchemy Stack. Do not bundle or tear down collector infrastructure with each Overseer E2E stage. Address one Durable Object per `TestRun`; retain ingested trace spans for later retrieval while still attaching an immutable trace document to the owning `TestExecution` evidence.
+Deploy the OTLP ingress Worker and its Durable Object namespace as a dedicated application under `apps/`, with an independently managed Alchemy Stack. Do not bundle or tear down collector infrastructure with each Overseer E2E stage. Address one Durable Object per `TestRun`; retain ingested trace spans for lazy retrieval through the URL stored on the owning `TestExecution`.
 
 ### Initial collector scope excludes finalization and configuration design
 
-The first collector implementation persists idempotent spans and returns current trace snapshots. It does not add a persisted collecting/finalized state machine, late-span policy, or configuration system. Add those only when the E2E integration establishes a concrete requirement. Do not mistake the immutable execution evidence artifact for mutable collector storage.
+The first collector implementation persists idempotent spans and returns current trace snapshots. It does not add a persisted collecting/finalized state machine, late-span policy, or configuration system. Add those only when the E2E integration establishes a concrete requirement. Lazy retrieval intentionally exposes the collector's current eventually complete snapshot.
 
 Shared infrastructure owns one service token and a `non_identity` policy for Overseer runtimes; deployed collectors reference that policy without owning the credential. Production is Access-protected at `ttc.mulroy.cloud` with `workers.dev` disabled. Preview is Access-protected at its stage-specific `workers.dev` hostname. Local development remains local and does not provision Access.
 
-Before implementation, this section must settle:
+The initial harness-local integration settles:
 
 - first trace boundary;
 - owning primitive;
 - propagation scope;
 - correlation IDs;
 - export and flush lifecycle;
-- persistence representation and artifact ownership;
+- trace-reference persistence and TTC ownership;
 - required source redaction configuration;
 - exact first failing test and vertical slice.

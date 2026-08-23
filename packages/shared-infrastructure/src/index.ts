@@ -6,3 +6,4 @@ export {
   OVERSEER_TEST_TRACE_COLLECTOR_PRODUCTION_DOMAIN,
 } from "./overseer-shared-infrastructure-identifiers.ts";
 export { OverseerTraceCollectorAccessPolicyReference } from "./overseer-trace-collector-access-policy-reference.ts";
+export { OverseerTraceCollectorServiceTokenReference } from "./overseer-trace-collector-service-token-reference.ts";

@@ -54,7 +54,9 @@ registerAccessTestSuite(harness);
 registerWorkspaceTestSuite(harness);
 ```
 
-`OverseerTestHarness.fromStack` owns `alchemy/Test/Vitest` deployment, readiness, service Layers, and teardown. Readiness first verifies the authenticated API identity, then retries a safe known-absent Workspace read until the Workspace Durable Object returns its stable not-found contract.
+`OverseerTestHarness.fromStack` owns `alchemy/Test/Vitest` deployment, readiness, service Layers, and teardown. Readiness first verifies the authenticated trace collector and API identity, then retries a safe known-absent Workspace read until the Workspace Durable Object returns its stable not-found contract. Each running test is wrapped in an execution root span and exports standard OTLP JSON to the persistent collector. The finished `TestExecution.trace` stores `Completed` evidence containing the trace ID and exact Access-protected TTC lookup URL; consumers query TTC lazily so Cloudflare `waitUntil` exports can arrive after the product response.
+
+Tracing acceptance is an explicit after-run check rather than an implicit product-test verdict. It polls TTC until one execution trace contains `overseer-e2e-harness`, `overseer-api-worker`, `overseer-workspace-durable-object`, and `overseer-bookkeeper-durable-object`. Product execution status remains determined only by the test Effect exit.
 
 Deploy once per integration suite file. Keep deployed tests sequential so Vitest workers cannot race deployment and destruction.
 

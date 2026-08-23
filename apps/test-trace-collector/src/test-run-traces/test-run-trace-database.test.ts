@@ -16,22 +16,24 @@ const makeOtlpSpan = (
   spanId: TestSpanId,
   parentSpanId: TestSpanId | undefined,
   name: string,
-): OtlpSpanValue => ({
-  traceId,
-  spanId,
-  parentSpanId,
-  name,
-  kind: 1,
-  startTimeUnixNano: "1000000",
-  endTimeUnixNano: "2000000",
-  attributes: [],
-  droppedAttributesCount: 0,
-  events: [],
-  droppedEventsCount: 0,
-  status: { code: 1 },
-  links: [],
-  droppedLinksCount: 0,
-});
+): OtlpSpanValue => {
+  const span: OtlpSpanValue = {
+    traceId,
+    spanId,
+    name,
+    kind: 1,
+    startTimeUnixNano: "1000000",
+    endTimeUnixNano: "2000000",
+    attributes: [],
+    droppedAttributesCount: 0,
+    events: [],
+    droppedEventsCount: 0,
+    status: { code: 1 },
+    links: [],
+    droppedLinksCount: 0,
+  };
+  return parentSpanId === undefined ? span : { ...span, parentSpanId };
+};
 
 const makeOtlpTraceData = (spans: Array<OtlpSpanValue>): OtlpTraceData => ({
   resourceSpans: [
@@ -67,7 +69,15 @@ it.effect("stores idempotent spans and reconstructs traces independently", () =>
     );
     yield* database.ingestOtlpTraces(
       makeOtlpTraceData([
-        makeOtlpSpan(firstTraceId, firstChildSpanId, firstRootSpanId, "updated first child"),
+        {
+          ...makeOtlpSpan(firstTraceId, firstChildSpanId, firstRootSpanId, "updated first child"),
+          attributes: [
+            {
+              key: "service.name",
+              value: { stringValue: "overseer-workspace-durable-object" },
+            },
+          ],
+        },
       ]),
     );
 
@@ -85,6 +95,20 @@ it.effect("stores idempotent spans and reconstructs traces independently", () =>
       "first root",
       "updated first child",
     ]);
+    assert.strictEqual(
+      firstTraceSpans.find((span) => span.spanId === firstChildSpanId)?.parentSpanId,
+      firstRootSpanId,
+    );
+    const firstChildResource = firstTrace.resourceSpans.find((resourceSpan) =>
+      resourceSpan.scopeSpans.some((scopeSpan) =>
+        scopeSpan.spans.some((span) => span.spanId === firstChildSpanId),
+      ),
+    );
+    assert.strictEqual(
+      firstChildResource?.resource.attributes.find((attribute) => attribute.key === "service.name")
+        ?.value.stringValue,
+      "overseer-workspace-durable-object",
+    );
     assert.strictEqual(secondTraceSpans.length, 1);
     assert.strictEqual(secondTraceSpans[0]?.name, "second root");
     assert.isTrue(Option.isNone(yield* database.findTestTrace(unknownTraceId)));

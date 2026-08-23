@@ -1,5 +1,6 @@
 import { resolve } from "node:path";
 import { NodeRuntime, NodeServices } from "@effect/platform-node";
+import { makeTestRunIdFromStage } from "@overseer/test-trace-protocol";
 import { Clock, Config, Crypto, Effect, Exit, Runtime, Schema } from "effect";
 import { ChildProcess, ChildProcessSpawner } from "effect/unstable/process";
 import {
@@ -82,6 +83,7 @@ const runOverseerEndToEndTests = Effect.fn("runOverseerEndToEndTests")(function*
         ALCHEMY_TEST_STAGE: testRun.stage,
         OVERSEER_TEST_TARGET: testRun.target,
         OVERSEER_TEST_STAGE: testRun.stage,
+        OVERSEER_TEST_RUN_ID: makeTestRunIdFromStage(testRun.stage),
         OVERSEER_EVIDENCE_DIRECTORY: evidenceDirectory,
       },
     }),

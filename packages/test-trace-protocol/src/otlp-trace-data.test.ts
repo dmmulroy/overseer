@@ -1,8 +1,12 @@
 import { assert, it } from "@effect/vitest";
 import { Effect } from "effect";
-import { parseOtlpTraceData } from "./otlp-trace-data.ts";
+import {
+  encodeOtlpTraceDataJson,
+  parseOtlpTraceData,
+  parseOtlpTraceDataJson,
+} from "./otlp-trace-data.ts";
 
-it.effect("parses Effect OTLP trace data and restores an omitted root parent", () =>
+it.effect("preserves an OTLP child span parent through JSON persistence", () =>
   Effect.gen(function* () {
     const parsed = yield* parseOtlpTraceData({
       resourceSpans: [
@@ -18,6 +22,7 @@ it.effect("parses Effect OTLP trace data and restores an omitted root parent", (
                 {
                   traceId: "0123456789abcdef0123456789abcdef",
                   spanId: "0123456789abcdef",
+                  parentSpanId: "fedcba9876543210",
                   name: "overseer.test.execution",
                   kind: 1,
                   startTimeUnixNano: "1000000",
@@ -48,12 +53,15 @@ it.effect("parses Effect OTLP trace data and restores an omitted root parent", (
 
     assert.deepStrictEqual(
       parsed.resourceSpans[0]?.scopeSpans[0]?.spans[0]?.parentSpanId,
-      undefined,
+      "fedcba9876543210",
     );
     assert.strictEqual(
       Object.hasOwn(parsed.resourceSpans[0]?.scopeSpans[0]?.spans[0] ?? {}, "parentSpanId"),
       true,
     );
+    const json = yield* encodeOtlpTraceDataJson(parsed);
+    const restored = yield* parseOtlpTraceDataJson(json);
+    assert.deepStrictEqual(restored, parsed);
   }),
 );
 
