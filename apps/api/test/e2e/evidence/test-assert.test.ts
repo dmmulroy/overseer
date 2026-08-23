@@ -266,9 +266,10 @@ describe("Test assertions", () => {
       const testAssert: ITestAssert = yield* TestAssert;
       const recorder = yield* TestEvidenceRecorder;
       const observationStarted = yield* Deferred.make<void>();
-      const actual = Deferred.succeed(observationStarted, undefined).pipe(
-        Effect.andThen(Effect.never),
-      );
+      const actual = Effect.gen(function* () {
+        yield* Deferred.succeed(observationStarted, undefined);
+        return yield* Effect.never;
+      });
 
       const fiber = yield* testAssert
         .eventuallyEqual("Workspace observation completes", actual, "active", {
@@ -329,21 +330,19 @@ describe("Test assertions", () => {
 
       const first = testAssert.groupEffect(
         "first group",
-        Deferred.succeed(firstReady, undefined).pipe(
-          Effect.andThen(Deferred.await(secondReady)),
-          Effect.andThen(
-            Effect.sync(() => testAssert.equal("first grouped assertion", "first", "first")),
-          ),
-        ),
+        Effect.gen(function* () {
+          yield* Deferred.succeed(firstReady, undefined);
+          yield* Deferred.await(secondReady);
+          testAssert.equal("first grouped assertion", "first", "first");
+        }),
       );
       const second = testAssert.groupEffect(
         "second group",
-        Deferred.succeed(secondReady, undefined).pipe(
-          Effect.andThen(Deferred.await(firstReady)),
-          Effect.andThen(
-            Effect.sync(() => testAssert.equal("second grouped assertion", "second", "second")),
-          ),
-        ),
+        Effect.gen(function* () {
+          yield* Deferred.succeed(secondReady, undefined);
+          yield* Deferred.await(firstReady);
+          testAssert.equal("second grouped assertion", "second", "second");
+        }),
       );
 
       yield* Effect.all([first, second], { concurrency: "unbounded" });

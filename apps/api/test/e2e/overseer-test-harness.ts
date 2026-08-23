@@ -1,6 +1,7 @@
 import { TestRunId } from "@overseer/test-trace-protocol";
 import * as Cloudflare from "alchemy/Cloudflare";
 import type { CompiledStack } from "alchemy/Stack";
+import type { OverseerApiStackOutput } from "../../alchemy.run.ts";
 import * as Test from "alchemy/Test/Vitest";
 import { DateTime, Effect, Layer, ManagedRuntime, Option } from "effect";
 import { afterAll, beforeAll } from "vite-plus/test";
@@ -28,9 +29,14 @@ import {
   OverseerApiClient,
 } from "./overseer-api-client.ts";
 import {
-  parseOverseerApiDeployment,
+  resolveOverseerApiDeployment,
   waitForOverseerApiDeployment,
 } from "./overseer-api-deployment.ts";
+import {
+  OverseerTestTraceCollectorDeploymentStack,
+  resolveTestTraceCollectorDeployment,
+  waitForTestTraceCollectorDeployment,
+} from "./test-trace-collector-deployment.ts";
 import { overseerTestRunConfig } from "./overseer-test-run.ts";
 
 /** Timeout options passed to one registered end-to-end test. */
@@ -39,7 +45,7 @@ export interface OverseerTestOptions {
   readonly timeout: number;
 }
 
-type OverseerStack = Test.TestEffect<CompiledStack<unknown>, never>;
+type OverseerStack = Test.TestEffect<CompiledStack<OverseerApiStackOutput>, never>;
 type RegisteredTestMode = "run" | "skip";
 
 /** Extensible values supplied when a harness constructs one end-to-end test Effect. */
@@ -140,14 +146,41 @@ export class OverseerTestHarness {
       await storageRuntime.runPromise(storage.createTestRun(currentRun()));
     });
 
-    const deployment = alchemyTest.beforeAll(
-      alchemyTest.deploy(stack).pipe(
-        Effect.flatMap((output) =>
-          testRun.target === "local"
-            ? parseOverseerApiDeployment("local")(output)
-            : parseOverseerApiDeployment("deployed")(output),
+    const traceCollectorAlchemyTest = Test.make({
+      providers: Cloudflare.providers(),
+      state: Cloudflare.state(),
+      stage: testRun.stage,
+      dev: false,
+    });
+    traceCollectorAlchemyTest.beforeAll(
+      Effect.gen(function* () {
+        const { clientId, clientSecret } = yield* traceCollectorAlchemyTest.deploy(
+          OverseerTestTraceCollectorDeploymentStack,
+        );
+        const deployment = yield* resolveTestTraceCollectorDeployment(clientId, clientSecret);
+        yield* waitForTestTraceCollectorDeployment(deployment, runId);
+        return deployment;
+      }).pipe(
+        Effect.onExit((exit) =>
+          Effect.sync(() => {
+            if (exit._tag === "Failure") infrastructureFailed = true;
+          }),
         ),
-        Effect.tap(waitForOverseerApiDeployment),
+      ),
+      { timeout: 600_000 },
+    );
+    traceCollectorAlchemyTest.afterAll(
+      traceCollectorAlchemyTest.destroy(OverseerTestTraceCollectorDeploymentStack),
+      { timeout: 300_000 },
+    );
+
+    const deployment = alchemyTest.beforeAll(
+      Effect.gen(function* () {
+        const output = yield* alchemyTest.deploy(stack);
+        const resolved = yield* resolveOverseerApiDeployment(testRun.target, output);
+        yield* waitForOverseerApiDeployment(resolved);
+        return resolved;
+      }).pipe(
         Effect.onExit((exit) =>
           Effect.sync(() => {
             if (exit._tag === "Failure") infrastructureFailed = true;

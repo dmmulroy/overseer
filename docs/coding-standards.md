@@ -358,6 +358,56 @@ Carry diagnostic context as typed fields rather than burying it in prose. Includ
 
 Read [`docs/errors.md`](errors.md) before adding or changing typed errors, rendered error messages, public error schemas, HTTP error statuses, retry guidance, or failure telemetry. It is the source of truth for error principles, internal/public boundaries, contextual data, and the error review checklist.
 
+## Effect Workflow Style
+
+Use `Effect.gen(function* () { ... })` and `yield*` for business workflows. A generator is the
+default when an operation retrieves contextual services, performs multiple dependent steps, names
+intermediate results, branches, loops, or returns early. Keep those decisions visible as ordinary
+control flow instead of encoding them as chains of `Effect.map`, `Effect.flatMap`, or
+`Effect.andThen`.
+
+Use `.pipe(...)` for declarative composition around a workflow and for a single simple transform.
+Appropriate pipe combinators include error translation and recovery, retries, timeouts, tracing,
+logging annotations, dependency provision, Layer construction, and a direct `Effect.map` that does
+not introduce another Effectful step or business decision. Do not introduce a generator merely to
+replace one clear transformation.
+
+Combine the styles by keeping business logic inside and cross-cutting policy outside:
+
+```ts
+const fetchUserPosts = Effect.fn("UserService.fetchUserPosts")(
+  function* (userId: UserId) {
+    const database = yield* UserDatabase;
+    const cache = yield* UserCache;
+    const cachedPosts = yield* cache.getUserPosts(userId);
+
+    if (Option.isSome(cachedPosts)) return cachedPosts.value;
+
+    const posts = yield* database.findPostsByUser(userId);
+    yield* cache.setUserPosts(userId, posts);
+    return posts;
+  },
+  Effect.withSpan("UserService.fetchUserPosts"),
+  Effect.retry(userPostsRetryPolicy),
+);
+```
+
+When `Effect.fn` accepts whole-function transforms, pass pipeable cross-cutting combinators after
+the generator as shown. Within a generator, a yielded Effect may still use `.pipe(...)` for a
+localized error translation or simple result transform. If that pipe begins coordinating further
+Effectful operations or branching on domain outcomes, move the coordination into the surrounding
+generator.
+
+Apply this decision matrix:
+
+- dependency retrieval, sequential operations, and conditional business logic: `Effect.gen` or a
+  generator-based `Effect.fn`;
+- error handling, retry, timeout, tracing, logging, dependency provision, and Layer composition:
+  `.pipe(...)` or `Effect.fn` whole-function transforms;
+- one pure result transformation: `.pipe(Effect.map(...))`;
+- multiple dependent `map` / `flatMap` / `andThen` steps: rewrite as a generator so intermediate
+  values and control flow are explicit.
+
 ## Effect Tagged Error Translation
 
 Prefer `Effect.catchTag` or `Effect.catchTags` when translating an error channel whose expected

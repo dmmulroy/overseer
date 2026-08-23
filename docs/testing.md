@@ -25,7 +25,7 @@ For detailed Alchemy and `@effect/vitest` API research, see [`research/alchemy-e
 - `local` runs the same feature suites through Alchemy's workerd, local Durable Objects, and local SQLite infrastructure. It is the fast debugging and development loop.
 - `deployed` provisions real Cloudflare infrastructure, custom DNS, and Access. It remains the acceptance boundary and the meaning of `pnpm test:e2e`.
 
-Feature suites consume the same `OverseerApiClient` service for both targets. Target-specific deployment parsing, readiness, authentication, and teardown remain harness concerns.
+Feature suites consume the same `OverseerApiClient` service for both targets. Target-specific deployment parsing, readiness, authentication, and teardown remain harness concerns. Both target tasks reconcile the independently deployed production trace collector, and the harness verifies its shared Access credentials through the collector's typed not-found contract before product tests begin.
 
 ## Default Test Lifecycle
 

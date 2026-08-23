@@ -87,7 +87,7 @@ export const workspaceHttpHandlersLayer = HttpApiBuilder.group(
         .handle("renameWorkspace", ({ payload }) =>
           workspaceMutationMutex.withPermit(
             Effect.gen(function* () {
-              const workspace = yield* database.getWorkspace().pipe(
+              const workspaceOption = yield* database.getWorkspace().pipe(
                 Effect.mapError(
                   (error) =>
                     new RenameWorkspaceError({
@@ -97,14 +97,11 @@ export const workspaceHttpHandlersLayer = HttpApiBuilder.group(
                           : "database_unavailable",
                     }),
                 ),
-                Effect.flatMap(
-                  Option.match({
-                    onNone: () =>
-                      Effect.fail(new RenameWorkspaceError({ reason: "workspace_not_found" })),
-                    onSome: Effect.succeed,
-                  }),
-                ),
               );
+              if (Option.isNone(workspaceOption)) {
+                return yield* new RenameWorkspaceError({ reason: "workspace_not_found" });
+              }
+              const workspace = workspaceOption.value;
               yield* bookkeeper
                 .registerWorkspace(
                   bookkeeperProjection({ ...workspace, updatedAt: yield* DateTime.now }),
@@ -122,7 +119,7 @@ export const workspaceHttpHandlersLayer = HttpApiBuilder.group(
         .handle("archiveWorkspace", () =>
           workspaceMutationMutex.withPermit(
             Effect.gen(function* () {
-              const workspace = yield* database.getWorkspace().pipe(
+              const workspaceOption = yield* database.getWorkspace().pipe(
                 Effect.mapError(
                   (error) =>
                     new ArchiveWorkspaceError({
@@ -132,14 +129,11 @@ export const workspaceHttpHandlersLayer = HttpApiBuilder.group(
                           : "database_unavailable",
                     }),
                 ),
-                Effect.flatMap(
-                  Option.match({
-                    onNone: () =>
-                      Effect.fail(new ArchiveWorkspaceError({ reason: "workspace_not_found" })),
-                    onSome: Effect.succeed,
-                  }),
-                ),
               );
+              if (Option.isNone(workspaceOption)) {
+                return yield* new ArchiveWorkspaceError({ reason: "workspace_not_found" });
+              }
+              const workspace = workspaceOption.value;
               yield* bookkeeper
                 .registerWorkspace(
                   bookkeeperProjection({ ...workspace, updatedAt: yield* DateTime.now }),
@@ -157,7 +151,7 @@ export const workspaceHttpHandlersLayer = HttpApiBuilder.group(
         .handle("unarchiveWorkspace", () =>
           workspaceMutationMutex.withPermit(
             Effect.gen(function* () {
-              const workspace = yield* database.getWorkspace().pipe(
+              const workspaceOption = yield* database.getWorkspace().pipe(
                 Effect.mapError(
                   (error) =>
                     new UnarchiveWorkspaceError({
@@ -167,14 +161,11 @@ export const workspaceHttpHandlersLayer = HttpApiBuilder.group(
                           : "database_unavailable",
                     }),
                 ),
-                Effect.flatMap(
-                  Option.match({
-                    onNone: () =>
-                      Effect.fail(new UnarchiveWorkspaceError({ reason: "workspace_not_found" })),
-                    onSome: Effect.succeed,
-                  }),
-                ),
               );
+              if (Option.isNone(workspaceOption)) {
+                return yield* new UnarchiveWorkspaceError({ reason: "workspace_not_found" });
+              }
+              const workspace = workspaceOption.value;
               yield* bookkeeper
                 .registerWorkspace(
                   bookkeeperProjection({ ...workspace, updatedAt: yield* DateTime.now }),

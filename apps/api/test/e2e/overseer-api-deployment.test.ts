@@ -1,35 +1,32 @@
 import { assert, it } from "@effect/vitest";
-import { Effect, Fiber, Layer, Redacted, Ref, Schema } from "effect";
+import { Effect, Fiber, Layer, Redacted, Ref } from "effect";
 import { TestClock } from "effect/testing";
 import { HttpClient, HttpClientResponse } from "effect/unstable/http";
 import {
-  OverseerApiDeployment,
-  parseOverseerApiDeployment,
+  resolveOverseerApiDeployment,
   waitForOverseerApiDeployment,
 } from "./overseer-api-deployment.ts";
 
-it.effect("parses a local Overseer API deployment from its URL", () =>
+it.effect("resolves a local Overseer API deployment from its URL", () =>
   Effect.gen(function* () {
-    const deployment = yield* parseOverseerApiDeployment("local")({
+    const deployment = yield* resolveOverseerApiDeployment("local", {
       url: "http://localhost:8787",
     });
 
-    assert.doesNotThrow(() => Schema.encodeSync(OverseerApiDeployment)(deployment));
     assert.strictEqual(deployment.target, "local");
     assert.strictEqual(deployment.url.href, "http://localhost:8787/");
   }),
 );
 
-it.effect("parses a deployed Overseer API without exposing its Access secret", () =>
+it.effect("resolves a deployed Overseer API without exposing its Access secret", () =>
   Effect.gen(function* () {
     const secret = Redacted.make("access-secret");
-    const deployment = yield* parseOverseerApiDeployment("deployed")({
+    const deployment = yield* resolveOverseerApiDeployment("deployed", {
       url: "https://overseer-api-test-user-run.mulroy.ai",
       agentClientId: "agent-client-id",
       agentClientSecret: secret,
     });
 
-    assert.doesNotThrow(() => Schema.encodeSync(OverseerApiDeployment)(deployment));
     assert.strictEqual(deployment.target, "deployed");
     if (deployment.target !== "deployed") return assert.fail("Expected a deployed API");
     assert.strictEqual(deployment.url.href, "https://overseer-api-test-user-run.mulroy.ai/");
@@ -41,7 +38,7 @@ it.effect("parses a deployed Overseer API without exposing its Access secret", (
 it.effect("rejects deployed output with no fresh Access secret", () =>
   Effect.gen(function* () {
     const result = yield* Effect.result(
-      parseOverseerApiDeployment("deployed")({
+      resolveOverseerApiDeployment("deployed", {
         url: "https://overseer-api-test-user-run.mulroy.ai",
         agentClientId: "agent-client-id",
         agentClientSecret: undefined,
@@ -54,7 +51,7 @@ it.effect("rejects deployed output with no fresh Access secret", () =>
 
 it.effect("waits for the Workspace Durable Object to survive deployment convergence", () =>
   Effect.gen(function* () {
-    const deployment = yield* parseOverseerApiDeployment("local")({
+    const deployment = yield* resolveOverseerApiDeployment("local", {
       url: "http://localhost:8787",
     });
     const requestedPaths = yield* Ref.make<ReadonlyArray<string>>([]);

@@ -6,7 +6,7 @@ import { HttpClientError, TransportError } from "effect/unstable/http/HttpClient
 import { OverseerApiClient, overseerApiClientLayer } from "./overseer-api-client.ts";
 import {
   type OverseerApiDeployment,
-  parseOverseerApiDeployment,
+  resolveOverseerApiDeployment,
 } from "./overseer-api-deployment.ts";
 
 const executeRecordedIdentityRequest = (deployment: OverseerApiDeployment) =>
@@ -47,7 +47,7 @@ const executeRecordedIdentityRequest = (deployment: OverseerApiDeployment) =>
 
 it.effect("sends local API calls without Cloudflare Access credentials", () =>
   Effect.gen(function* () {
-    const deployment = yield* parseOverseerApiDeployment("local")({
+    const deployment = yield* resolveOverseerApiDeployment("local", {
       url: "http://localhost:8787",
     });
     const { identity, observed } = yield* executeRecordedIdentityRequest(deployment);
@@ -61,7 +61,7 @@ it.effect("sends local API calls without Cloudflare Access credentials", () =>
 
 it.effect("sends deployed API calls with Agent Access credentials", () =>
   Effect.gen(function* () {
-    const deployment = yield* parseOverseerApiDeployment("deployed")({
+    const deployment = yield* resolveOverseerApiDeployment("deployed", {
       url: "https://overseer-api-test-user-run.mulroy.ai",
       agentClientId: "agent-client-id",
       agentClientSecret: Redacted.make("access-secret"),
@@ -77,7 +77,7 @@ it.effect("sends deployed API calls with Agent Access credentials", () =>
 
 it.effect("retries transient deployed responses while Cloudflare bindings converge", () =>
   Effect.gen(function* () {
-    const deployment = yield* parseOverseerApiDeployment("deployed")({
+    const deployment = yield* resolveOverseerApiDeployment("deployed", {
       url: "https://overseer-api-test-user-run.mulroy.ai",
       agentClientId: "agent-client-id",
       agentClientSecret: Redacted.make("access-secret"),
@@ -119,35 +119,33 @@ it.effect("retries transient deployed responses while Cloudflare bindings conver
 
 it.effect("does not retry ambiguous deployed transport failures", () =>
   Effect.gen(function* () {
-    const deployment = yield* parseOverseerApiDeployment("deployed")({
+    const deployment = yield* resolveOverseerApiDeployment("deployed", {
       url: "https://overseer-api-test-user-run.mulroy.ai",
       agentClientId: "agent-client-id",
       agentClientSecret: Redacted.make("access-secret"),
     });
     const attempts = yield* Ref.make(0);
     const ambiguousHttpClient = HttpClient.make((request) =>
-      Ref.updateAndGet(attempts, (count) => count + 1).pipe(
-        Effect.flatMap((attempt) =>
-          attempt === 1
-            ? Effect.fail(
-                new HttpClientError({
-                  reason: new TransportError({
-                    request,
-                    description: "ambiguous test transport failure",
-                  }),
-                }),
-              )
-            : Effect.succeed(
-                HttpClientResponse.fromWeb(
-                  request,
-                  new Response(JSON.stringify("Overseer API"), {
-                    status: 200,
-                    headers: { "content-type": "application/json" },
-                  }),
-                ),
-              ),
-        ),
-      ),
+      Effect.gen(function* () {
+        const attempt = yield* Ref.updateAndGet(attempts, (count) => count + 1);
+        if (attempt === 1) {
+          return yield* Effect.fail(
+            new HttpClientError({
+              reason: new TransportError({
+                request,
+                description: "ambiguous test transport failure",
+              }),
+            }),
+          );
+        }
+        return HttpClientResponse.fromWeb(
+          request,
+          new Response(JSON.stringify("Overseer API"), {
+            status: 200,
+            headers: { "content-type": "application/json" },
+          }),
+        );
+      }),
     );
 
     const identityFiber = yield* Effect.gen(function* () {

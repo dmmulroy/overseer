@@ -201,21 +201,24 @@ export const cloudflareAccessVerifierLayerForEnvironment = Layer.effect(
   CloudflareAccessVerifier,
   Effect.gen(function* () {
     const configuredVerifier = yield* Effect.cached(
-      OverseerEnvironmentConfig.pipe(
-        Effect.flatMap((environment) =>
-          environment === "development"
-            ? Effect.succeed(localCloudflareAccessVerifier)
-            : makeProductionCloudflareAccessVerifier,
-        ),
-      ),
+      Effect.gen(function* () {
+        const environment = yield* OverseerEnvironmentConfig;
+        if (environment === "development") return localCloudflareAccessVerifier;
+        return yield* makeProductionCloudflareAccessVerifier;
+      }),
     );
 
     return CloudflareAccessVerifier.of({
-      verifyAccessAssertion: (assertion) =>
-        configuredVerifier.pipe(
-          Effect.mapError(() => new CloudflareAccessVerificationFailed("verification_unavailable")),
-          Effect.flatMap((verifier) => verifier.verifyAccessAssertion(assertion)),
-        ),
+      verifyAccessAssertion: Effect.fn("CloudflareAccessVerifier.verifyAccessAssertion")(
+        function* (assertion) {
+          const verifier = yield* configuredVerifier.pipe(
+            Effect.mapError(
+              () => new CloudflareAccessVerificationFailed("verification_unavailable"),
+            ),
+          );
+          return yield* verifier.verifyAccessAssertion(assertion);
+        },
+      ),
     });
   }),
 );

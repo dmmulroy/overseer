@@ -1,11 +1,12 @@
 import * as Alchemy from "alchemy";
+import type { Input } from "alchemy";
 import * as Cloudflare from "alchemy/Cloudflare";
 import { Effect, Option } from "effect";
 import apiWorkerLayer, { ApiWorker } from "./src/api-worker.ts";
 import { OverseerApiAccessDeployment } from "./src/overseer-api-access.ts";
 
 /** Provision the production Access-protected API or start its local workerd implementation. */
-export default Alchemy.Stack(
+const OverseerApiStack = Alchemy.Stack(
   "Overseer",
   {
     providers: Cloudflare.providers(),
@@ -26,3 +27,11 @@ export default Alchemy.Stack(
     });
   }).pipe(Effect.provide(apiWorkerLayer)),
 );
+
+/** Raw typed output produced while compiling the Overseer API Stack. */
+export type OverseerApiStackOutput = Effect.Success<typeof OverseerApiStack>["output"];
+
+/** Typed deployment output returned after Alchemy resolves the Overseer API Stack. */
+export type OverseerApiStackDeployment = Input.Resolve<OverseerApiStackOutput>;
+
+export default OverseerApiStack;

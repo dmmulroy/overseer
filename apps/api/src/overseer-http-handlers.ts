@@ -120,31 +120,31 @@ export const overseerHttpHandlersLayer = HttpApiBuilder.group(
           ),
         )
         .handle("getWorkspace", ({ params }) =>
-          overseer.workspace.getWorkspace(params.workspaceId).pipe(
-            Effect.catchTag(
-              "GetWorkspaceError",
-              (error): Effect.Effect<never, ExistingWorkspaceApiError, CurrentRequestId> => {
-                switch (error.reason) {
-                  case "workspace_not_found":
-                    return failWorkspaceNotFound(params.workspaceId, "get");
-                  case "stored_workspace_invalid":
-                    return failWorkspaceOperation("get", Option.some(params.workspaceId));
-                  case "database_unavailable":
-                    return failWorkspaceServiceUnavailable(
-                      "get",
-                      Option.some(params.workspaceId),
-                      true,
-                    );
-                }
-              },
-            ),
-            Effect.flatMap(
-              Option.match({
-                onNone: () => failWorkspaceNotFound(params.workspaceId, "get"),
-                onSome: Effect.succeed,
-              }),
-            ),
-          ),
+          Effect.gen(function* () {
+            const workspace = yield* overseer.workspace.getWorkspace(params.workspaceId).pipe(
+              Effect.catchTag(
+                "GetWorkspaceError",
+                (error): Effect.Effect<never, ExistingWorkspaceApiError, CurrentRequestId> => {
+                  switch (error.reason) {
+                    case "workspace_not_found":
+                      return failWorkspaceNotFound(params.workspaceId, "get");
+                    case "stored_workspace_invalid":
+                      return failWorkspaceOperation("get", Option.some(params.workspaceId));
+                    case "database_unavailable":
+                      return failWorkspaceServiceUnavailable(
+                        "get",
+                        Option.some(params.workspaceId),
+                        true,
+                      );
+                  }
+                },
+              ),
+            );
+            if (Option.isNone(workspace)) {
+              return yield* failWorkspaceNotFound(params.workspaceId, "get");
+            }
+            return workspace.value;
+          }),
         )
         .handle("renameWorkspace", ({ params, payload }) =>
           overseer.workspace.renameWorkspace({ id: params.workspaceId, name: payload.name }).pipe(

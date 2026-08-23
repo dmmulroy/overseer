@@ -1,9 +1,7 @@
+import { OVERSEER_TEST_TRACE_COLLECTOR_PRODUCTION_DOMAIN } from "@overseer/shared-infrastructure";
 import { ALCHEMY_DEV } from "alchemy";
 import { Stack } from "alchemy/Stack";
 import { Effect, Schema } from "effect";
-
-/** Production hostname for the Access-protected test trace collector. */
-export const TEST_TRACE_COLLECTOR_PRODUCTION_DOMAIN = "ttc.mulroy.cloud";
 
 /** Cloudflare script name reserved for the Production test trace collector Worker. */
 export const TEST_TRACE_COLLECTOR_PRODUCTION_WORKER_NAME = "test-trace-collector-production";
@@ -21,7 +19,7 @@ export const TestTraceCollectorDeploymentTarget = Schema.TaggedUnion({
     workersDev: Schema.Literal(true),
   },
   Production: {
-    domain: Schema.Literal(TEST_TRACE_COLLECTOR_PRODUCTION_DOMAIN),
+    domain: Schema.Literal(OVERSEER_TEST_TRACE_COLLECTOR_PRODUCTION_DOMAIN),
     workerName: Schema.Literal(TEST_TRACE_COLLECTOR_PRODUCTION_WORKER_NAME),
     workersDev: Schema.Literal(false),
   },
@@ -48,7 +46,7 @@ export const selectTestTraceCollectorDeploymentTarget = ({
 
   return stage === TEST_TRACE_COLLECTOR_PRODUCTION_STAGE
     ? TestTraceCollectorDeploymentTarget.cases.Production.make({
-        domain: TEST_TRACE_COLLECTOR_PRODUCTION_DOMAIN,
+        domain: OVERSEER_TEST_TRACE_COLLECTOR_PRODUCTION_DOMAIN,
         workerName: TEST_TRACE_COLLECTOR_PRODUCTION_WORKER_NAME,
         workersDev: false,
       })

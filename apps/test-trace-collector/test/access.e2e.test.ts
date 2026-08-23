@@ -9,34 +9,11 @@ import { HttpClientRequest } from "effect/unstable/http";
 import { OtlpExporter, OtlpSerialization, OtlpTracer } from "effect/unstable/observability";
 import TestTraceCollectorStack from "../alchemy.run.ts";
 
-const TestTraceCollectorLocalDeployment = Schema.Struct({
-  url: Schema.URLFromString,
-});
-
-const TestTraceCollectorPreviewDeployment = Schema.Struct({
-  url: Schema.URLFromString,
-  accessAudience: Schema.NonEmptyString,
-});
-
-const TestTraceCollectorAccessCredentials = Schema.Struct({
-  clientId: Schema.NonEmptyString,
-  clientSecret: Schema.UndefinedOr(Schema.Redacted(Schema.NonEmptyString)),
-});
-
 class TestTraceCollectorAccessSecretUnavailable extends Schema.TaggedError<TestTraceCollectorAccessSecretUnavailable>()(
   "TestTraceCollectorAccessSecretUnavailable",
   { message: Schema.String },
 ) {}
 
-const parseTestTraceCollectorLocalDeployment = Schema.decodeUnknownEffect(
-  TestTraceCollectorLocalDeployment,
-);
-const parseTestTraceCollectorPreviewDeployment = Schema.decodeUnknownEffect(
-  TestTraceCollectorPreviewDeployment,
-);
-const parseTestTraceCollectorAccessCredentials = Schema.decodeUnknownEffect(
-  TestTraceCollectorAccessCredentials,
-);
 const TestTraceCollectorEndToEndTarget = Schema.Literals(["local", "preview"]);
 const testStage = Effect.runSync(Config.schema(Schema.NonEmptyString, "ALCHEMY_TEST_STAGE"));
 const testTarget = Effect.runSync(
@@ -63,6 +40,17 @@ const TestTraceCollectorAccessCredentialsStack = Alchemy.Stack(
       clientSecret: sharedInfrastructure.traceCollectorAccessClientSecret,
     };
   }),
+);
+
+const resolveTestTraceCollectorUrl = Effect.fn("TestTraceCollectorDeployment.resolveUrl")(
+  function* (url: string | undefined) {
+    if (url === undefined) {
+      return yield* Effect.die(
+        new Error("Test trace collector deployment URL is unavailable. Deploy the Stack again."),
+      );
+    }
+    return new URL(url);
+  },
 );
 
 const unavailableTraceId = TestTraceId.make("0123456789abcdef0123456789abcdef");
@@ -106,11 +94,10 @@ const verifyTestTraceRoundTrip = (
   }).pipe(Layer.provide(OtlpSerialization.layerJson));
 
   return Effect.gen(function* () {
-    const traceId = yield* Effect.currentSpan.pipe(
-      Effect.map((span) => span.traceId),
-      Effect.flatMap(parseExportedTestTraceId),
-      Effect.withSpan(collectorAcceptanceSpanName, { root: true }),
-    );
+    const traceId = yield* Effect.gen(function* () {
+      const span = yield* Effect.currentSpan;
+      return yield* parseExportedTestTraceId(span.traceId);
+    }).pipe(Effect.withSpan(collectorAcceptanceSpanName, { root: true }));
     const flusher = yield* OtlpExporter.Flusher;
     yield* flusher.flush;
 
@@ -124,7 +111,8 @@ const verifyTestTraceRoundTrip = (
       { times: 60 },
     );
     assert.strictEqual(retrievalResponse.status, 200);
-    const retrievedTrace = yield* retrievalResponse.json.pipe(Effect.flatMap(parseOtlpTraceData));
+    const retrievedTraceJson = yield* retrievalResponse.json;
+    const retrievedTrace = yield* parseOtlpTraceData(retrievedTraceJson);
     const retrievedSpans = retrievedTrace.resourceSpans.flatMap((resourceSpan) =>
       resourceSpan.scopeSpans.flatMap((scopeSpan) => scopeSpan.spans),
     );
@@ -143,16 +131,15 @@ if (testTarget === "local") {
       dev: true,
     });
     const deployment = alchemyTest.beforeAll(
-      alchemyTest.deploy(TestTraceCollectorStack).pipe(
-        Effect.flatMap((output) => {
-          if (Object.hasOwn(output, "accessAudience")) {
-            return Effect.die(
-              new Error("Local test trace collector unexpectedly provisioned Cloudflare Access."),
-            );
-          }
-          return parseTestTraceCollectorLocalDeployment(output);
-        }),
-      ),
+      Effect.gen(function* () {
+        const output = yield* alchemyTest.deploy(TestTraceCollectorStack);
+        if (Object.hasOwn(output, "accessAudience")) {
+          return yield* Effect.die(
+            new Error("Local test trace collector unexpectedly provisioned Cloudflare Access."),
+          );
+        }
+        return { url: yield* resolveTestTraceCollectorUrl(output.url) };
+      }),
       { timeout: 600_000 },
     );
 
@@ -175,29 +162,34 @@ if (testTarget === "local") {
     });
 
     const deployment = alchemyTest.beforeAll(
-      alchemyTest
-        .deploy(TestTraceCollectorStack)
-        .pipe(Effect.flatMap(parseTestTraceCollectorPreviewDeployment)),
+      Effect.gen(function* () {
+        const output = yield* alchemyTest.deploy(TestTraceCollectorStack);
+        if (!("accessAudience" in output)) {
+          return yield* Effect.die(
+            new Error("Preview test trace collector did not provision Cloudflare Access."),
+          );
+        }
+        return { url: yield* resolveTestTraceCollectorUrl(output.url) };
+      }),
       { timeout: 600_000 },
     );
 
     const accessCredentials = alchemyTest.beforeAll(
-      alchemyTest.deploy(TestTraceCollectorAccessCredentialsStack).pipe(
-        Effect.flatMap(parseTestTraceCollectorAccessCredentials),
-        Effect.flatMap((credentials) =>
-          Option.match(Option.fromUndefinedOr(credentials.clientSecret), {
-            onNone: () =>
-              Effect.fail(
-                new TestTraceCollectorAccessSecretUnavailable({
-                  message:
-                    "Test trace collector Access service-token secret is unavailable. Rotate the shared service token before running deployed collector acceptance tests.",
-                }),
-              ),
-            onSome: (clientSecret) =>
-              Effect.succeed({ clientId: credentials.clientId, clientSecret }),
-          }),
-        ),
-      ),
+      Effect.gen(function* () {
+        const credentials = yield* alchemyTest.deploy(TestTraceCollectorAccessCredentialsStack);
+        if (credentials.clientSecret === undefined) {
+          return yield* Effect.fail(
+            new TestTraceCollectorAccessSecretUnavailable({
+              message:
+                "Test trace collector Access service-token secret is unavailable. Rotate the shared service token before running deployed collector acceptance tests.",
+            }),
+          );
+        }
+        return {
+          clientId: credentials.clientId,
+          clientSecret: credentials.clientSecret,
+        };
+      }),
     );
 
     alchemyTest.afterAll(alchemyTest.destroy(TestTraceCollectorAccessCredentialsStack), {

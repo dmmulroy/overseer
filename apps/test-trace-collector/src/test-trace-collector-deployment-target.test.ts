@@ -1,7 +1,7 @@
+import { OVERSEER_TEST_TRACE_COLLECTOR_PRODUCTION_DOMAIN } from "@overseer/shared-infrastructure";
 import { assert, it } from "@effect/vitest";
 import {
   selectTestTraceCollectorDeploymentTarget,
-  TEST_TRACE_COLLECTOR_PRODUCTION_DOMAIN,
   TEST_TRACE_COLLECTOR_PRODUCTION_WORKER_NAME,
 } from "./test-trace-collector-deployment-target.ts";
 
@@ -18,7 +18,7 @@ it("reserves the production custom domain for the production stage", () => {
       workersDev: false,
     },
   );
-  assert.strictEqual(TEST_TRACE_COLLECTOR_PRODUCTION_DOMAIN, "ttc.mulroy.cloud");
+  assert.strictEqual(OVERSEER_TEST_TRACE_COLLECTOR_PRODUCTION_DOMAIN, "ttc.mulroy.cloud");
   assert.strictEqual(
     TEST_TRACE_COLLECTOR_PRODUCTION_WORKER_NAME,
     "test-trace-collector-production",

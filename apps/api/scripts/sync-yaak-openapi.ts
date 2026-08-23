@@ -63,9 +63,10 @@ const loadYaakWorkspace = Effect.fn("loadYaakWorkspace")(function* (workspaceId:
 const loadYaakRequestsByName = Effect.fn("loadYaakRequestsByName")(function* (workspaceId: string) {
   const requestIds = yield* listYaakModelIds(workspaceId, "request");
   const requests = yield* Effect.forEach(requestIds, (requestId) =>
-    runYaakCommand(["request", "show", requestId]).pipe(
-      Effect.flatMap((output) => parseYaakJson(YaakHttpRequest, output, `request ${requestId}`)),
-    ),
+    Effect.gen(function* () {
+      const output = yield* runYaakCommand(["request", "show", requestId]);
+      return yield* parseYaakJson(YaakHttpRequest, output, `request ${requestId}`);
+    }),
   );
   return new Map(requests.map((request) => [request.name, request] as const));
 });
@@ -180,11 +181,10 @@ const syncYaakOpenApi = Effect.fn("syncYaakOpenApi")(function* () {
 
   const environmentIds = yield* listYaakModelIds(workspaceId, "environment");
   const environments = yield* Effect.forEach(environmentIds, (environmentId) =>
-    runYaakCommand(["environment", "show", environmentId]).pipe(
-      Effect.flatMap((output) =>
-        parseYaakJson(YaakEnvironment, output, `environment ${environmentId}`),
-      ),
-    ),
+    Effect.gen(function* () {
+      const output = yield* runYaakCommand(["environment", "show", environmentId]);
+      return yield* parseYaakJson(YaakEnvironment, output, `environment ${environmentId}`);
+    }),
   );
   const baseEnvironment = yield* Option.fromNullishOr(
     environments.find((environment) => environment.base),

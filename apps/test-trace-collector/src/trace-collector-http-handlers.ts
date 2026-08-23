@@ -16,22 +16,18 @@ export const traceCollectorHttpHandlersLayer = HttpApiBuilder.group(
           testRunTraces.ingestOtlpTraces(params.testRunId, payload),
         )
         .handle("getTestTrace", ({ params }) =>
-          testRunTraces.findTestTrace(params.testRunId, params.traceId).pipe(
-            Effect.flatMap(
-              Option.match({
-                onNone: () =>
-                  Effect.fail(
-                    new TestTraceNotFoundError({
-                      code: "test_trace_not_found",
-                      message: `Test trace ${params.traceId} was not found in test run ${params.testRunId}`,
-                      testRunId: params.testRunId,
-                      traceId: params.traceId,
-                    }),
-                  ),
-                onSome: Effect.succeed,
-              }),
-            ),
-          ),
+          Effect.gen(function* () {
+            const trace = yield* testRunTraces.findTestTrace(params.testRunId, params.traceId);
+            if (Option.isNone(trace)) {
+              return yield* new TestTraceNotFoundError({
+                code: "test_trace_not_found",
+                message: `Test trace ${params.traceId} was not found in test run ${params.testRunId}`,
+                testRunId: params.testRunId,
+                traceId: params.traceId,
+              });
+            }
+            return trace.value;
+          }),
         );
     }),
 );
