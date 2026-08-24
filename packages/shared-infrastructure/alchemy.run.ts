@@ -3,6 +3,7 @@ import { Effect } from "effect";
 
 import { OverseerEmailAllowlistAccessPolicyResource } from "./src/overseer-email-allowlist-access-policy.ts";
 import { OverseerEmailOneTimePinIdentityProviderLookup } from "./src/overseer-email-one-time-pin-identity-provider-lookup.ts";
+import { OverseerEventDataLakeResources } from "./src/overseer-event-data-lake.ts";
 import { OverseerSharedInfrastructureStack } from "./src/overseer-shared-infrastructure-stack.ts";
 import { OverseerTraceCollectorAccessPolicyResource } from "./src/overseer-trace-collector-access-policy.ts";
 import { OverseerTraceCollectorServiceTokenResource } from "./src/overseer-trace-collector-service-token.ts";
@@ -15,6 +16,7 @@ export default OverseerSharedInfrastructureStack.make(
   },
   Effect.gen(function* () {
     const emailAllowlistAccessPolicy = yield* OverseerEmailAllowlistAccessPolicyResource;
+    const eventDataLake = yield* OverseerEventDataLakeResources;
     const traceCollectorAccessPolicy = yield* OverseerTraceCollectorAccessPolicyResource;
     const traceCollectorServiceToken = yield* OverseerTraceCollectorServiceTokenResource;
 
@@ -22,6 +24,10 @@ export default OverseerSharedInfrastructureStack.make(
       emailAllowlistAccessPolicyId: emailAllowlistAccessPolicy.policyId,
       emailOneTimePinIdentityProviderId:
         OverseerEmailOneTimePinIdentityProviderLookup.identityProviderId.as<string>(),
+      eventDataBucketName: eventDataLake.bucket.bucketName,
+      eventDataCatalogUri: eventDataLake.catalog.catalogUri,
+      eventDataWarehouseName: eventDataLake.catalog.name,
+      eventStreamId: eventDataLake.stream.streamId,
       traceCollectorAccessClientId: traceCollectorServiceToken.clientId,
       traceCollectorAccessClientSecret: traceCollectorServiceToken.clientSecret,
       traceCollectorAccessPolicyId: traceCollectorAccessPolicy.policyId,

@@ -11,6 +11,14 @@ export class OverseerSharedInfrastructureStack extends Alchemy.Stack<
     readonly emailAllowlistAccessPolicyId: string;
     /** Existing account-level identity provider observed without lifecycle ownership. */
     readonly emailOneTimePinIdentityProviderId: string;
+    /** Retained R2 bucket storing raw events and curated entity snapshots. */
+    readonly eventDataBucketName: string;
+    /** Iceberg REST catalog endpoint for the Overseer event data lake. */
+    readonly eventDataCatalogUri: string;
+    /** Cloudflare-generated R2 Data Catalog warehouse queried by analytics clients. */
+    readonly eventDataWarehouseName: string;
+    /** Cloudflare Pipelines stream receiving encoded Overseer events. */
+    readonly eventStreamId: string;
     /** Service-token policy referenced by Production and Preview collector Access applications. */
     readonly traceCollectorAccessPolicyId: string;
     /** Client ID sent by Overseer runtimes to the Access-protected trace collector. */
