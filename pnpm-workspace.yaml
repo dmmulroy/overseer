@@ -5,6 +5,7 @@ packages:
 allowBuilds:
   fsevents: true
   msgpackr-extract: true
+  sharp: false
   workerd: true
 
 minimumReleaseAgeExclude:
@@ -35,6 +36,9 @@ overrides:
   lodash: "4.18.1"
   valibot: "1.4.2"
   vite: "npm:@voidzero-dev/vite-plus-core@0.2.9"
+
+patchedDependencies:
+  alchemy@2.0.0-beta.72: patches/alchemy@2.0.0-beta.72.patch
 
 peerDependencyRules:
   allowedVersions:

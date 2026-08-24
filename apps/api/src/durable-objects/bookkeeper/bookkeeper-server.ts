@@ -101,7 +101,7 @@ const bookkeeperServerLayer: Layer.Layer<BookkeeperServer, never, Cloudflare.Wor
         );
         const fetch = yield* HttpRouter.toHttpEffect(httpLayer);
         return {
-          fetch: withOverseerHttpObservability(fetch, "overseer-bookkeeper-durable-object"),
+          fetch: withOverseerHttpObservability(fetch, "bookkeeper-durable-object"),
         };
       }).pipe(Effect.orDie);
     }),

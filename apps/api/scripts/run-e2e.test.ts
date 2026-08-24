@@ -1,7 +1,7 @@
 import { NodeCrypto } from "@effect/platform-node";
 import { assert, describe, it } from "@effect/vitest";
 import { Effect, Schema } from "effect";
-import { TestRun } from "../test/e2e/overseer-test-run.ts";
+import { TestRun } from "../test/e2e/harness/overseer-test-run.ts";
 import { makeOverseerEvidenceDirectory, makeOverseerTestRun } from "./run-e2e.ts";
 
 describe("Overseer end-to-end test runner", () => {

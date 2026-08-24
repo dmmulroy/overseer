@@ -4,7 +4,7 @@ import { DatabaseSync } from "node:sqlite";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { assert, describe, it } from "@effect/vitest";
-import { TestRunId, TestStage } from "@overseer/test-trace-protocol";
+import { TestRunId, TestStage } from "../../../src/overseer-e2e-trace-identity.ts";
 import { ConfigProvider, DateTime, Effect, Option, Schema } from "effect";
 import { TestArtifactRef } from "./test-artifact.ts";
 import { TestArtifactId, TestExecutionId, TestId } from "./test-evidence-identity.ts";

@@ -1,6 +1,6 @@
 import { readFile } from "node:fs/promises";
 import { extname } from "node:path";
-import type { TestRunId } from "@overseer/test-trace-protocol";
+import type { TestRunId } from "../../../src/overseer-e2e-trace-identity.ts";
 import { Context, DateTime, Effect, Layer, Schema } from "effect";
 import {
   TestArtifactRef,

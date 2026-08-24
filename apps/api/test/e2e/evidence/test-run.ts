@@ -1,10 +1,10 @@
-import { TestRunId, TestStage } from "@overseer/test-trace-protocol";
+import { TestRunId, TestStage } from "../../../src/overseer-e2e-trace-identity.ts";
 import { Schema } from "effect";
-import { OverseerTestTarget } from "../overseer-test-run.ts";
+import { OverseerTestTarget } from "../harness/overseer-test-run.ts";
 import { TestArtifactRef } from "./test-artifact.ts";
 import { TestAssertionRecord } from "./test-assertion.ts";
 import { TestExecutionId, TestId } from "./test-evidence-identity.ts";
-import { TestExecutionTraceEvidence } from "./test-execution-trace-ref.ts";
+import { TestExecutionTraceEvidence } from "./test-execution-trace-evidence.ts";
 
 /** Lifecycle status of a complete end-to-end test run. */
 export const TestRunStatus = Schema.Literals([

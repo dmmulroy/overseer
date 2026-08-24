@@ -1,5 +1,5 @@
 import { assert, describe, it } from "@effect/vitest";
-import { TestRunId } from "@overseer/test-trace-protocol";
+import { TestRunId } from "../../../src/overseer-e2e-trace-identity.ts";
 import { Effect, Layer } from "effect";
 import { TestAssert } from "./test-assert.ts";
 import { TestEvidence } from "./test-evidence.ts";

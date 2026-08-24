@@ -47,7 +47,7 @@ export const workspaceServerLayerWithoutDependencies: Layer.Layer<
 
       const fetch = yield* HttpRouter.toHttpEffect(workspaceHttpLayer);
       return {
-        fetch: withOverseerHttpObservability(fetch, "overseer-workspace-durable-object"),
+        fetch: withOverseerHttpObservability(fetch, "workspace-durable-object"),
       };
     }).pipe(Effect.orDie);
   }),

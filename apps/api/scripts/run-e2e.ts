@@ -1,6 +1,6 @@
 import { resolve } from "node:path";
 import { NodeRuntime, NodeServices } from "@effect/platform-node";
-import { makeTestRunIdFromStage } from "@overseer/test-trace-protocol";
+import { deriveTestRunIdFromStage } from "../src/overseer-e2e-trace-identity.ts";
 import { Clock, Config, Crypto, Effect, Exit, Runtime, Schema } from "effect";
 import { ChildProcess, ChildProcessSpawner } from "effect/unstable/process";
 import {
@@ -11,7 +11,7 @@ import {
   OverseerTestTarget,
   type OverseerTestTarget as OverseerTestTargetValue,
   TestRun,
-} from "../test/e2e/overseer-test-run.ts";
+} from "../test/e2e/harness/overseer-test-run.ts";
 
 class OverseerEndToEndCommandFailed extends Schema.TaggedError<OverseerEndToEndCommandFailed>()(
   "OverseerEndToEndCommandFailed",
@@ -83,7 +83,7 @@ const runOverseerEndToEndTests = Effect.fn("runOverseerEndToEndTests")(function*
         ALCHEMY_TEST_STAGE: testRun.stage,
         OVERSEER_TEST_TARGET: testRun.target,
         OVERSEER_TEST_STAGE: testRun.stage,
-        OVERSEER_TEST_RUN_ID: makeTestRunIdFromStage(testRun.stage),
+        OVERSEER_TEST_RUN_ID: deriveTestRunIdFromStage(testRun.stage),
         OVERSEER_EVIDENCE_DIRECTORY: evidenceDirectory,
       },
     }),

@@ -211,6 +211,9 @@ overrides:
   valibot: 1.4.2
   vite: npm:@voidzero-dev/vite-plus-core@0.2.9
 
+patchedDependencies:
+  alchemy@2.0.0-beta.72: bc09756fddfbdad8ecd5de11e11c959d41d4e379a10207054a652ccbcce6b63e
+
 importers:
 
   .:
@@ -221,9 +224,12 @@ importers:
       '@oxlint/plugins':
         specifier: 1.78.0
         version: 1.78.0
+      '@types/node':
+        specifier: 26.2.0
+        version: 26.2.0
       alchemy:
         specifier: 2.0.0-beta.72
-        version: 2.0.0-beta.72(@effect/platform-node@4.0.0-beta.107(effect@4.0.0-beta.107)(ioredis@5.11.1))(@vercel/nft@1.10.2)(@voidzero-dev/vite-plus-core@0.2.9(@types/node@26.2.0)(typescript@7.0.2)(yaml@2.9.0))(effect@4.0.0-beta.107)(mongodb@6.21.0(@aws-sdk/credential-providers@3.1107.0)(socks@2.8.9))(mysql2@3.23.2(@types/node@26.2.0))(pg@8.22.0)(typescript@7.0.2)(vitest@4.1.10)(ws@8.21.3)
+        version: 2.0.0-beta.72(patch_hash=bc09756fddfbdad8ecd5de11e11c959d41d4e379a10207054a652ccbcce6b63e)(@effect/platform-node@4.0.0-beta.107(effect@4.0.0-beta.107)(ioredis@5.11.1))(@vercel/nft@1.10.2)(@voidzero-dev/vite-plus-core@0.2.9(@types/node@26.2.0)(typescript@7.0.2)(yaml@2.9.0))(effect@4.0.0-beta.107)(mongodb@6.21.0(@aws-sdk/credential-providers@3.1107.0)(socks@2.8.9))(mysql2@3.23.2(@types/node@26.2.0))(pg@8.22.0)(typescript@7.0.2)(vitest@4.1.10)(ws@8.21.3)
       effect:
         specifier: 4.0.0-beta.107
         version: 4.0.0-beta.107
@@ -245,9 +251,6 @@ importers:
       '@overseer/shared-infrastructure':
         specifier: workspace:*
         version: link:../../packages/shared-infrastructure
-      '@overseer/test-trace-protocol':
-        specifier: workspace:*
-        version: link:../../packages/test-trace-protocol
       effect:
         specifier: 4.0.0-beta.107
         version: 4.0.0-beta.107
@@ -269,76 +272,20 @@ importers:
         version: 26.2.0
       alchemy:
         specifier: 2.0.0-beta.72
-        version: 2.0.0-beta.72(@effect/platform-node@4.0.0-beta.107(effect@4.0.0-beta.107)(ioredis@5.11.1))(@vercel/nft@1.10.2)(@voidzero-dev/vite-plus-core@0.2.9(@types/node@26.2.0)(typescript@7.0.2)(yaml@2.9.0))(effect@4.0.0-beta.107)(mongodb@6.21.0(@aws-sdk/credential-providers@3.1107.0)(socks@2.8.9))(mysql2@3.23.2(@types/node@26.2.0))(pg@8.22.0)(typescript@7.0.2)(vitest@4.1.10)(ws@8.21.3)
+        version: 2.0.0-beta.72(patch_hash=bc09756fddfbdad8ecd5de11e11c959d41d4e379a10207054a652ccbcce6b63e)(@effect/platform-node@4.0.0-beta.107(effect@4.0.0-beta.107)(ioredis@5.11.1))(@vercel/nft@1.10.2)(@voidzero-dev/vite-plus-core@0.2.9(@types/node@26.2.0)(typescript@7.0.2)(yaml@2.9.0))(effect@4.0.0-beta.107)(mongodb@6.21.0(@aws-sdk/credential-providers@3.1107.0)(socks@2.8.9))(mysql2@3.23.2(@types/node@26.2.0))(pg@8.22.0)(typescript@7.0.2)(vitest@4.1.10)(ws@8.21.3)
       typescript:
         specifier: 7.0.2
         version: 7.0.2
-
-  apps/test-trace-collector:
-    dependencies:
-      '@effect/sql-sqlite-do':
-        specifier: 4.0.0-beta.107
-        version: 4.0.0-beta.107(effect@4.0.0-beta.107)
-      '@overseer/shared-infrastructure':
-        specifier: workspace:*
-        version: link:../../packages/shared-infrastructure
-      '@overseer/test-trace-protocol':
-        specifier: workspace:*
-        version: link:../../packages/test-trace-protocol
-      effect:
-        specifier: 4.0.0-beta.107
-        version: 4.0.0-beta.107
-    devDependencies:
-      '@cloudflare/workers-types':
-        specifier: 5.20260812.1
-        version: 5.20260812.1
-      '@effect/platform-node':
-        specifier: 4.0.0-beta.107
-        version: 4.0.0-beta.107(effect@4.0.0-beta.107)(ioredis@5.11.1)
-      '@effect/sql-sqlite-node':
-        specifier: 4.0.0-beta.107
-        version: 4.0.0-beta.107(effect@4.0.0-beta.107)
-      '@effect/vitest':
-        specifier: 4.0.0-beta.107
-        version: 4.0.0-beta.107(effect@4.0.0-beta.107)(vitest@4.1.10)
-      '@types/node':
-        specifier: 26.2.0
-        version: 26.2.0
-      alchemy:
-        specifier: 2.0.0-beta.72
-        version: 2.0.0-beta.72(@effect/platform-node@4.0.0-beta.107(effect@4.0.0-beta.107)(ioredis@5.11.1))(@vercel/nft@1.10.2)(@voidzero-dev/vite-plus-core@0.2.9(@types/node@26.2.0)(typescript@7.0.2)(yaml@2.9.0))(effect@4.0.0-beta.107)(mongodb@6.21.0(@aws-sdk/credential-providers@3.1107.0)(socks@2.8.9))(mysql2@3.23.2(@types/node@26.2.0))(pg@8.22.0)(typescript@7.0.2)(vitest@4.1.10)(ws@8.21.3)
-      typescript:
-        specifier: 7.0.2
-        version: 7.0.2
-      vite-plus:
-        specifier: 0.2.9
-        version: 0.2.9(@types/node@26.2.0)(@voidzero-dev/vite-plus-core@0.2.9(@types/node@26.2.0)(typescript@7.0.2)(yaml@2.9.0))(typescript@7.0.2)(yaml@2.9.0)
 
   packages/shared-infrastructure:
     dependencies:
       alchemy:
         specifier: 2.0.0-beta.72
-        version: 2.0.0-beta.72(@effect/platform-node@4.0.0-beta.107(effect@4.0.0-beta.107)(ioredis@5.11.1))(@vercel/nft@1.10.2)(@voidzero-dev/vite-plus-core@0.2.9(@types/node@26.2.0)(typescript@7.0.2)(yaml@2.9.0))(effect@4.0.0-beta.107)(mongodb@6.21.0(@aws-sdk/credential-providers@3.1107.0)(socks@2.8.9))(mysql2@3.23.2(@types/node@26.2.0))(pg@8.22.0)(typescript@7.0.2)(vitest@4.1.10)(ws@8.21.3)
+        version: 2.0.0-beta.72(patch_hash=bc09756fddfbdad8ecd5de11e11c959d41d4e379a10207054a652ccbcce6b63e)(@effect/platform-node@4.0.0-beta.107(effect@4.0.0-beta.107)(ioredis@5.11.1))(@vercel/nft@1.10.2)(@voidzero-dev/vite-plus-core@0.2.9(@types/node@26.2.0)(typescript@7.0.2)(yaml@2.9.0))(effect@4.0.0-beta.107)(mongodb@6.21.0(@aws-sdk/credential-providers@3.1107.0)(socks@2.8.9))(mysql2@3.23.2(@types/node@26.2.0))(pg@8.22.0)(typescript@7.0.2)(vitest@4.1.10)(ws@8.21.3)
       effect:
         specifier: 4.0.0-beta.107
         version: 4.0.0-beta.107
     devDependencies:
-      typescript:
-        specifier: 7.0.2
-        version: 7.0.2
-      vite-plus:
-        specifier: 0.2.9
-        version: 0.2.9(@types/node@26.2.0)(@voidzero-dev/vite-plus-core@0.2.9(@types/node@26.2.0)(typescript@7.0.2)(yaml@2.9.0))(typescript@7.0.2)(yaml@2.9.0)
-
-  packages/test-trace-protocol:
-    dependencies:
-      effect:
-        specifier: 4.0.0-beta.107
-        version: 4.0.0-beta.107
-    devDependencies:
-      '@effect/vitest':
-        specifier: 4.0.0-beta.107
-        version: 4.0.0-beta.107(effect@4.0.0-beta.107)(vitest@4.1.10)
       typescript:
         specifier: 7.0.2
         version: 7.0.2
@@ -576,11 +523,6 @@ packages:
 
   '@effect/sql-sqlite-do@4.0.0-beta.107':
     resolution: {integrity: sha512-masFQKrc0MMWT3898133Mc6O76WosTmhtlPRaNlfYz0NBDTfrsogUoZ7bTizmBUEIngRaKFNwRJpeO/PusiE+g==}
-    peerDependencies:
-      effect: ^4.0.0-beta.107
-
-  '@effect/sql-sqlite-node@4.0.0-beta.107':
-    resolution: {integrity: sha512-hfYptkItEs/AdEIPEDkziC1TbnC7FyGISowKIvaZtscoWyxPaUtWsxM8EYgfOJ61aZwGgKQxZlXIgJ0fw25Lng==}
     peerDependencies:
       effect: ^4.0.0-beta.107
 
@@ -3789,10 +3731,6 @@ snapshots:
     dependencies:
       effect: 4.0.0-beta.107
 
-  '@effect/sql-sqlite-node@4.0.0-beta.107(effect@4.0.0-beta.107)':
-    dependencies:
-      effect: 4.0.0-beta.107
-
   '@effect/vitest@4.0.0-beta.107(effect@4.0.0-beta.107)(vitest@4.1.10)':
     dependencies:
       effect: 4.0.0-beta.107
@@ -4836,7 +4774,7 @@ snapshots:
 
   agent-base@7.1.4: {}
 
-  alchemy@2.0.0-beta.72(@effect/platform-node@4.0.0-beta.107(effect@4.0.0-beta.107)(ioredis@5.11.1))(@vercel/nft@1.10.2)(@voidzero-dev/vite-plus-core@0.2.9(@types/node@26.2.0)(typescript@7.0.2)(yaml@2.9.0))(effect@4.0.0-beta.107)(mongodb@6.21.0(@aws-sdk/credential-providers@3.1107.0)(socks@2.8.9))(mysql2@3.23.2(@types/node@26.2.0))(pg@8.22.0)(typescript@7.0.2)(vitest@4.1.10)(ws@8.21.3):
+  alchemy@2.0.0-beta.72(patch_hash=bc09756fddfbdad8ecd5de11e11c959d41d4e379a10207054a652ccbcce6b63e)(@effect/platform-node@4.0.0-beta.107(effect@4.0.0-beta.107)(ioredis@5.11.1))(@vercel/nft@1.10.2)(@voidzero-dev/vite-plus-core@0.2.9(@types/node@26.2.0)(typescript@7.0.2)(yaml@2.9.0))(effect@4.0.0-beta.107)(mongodb@6.21.0(@aws-sdk/credential-providers@3.1107.0)(socks@2.8.9))(mysql2@3.23.2(@types/node@26.2.0))(pg@8.22.0)(typescript@7.0.2)(vitest@4.1.10)(ws@8.21.3):
     dependencies:
       '@alchemy.run/cloudflare-runtime': 2.0.0-beta.72(@distilled.cloud/cloudflare@1.0.0-rc.4(effect@4.0.0-beta.107))(@effect/platform-node@4.0.0-beta.107(effect@4.0.0-beta.107)(ioredis@5.11.1))(@voidzero-dev/vite-plus-core@0.2.9(@types/node@26.2.0)(typescript@7.0.2)(yaml@2.9.0))(effect@4.0.0-beta.107)(rolldown@1.1.5)(typescript@7.0.2)
       '@alchemy.run/node-utils': 0.0.5

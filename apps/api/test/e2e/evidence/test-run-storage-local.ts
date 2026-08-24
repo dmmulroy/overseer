@@ -13,7 +13,10 @@ import {
 } from "node:fs";
 import { isAbsolute, join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
-import { TestRunId, type TestRunId as TestRunIdValue } from "@overseer/test-trace-protocol";
+import {
+  TestRunId,
+  type TestRunId as TestRunIdValue,
+} from "../../../src/overseer-e2e-trace-identity.ts";
 import { Config, DateTime, Effect, Layer, Option, Schema } from "effect";
 import {
   TestArtifactRef,
@@ -21,7 +24,7 @@ import {
   type TestArtifactRef as TestArtifactRefValue,
   type TestArtifactWrite,
 } from "./test-artifact.ts";
-import { OverseerTestTarget } from "../overseer-test-run.ts";
+import { OverseerTestTarget } from "../harness/overseer-test-run.ts";
 import { TestRun, TestRunStatus, type TestRun as TestRunValue } from "./test-run.ts";
 import {
   TestRunStorage,

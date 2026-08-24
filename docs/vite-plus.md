@@ -19,11 +19,6 @@ vp run @overseer/api#test:e2e:deployed
 vp run @overseer/api#destroy:production
 vp run @overseer/shared-infrastructure#plan:production
 vp run @overseer/shared-infrastructure#deploy:production
-vp run @overseer/test-trace-collector#plan:production
-vp run @overseer/test-trace-collector#deploy:production
-vp run @overseer/test-trace-collector#destroy:production
-vp run @overseer/test-trace-collector#test:e2e:local
-vp run @overseer/test-trace-collector#test:e2e:preview
 ```
 
 `vp test`, `vp build`, and `vp dev` are built-in commands. `vp run <task>` executes a package script or configured Vite Task.
@@ -34,6 +29,6 @@ Package scripts are uncached by default. Configured tasks are cached by default,
 
 Alchemy infrastructure lifecycle commands belong in workspace Vite tasks rather than duplicate package scripts. Root aliases invoke those tasks through exact `package#task` selectors so every entrypoint uses the same dependency graph.
 
-Cross-workspace infrastructure prerequisites belong in `dependsOn`. The API production deployment and production trace collector deployment depend on `@overseer/shared-infrastructure#deploy:production`. Both local and deployed API E2E tasks depend on the production trace collector deployment, transitively ensuring its reusable Cloudflare Access policy and service credentials exist before the harness verifies the collector connection. Shared-infrastructure commands require the non-sensitive `OVERSEER_ACCESS_ALLOWED_EMAIL` deploy-time environment variable.
+Cross-workspace infrastructure prerequisites belong in `dependsOn`. The API production deployment and both API E2E tasks depend on `@overseer/shared-infrastructure#deploy:production`, which owns the permanent Axiom trace datasets, least-privilege tokens, and reusable Cloudflare Access policy. Shared-infrastructure commands require the non-sensitive `OVERSEER_ACCESS_ALLOWED_EMAIL` deploy-time environment variable and Axiom provider credentials.
 
 Runner flags precede task names. Use exact `package#task` selectors for infrastructure operations and `--fail-if-no-match` with filters in automation.

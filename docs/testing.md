@@ -25,7 +25,7 @@ For detailed Alchemy and `@effect/vitest` API research, see [`research/alchemy-e
 - `local` runs the same feature suites through Alchemy's workerd, local Durable Objects, and local SQLite infrastructure. It is the fast debugging and development loop.
 - `deployed` provisions real Cloudflare infrastructure, custom DNS, and Access. It remains the acceptance boundary and the meaning of `pnpm test:e2e`.
 
-Feature suites consume the same `OverseerApiClient` service for both targets. Target-specific deployment parsing, readiness, authentication, and teardown remain harness concerns. Both target tasks reconcile the independently deployed production trace collector, and the harness verifies its shared Access credentials through the collector's typed not-found contract before product tests begin.
+Feature suites consume the same `OverseerApiClient` service for both targets. Target-specific deployment parsing, readiness, authentication, and teardown remain harness concerns. Both target tasks reconcile the permanent shared-infrastructure Stack that owns the production and E2E Axiom trace datasets plus their least-privilege ingest and query tokens.
 
 ## Default Test Lifecycle
 
@@ -54,9 +54,9 @@ registerAccessTestSuite(harness);
 registerWorkspaceTestSuite(harness);
 ```
 
-`OverseerTestHarness.fromStack` owns `alchemy/Test/Vitest` deployment, readiness, service Layers, and teardown. Readiness first verifies the authenticated trace collector and API identity, then retries a safe known-absent Workspace read until the Workspace Durable Object returns its stable not-found contract. Each running test is wrapped in an execution root span and exports standard OTLP JSON to the persistent collector. The finished `TestExecution.trace` stores `Completed` evidence containing the trace ID and exact Access-protected TTC lookup URL; consumers query TTC lazily so Cloudflare `waitUntil` exports can arrive after the product response.
+`OverseerTestHarness.fromStack` owns `alchemy/Test/Vitest` deployment, readiness, service Layers, and teardown. Readiness verifies the API identity, then retries a safe known-absent Workspace read until the Workspace Durable Object returns its stable not-found contract. `TestExecutionTracing` wraps each running test in an execution root span, exports standard OTLP JSON directly to Axiom, and explicitly flushes after the root span closes. The finished `TestExecution.trace` stores `Completed` evidence containing the provider, permanent dataset name, and trace ID.
 
-Tracing acceptance is an explicit after-run check rather than an implicit product-test verdict. It polls TTC until one execution trace contains `overseer-e2e-harness`, `overseer-api-worker`, `overseer-workspace-durable-object`, and `overseer-bookkeeper-durable-object`. Product execution status remains determined only by the test Effect exit.
+Tracing acceptance is an explicit after-run check rather than an implicit product-test verdict. `AxiomTraceQuery` uses the query-only token to poll retained spans until every execution trace has a closed parent graph, every HTTP server span resolves to its HTTP client parent, every HTTP client span has its server child, and one execution trace contains the independently running `overseer-e2e-harness` and `overseer-api-worker` services plus the `api-worker`, `workspace-durable-object`, and `bookkeeper-durable-object` values of the `overseer.runtime.component` span attribute. Polling accommodates Axiom ingestion and telemetry emitted by late scope finalizers. The Durable Object classes share the API Worker's deployment and therefore remain runtime components of that OpenTelemetry service rather than claiming separate `service.name` resources. Product execution status remains determined only by the test Effect exit.
 
 Deploy once per integration suite file. Keep deployed tests sequential so Vitest workers cannot race deployment and destruction.
 
@@ -69,12 +69,11 @@ apps/api/
   test/
     e2e.test.ts                  # composes one shared harness and feature suites
     e2e/
-      access.ts                  # registers the API identity guarantee
-      workspace.ts               # registers public Workspace guarantees
-      overseer-test-run.ts       # parses target and isolated stage
-      overseer-api-deployment.ts # parses deployment output and owns readiness
-      overseer-api-client.ts     # target-aware typed public API client
-      overseer-test-harness.ts   # deployment, teardown, and test registration
+      api/                       # target deployment readiness and typed API client
+      evidence/                  # persisted run, execution, assertion, and artifact evidence
+      harness/                   # test registration, run identity, fixtures, and lifecycle
+      suites/                    # public product guarantees grouped by capability
+      tracing/                   # Axiom export, query, and distributed-trace acceptance
 ```
 
 Only `e2e.test.ts` is independently discovered by Vitest. The feature modules export functions that register tests into that shared integration suite without using test-runner-discovered filenames.
@@ -203,13 +202,13 @@ The repository provides these commands:
 ```sh
 pnpm test                 # unit tests, then real Cloudflare acceptance
 pnpm test:unit            # unit tests only
-pnpm test:e2e:local       # fast workerd end-to-end feedback
-pnpm test:e2e             # real Cloudflare acceptance
+pnpm test:e2e:local       # fast workerd end-to-end feedback with Axiom traces
+pnpm test:e2e             # real Cloudflare acceptance with Axiom traces
 pnpm test:e2e:deployed    # explicit alias for real Cloudflare API acceptance
-pnpm test:e2e:test-trace-collector       # temporary Preview collector and Access acceptance
-pnpm test:e2e:test-trace-collector:local # local collector without Access
 ```
 
 `pnpm test` is the complete suite. `test:e2e` runs without task caching so every invocation deploys and verifies a fresh Stack. `test:unit` is an explicit narrower choice and must not be described as equivalent confidence.
+
+Inspect retained traces in Axiom's OpenTelemetry Traces app by searching the `overseer-e2e-traces` dataset for the trace ID stored in execution evidence. E2E runtimes receive only the ingest token; acceptance tooling receives only the query token.
 
 The outer runner generates a unique stage for every invocation. Deployed runs use Alchemy's Vitest `afterAll(destroy(Stack))` hook as primary teardown; the outer runner invokes fallback destruction only after failure or interruption. Local runs first close the dev sidecar, then let the outer runner destroy local Stack state to avoid the pinned sidecar teardown deadlock.

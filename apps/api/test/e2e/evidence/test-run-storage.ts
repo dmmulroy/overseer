@@ -1,4 +1,4 @@
-import { TestRunId } from "@overseer/test-trace-protocol";
+import { TestRunId } from "../../../src/overseer-e2e-trace-identity.ts";
 import { Context, DateTime, Effect, Layer, Option, Schema } from "effect";
 import {
   type TestArtifact,
@@ -7,7 +7,7 @@ import {
 } from "./test-artifact.ts";
 import { TestArtifactId } from "./test-evidence-identity.ts";
 import { TestRun, type TestRunStatus, type TestRun as TestRunValue } from "./test-run.ts";
-import type { OverseerTestTarget } from "../overseer-test-run.ts";
+import type { OverseerTestTarget } from "../harness/overseer-test-run.ts";
 
 /** Operations that can fail at the test-run storage boundary. */
 export const TestRunStorageOperation = Schema.Literals([

@@ -1,4 +1,4 @@
-import { TestRunId } from "@overseer/test-trace-protocol";
+import { TestRunId } from "../../../src/overseer-e2e-trace-identity.ts";
 import { Schema } from "effect";
 import { TestArtifactId, TestExecutionId } from "./test-evidence-identity.ts";
 

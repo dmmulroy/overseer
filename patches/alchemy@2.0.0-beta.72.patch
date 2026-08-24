@@ -1,0 +1,318 @@
+diff --git a/lib/Cloudflare/Workers/DurableObjectBridge.js b/lib/Cloudflare/Workers/DurableObjectBridge.js
+index 8403a8380c8693b96108f60022853ffcb8c27094..c0b053b501dfb59574493c970b1a1d27bf1ed77f 100644
+--- a/lib/Cloudflare/Workers/DurableObjectBridge.js
++++ b/lib/Cloudflare/Workers/DurableObjectBridge.js
+@@ -1,11 +1,12 @@
+ import * as Cause from "effect/Cause";
++import * as Context from "effect/Context";
+ import * as Effect from "effect/Effect";
+ import * as Exit from "effect/Exit";
+ import * as Layer from "effect/Layer";
+ import * as Scope from "effect/Scope";
+ import * as Stream from "effect/Stream";
+ import { HttpServerResponse } from "effect/unstable/http";
+-import { buildEventTelemetry } from "../../Telemetry.js";
++import { buildEventTelemetry, flushEventTelemetry } from "../../Telemetry.js";
+ import { DurableObjectState, fromDurableObjectState, } from "./DurableObjectState.js";
+ import { isScopeEjected, makeRequestEffect } from "./HttpServer.js";
+ import { fromWebSocket } from "./WebSocket.js";
+@@ -78,6 +79,7 @@ export const makeDurableObjectBridge = (DurableObject, { entrypoint, stack, }) =
+         }
+         async #execute(fn, onExit) {
+             const scope = Scope.makeUnsafe();
++            let eventTelemetry = Context.empty();
+             const { instance, services, context, telemetry } = await this.#instance;
+             return fn(instance)
+                 .pipe(Effect.provide(Layer.mergeAll(Layer.succeed(DurableObjectState, fromDurableObjectState(this.#state)), Layer.succeed(Scope.Scope, scope),
+@@ -85,19 +87,21 @@ export const makeDurableObjectBridge = (DurableObject, { entrypoint, stack, }) =
+             // scope by `buildEventTelemetry` so buffered telemetry
+             // flushes when the scope closes into `waitUntil` below (the
+             // isolate scope never finalizes on workerd).
+-            Layer.effectContext(buildEventTelemetry(context, scope, telemetry()))).pipe(Layer.provideMerge(Layer.succeedContext(services)), Layer.provideMerge(Layer.succeedContext(context)))), Effect.runPromiseExit)
++            Layer.effectContext(buildEventTelemetry(context, scope, telemetry()).pipe(Effect.tap((context) => Effect.sync(() => {
++                eventTelemetry = context;
++            }))))).pipe(Layer.provideMerge(Layer.succeedContext(services)), Layer.provideMerge(Layer.succeedContext(context)))), Effect.runPromiseExit)
+                 .then((exit) => onExit
+                 ? onExit(exit, scope)
+                 : exit._tag === "Success"
+                     ? Promise.resolve(exit.value)
+                     : Promise.reject(Cause.squash(exit.cause)))
+-                .finally(() => isScopeEjected(scope)
+-                ? undefined
+-                : this.ctx.waitUntil(
+-                // Match WorkerBridge: yield one macrotask so the
+-                // HttpMiddleware tracer's late span-end reaches the
+-                // telemetry exporter before the scope's flush finalizer.
+-                new Promise((resolve) => setTimeout(resolve, 0)).then(() => Effect.runPromise(Scope.close(scope, Exit.void)))));
++                .finally(() => {
++                if (isScopeEjected(scope))
++                    return undefined;
++                return new Promise((resolve) => setTimeout(resolve, 0))
++                    .then(() => Effect.runPromise(flushEventTelemetry(eventTelemetry)))
++                    .then(() => this.ctx.waitUntil(Effect.runPromise(Scope.close(scope, Exit.void))));
++            });
+         }
+         async fetch(request) {
+             return this.#execute((instance) => instance.fetch
+diff --git a/lib/Cloudflare/Workers/WorkerBridge.js b/lib/Cloudflare/Workers/WorkerBridge.js
+index 91426bf451b9bdcc67f9c103fd5b12b3b18cdf53..b62965c82d22b8c78a5ad5e9a4b7dbebc4f69e79 100644
+--- a/lib/Cloudflare/Workers/WorkerBridge.js
++++ b/lib/Cloudflare/Workers/WorkerBridge.js
+@@ -14,7 +14,7 @@ import * as EffectHttp from "effect/unstable/http/HttpEffect";
+ import { makeEntrypointLayer, reifyBoundConfigProvider, } from "../../Runtime.js";
+ import { Self } from "../../Self.js";
+ import { Stack } from "../../Stack.js";
+-import { buildEventTelemetry } from "../../Telemetry.js";
++import { buildEventTelemetry, flushEventTelemetry } from "../../Telemetry.js";
+ import { CloudflareEnvironment } from "../CloudflareEnvironment.js";
+ import cloudflare_workers from "./cloudflare_workers.js";
+ import { isScopeEjected } from "./HttpServer.js";
+@@ -31,6 +31,7 @@ export const makeWorkerBridge = (Base, { stack, entrypoint, }) => {
+     });
+     const processEvent = (makeEffect, ctx, onExit) => {
+         const scope = Scope.makeUnsafe();
++        let eventTelemetry = Context.empty();
+         return build((promise) => ctx.waitUntil(promise))
+             .then((built) => {
+             const [eff, services] = makeEffect(built);
+@@ -50,21 +51,21 @@ export const makeWorkerBridge = (Base, { stack, entrypoint, }) => {
+             // so buffered telemetry flushes when the scope closes into
+             // `ctx.waitUntil` below — never on workerd's ephemeral
+             // isolate scope.
+-            Layer.effectContext(buildEventTelemetry(built.context, scope, built.telemetry()))).pipe(Layer.provideMerge(Layer.succeedContext(services)), Layer.provideMerge(Layer.succeedContext(built.context)))), Effect.runPromiseExit);
++            Layer.effectContext(buildEventTelemetry(built.context, scope, built.telemetry()).pipe(Effect.tap((context) => Effect.sync(() => {
++                eventTelemetry = context;
++            }))))).pipe(Layer.provideMerge(Layer.succeedContext(services)), Layer.provideMerge(Layer.succeedContext(built.context)))), Effect.runPromiseExit);
+         },
+         // A failed isolate build reaches callers as a defect exit so the RPC
+         // path can envelope-encode it like any other handler defect.
+         (error) => Exit.die(error))
+             .then((exit) => onExit(exit, scope))
+-            .finally(() => isScopeEjected(scope)
+-            ? undefined
+-            : ctx.waitUntil(
+-            // The HttpMiddleware tracer ends the request's root span in a
+-            // dispatcher task scheduled after the handler effect resolves.
+-            // Yield one macrotask before closing the scope so that span
+-            // reaches the telemetry exporter's buffer before the scope's
+-            // flush finalizer runs.
+-            new Promise((resolve) => setTimeout(resolve, 0)).then(() => Effect.runPromise(Scope.close(scope, Exit.void)))));
++            .finally(() => {
++            if (isScopeEjected(scope))
++                return undefined;
++            return new Promise((resolve) => setTimeout(resolve, 0))
++                .then(() => Effect.runPromise(flushEventTelemetry(eventTelemetry)))
++                .then(() => ctx.waitUntil(Effect.runPromise(Scope.close(scope, Exit.void))));
++        });
+     };
+     class WorkerBridge extends Base {
+         ctx;
+diff --git a/lib/Telemetry.js b/lib/Telemetry.js
+index 195cf121c01528c7305b10cfce641294deb855b3..c4bcf6ccd8361bebac2a457dbc9fc451e7f6b3d4 100644
+--- a/lib/Telemetry.js
++++ b/lib/Telemetry.js
+@@ -54,6 +54,7 @@ import * as Redacted from "effect/Redacted";
+ import * as Result from "effect/Result";
+ import * as HttpClient from "effect/unstable/http/HttpClient";
+ import * as HttpClientRequest from "effect/unstable/http/HttpClientRequest";
++import * as OtlpExporter from "effect/unstable/observability/OtlpExporter";
+ import * as OtlpLogger from "effect/unstable/observability/OtlpLogger";
+ import * as OtlpMetrics from "effect/unstable/observability/OtlpMetrics";
+ import * as OtlpSerialization from "effect/unstable/observability/OtlpSerialization";
+@@ -459,6 +460,13 @@ export const layerOtlp = (options) => Layer.effect(reference, Effect.gen(functio
+     // once per process via `provideProcessTelemetry`).
+     return fromBoundConfig;
+ }));
++/** Flush buffered OTLP event telemetry within the exporter's shutdown budget. */
++export const flushEventTelemetry = (context) => {
++    const flusher = Context.getOrUndefined(context, OtlpExporter.Flusher);
++    return flusher === undefined
++        ? Effect.void
++        : flusher.flush.pipe(Effect.timeoutOption("3 seconds"), Effect.asVoid);
++};
+ /**
+  * Build the configured {@link Telemetry} Layer into an event's request
+  * scope, returning the Context of telemetry services to provide to the
+diff --git a/src/Cloudflare/Workers/DurableObjectBridge.ts b/src/Cloudflare/Workers/DurableObjectBridge.ts
+index e014f8c1cdb380b6d2b3fc7c5e2b04cfafc7e625..e2a9add6f8ff43da015c8e5363de5daf0cba1639 100644
+--- a/src/Cloudflare/Workers/DurableObjectBridge.ts
++++ b/src/Cloudflare/Workers/DurableObjectBridge.ts
+@@ -2,6 +2,7 @@ import type * as cf from "@cloudflare/workers-types";
+ import type { DurableObject as DurableObjectClass } from "cloudflare:workers";
+
+ import * as Cause from "effect/Cause";
++import * as Context from "effect/Context";
+ import * as Effect from "effect/Effect";
+ import * as Exit from "effect/Exit";
+ import * as Layer from "effect/Layer";
+@@ -9,7 +10,10 @@ import * as Scope from "effect/Scope";
+ import * as Stream from "effect/Stream";
+
+ import { HttpServerResponse } from "effect/unstable/http";
+-import { buildEventTelemetry } from "../../Telemetry.ts";
++import {
++  buildEventTelemetry,
++  flushEventTelemetry,
++} from "../../Telemetry.ts";
+ import type {
+   DurableObjectExport,
+   DurableObjectShape,
+@@ -129,6 +133,7 @@ export const makeDurableObjectBridge =
+         ) => Promise<any>,
+       ) {
+         const scope = Scope.makeUnsafe();
++        let eventTelemetry = Context.empty();
+
+         const { instance, services, context, telemetry } = await this.#instance;
+
+@@ -146,7 +151,13 @@ export const makeDurableObjectBridge =
+                 // flushes when the scope closes into `waitUntil` below (the
+                 // isolate scope never finalizes on workerd).
+                 Layer.effectContext(
+-                  buildEventTelemetry(context, scope, telemetry()),
++                  buildEventTelemetry(context, scope, telemetry()).pipe(
++                    Effect.tap((context) =>
++                      Effect.sync(() => {
++                        eventTelemetry = context;
++                      }),
++                    ),
++                  ),
+                 ),
+               ).pipe(
+                 Layer.provideMerge(Layer.succeedContext(services)),
+@@ -162,18 +173,20 @@ export const makeDurableObjectBridge =
+                 ? Promise.resolve(exit.value)
+                 : Promise.reject(Cause.squash(exit.cause)),
+           )
+-          .finally(() =>
+-            isScopeEjected(scope)
+-              ? undefined
+-              : this.ctx.waitUntil(
+-                  // Match WorkerBridge: yield one macrotask so the
+-                  // HttpMiddleware tracer's late span-end reaches the
+-                  // telemetry exporter before the scope's flush finalizer.
+-                  new Promise((resolve) => setTimeout(resolve, 0)).then(() =>
+-                    Effect.runPromise(Scope.close(scope, Exit.void)),
+-                  ),
++          .finally(() => {
++            if (isScopeEjected(scope)) return undefined;
++            // Match WorkerBridge: wait for the late HTTP span, flush its
++            // telemetry, then close ordinary call resources in the background.
++            return new Promise((resolve) => setTimeout(resolve, 0))
++              .then(() =>
++                Effect.runPromise(flushEventTelemetry(eventTelemetry)),
++              )
++              .then(() =>
++                this.ctx.waitUntil(
++                  Effect.runPromise(Scope.close(scope, Exit.void)),
+                 ),
+-          );
++              );
++          });
+       }
+
+       async fetch(request: Request): Promise<any> {
+diff --git a/src/Cloudflare/Workers/WorkerBridge.ts b/src/Cloudflare/Workers/WorkerBridge.ts
+index 05b1a8456627bfbd28b569c7a1228ab7b1ea326a..c9a71d3f4b65ebfc39eb363409750f7b5c98376f 100644
+--- a/src/Cloudflare/Workers/WorkerBridge.ts
++++ b/src/Cloudflare/Workers/WorkerBridge.ts
+@@ -19,7 +19,10 @@ import {
+ } from "../../Runtime.ts";
+ import { Self } from "../../Self.ts";
+ import { Stack } from "../../Stack.ts";
+-import { buildEventTelemetry } from "../../Telemetry.ts";
++import {
++  buildEventTelemetry,
++  flushEventTelemetry,
++} from "../../Telemetry.ts";
+ import { CloudflareEnvironment } from "../CloudflareEnvironment.ts";
+ import cloudflare_workers from "./cloudflare_workers.ts";
+ import { isScopeEjected } from "./HttpServer.ts";
+@@ -87,6 +90,7 @@ export const makeWorkerBridge = (
+     ) => T | Promise<T>,
+   ): Promise<T> => {
+     const scope = Scope.makeUnsafe();
++    let eventTelemetry = Context.empty();
+     return build((promise) => ctx.waitUntil(promise as Promise<any>))
+       .then(
+         (built) => {
+@@ -114,7 +118,17 @@ export const makeWorkerBridge = (
+                 // `ctx.waitUntil` below — never on workerd's ephemeral
+                 // isolate scope.
+                 Layer.effectContext(
+-                  buildEventTelemetry(built.context, scope, built.telemetry()),
++                  buildEventTelemetry(
++                    built.context,
++                    scope,
++                    built.telemetry(),
++                  ).pipe(
++                    Effect.tap((context) =>
++                      Effect.sync(() => {
++                        eventTelemetry = context;
++                      }),
++                    ),
++                  ),
+                 ),
+               ).pipe(
+                 Layer.provideMerge(Layer.succeedContext(services)),
+@@ -129,20 +143,17 @@ export const makeWorkerBridge = (
+         (error) => Exit.die(error),
+       )
+       .then((exit) => onExit(exit, scope))
+-      .finally(() =>
+-        isScopeEjected(scope)
+-          ? undefined
+-          : ctx.waitUntil(
+-              // The HttpMiddleware tracer ends the request's root span in a
+-              // dispatcher task scheduled after the handler effect resolves.
+-              // Yield one macrotask before closing the scope so that span
+-              // reaches the telemetry exporter's buffer before the scope's
+-              // flush finalizer runs.
+-              new Promise((resolve) => setTimeout(resolve, 0)).then(() =>
+-                Effect.runPromise(Scope.close(scope, Exit.void)),
+-              ),
+-            ),
+-      );
++      .finally(() => {
++        if (isScopeEjected(scope)) return undefined;
++        // The HttpMiddleware tracer ends the request's root span in a
++        // dispatcher task scheduled after the handler effect resolves.
++        // Yield one macrotask, then flush telemetry before the event settles.
++        return new Promise((resolve) => setTimeout(resolve, 0))
++          .then(() => Effect.runPromise(flushEventTelemetry(eventTelemetry)))
++          .then(() =>
++            ctx.waitUntil(Effect.runPromise(Scope.close(scope, Exit.void))),
++          );
++      });
+   };
+   class WorkerBridge extends Base {
+     constructor(
+diff --git a/src/Telemetry.ts b/src/Telemetry.ts
+index bf69632601ca6195bf85f95d542345394c0a1018..e5a549e6f134dd67d28cd4a2a321e786f076e673 100644
+--- a/src/Telemetry.ts
++++ b/src/Telemetry.ts
+@@ -56,6 +56,7 @@ import * as Result from "effect/Result";
+ import type * as Scope from "effect/Scope";
+ import * as HttpClient from "effect/unstable/http/HttpClient";
+ import * as HttpClientRequest from "effect/unstable/http/HttpClientRequest";
++import * as OtlpExporter from "effect/unstable/observability/OtlpExporter";
+ import * as OtlpLogger from "effect/unstable/observability/OtlpLogger";
+ import * as OtlpMetrics from "effect/unstable/observability/OtlpMetrics";
+ import * as OtlpSerialization from "effect/unstable/observability/OtlpSerialization";
+@@ -658,6 +659,16 @@ export const layerOtlp = (options: OtlpOptions): Layer.Layer<never> =>
+     }),
+   );
+
++/** Flush buffered OTLP event telemetry within the exporter's shutdown budget. */
++export const flushEventTelemetry = (
++  context: Context.Context<never>,
++): Effect.Effect<void> => {
++  const flusher = Context.getOrUndefined(context, OtlpExporter.Flusher);
++  return flusher === undefined
++    ? Effect.void
++    : flusher.flush.pipe(Effect.timeoutOption("3 seconds"), Effect.asVoid);
++};
++
+ /**
+  * Build the configured {@link Telemetry} Layer into an event's request
+  * scope, returning the Context of telemetry services to provide to the

@@ -17,8 +17,8 @@ import {
   RequestIdMiddleware,
   cloudflareRequestIdMiddlewareLayer,
 } from "./request-id-middleware.ts";
+import { overseerAxiomTraceTelemetryLayer } from "./overseer-axiom-trace-telemetry.ts";
 import { withOverseerHttpObservability } from "./overseer-http-observability.ts";
-import { overseerTestTraceTelemetryLayer } from "./overseer-test-trace-telemetry.ts";
 
 const overseerHttpServerLayer = Layer.mergeAll(
   Etag.layer,
@@ -92,10 +92,10 @@ const apiWorkerLayer = ApiWorker.make(
     );
 
     return {
-      fetch: withOverseerHttpObservability(fetch, "overseer-api-worker"),
+      fetch: withOverseerHttpObservability(fetch, "api-worker"),
     };
   }).pipe(
-    Effect.provide(overseerTestTraceTelemetryLayer),
+    Effect.provide(overseerAxiomTraceTelemetryLayer),
     Effect.provide(overseerSdkLayer),
     Effect.provide(accessAuthenticationMiddlewareLayer),
     Effect.provide(cloudflareRequestIdMiddlewareLayer),

@@ -16,12 +16,12 @@ const overseerApiViteConfig = defineConfig({
       "test:e2e:deployed": {
         cache: false,
         command: "node scripts/run-e2e.ts deployed",
-        dependsOn: ["@overseer/test-trace-collector#deploy:production"],
+        dependsOn: ["@overseer/shared-infrastructure#deploy:production"],
       },
       "test:e2e:local": {
         cache: false,
         command: "node scripts/run-e2e.ts local",
-        dependsOn: ["@overseer/test-trace-collector#deploy:production"],
+        dependsOn: ["@overseer/shared-infrastructure#deploy:production"],
       },
     },
   },

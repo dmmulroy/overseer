@@ -1,0 +1,415 @@
+import { OVERSEER_E2E_TRACE_DATASET_NAME } from "@overseer/shared-infrastructure";
+import { deriveTestRunIdFromStage } from "../../../src/overseer-e2e-trace-identity.ts";
+import * as Cloudflare from "alchemy/Cloudflare";
+import type { CompiledStack } from "alchemy/Stack";
+import type { OverseerApiStackOutput } from "../../../alchemy.run.ts";
+import * as Test from "alchemy/Test/Vitest";
+import { DateTime, Effect, Exit, Layer, ManagedRuntime, Option } from "effect";
+import { afterAll, beforeAll } from "vite-plus/test";
+import {
+  type IOverseerApiClient,
+  overseerApiClientLayer,
+  OverseerApiClient,
+} from "../api/overseer-api-client.ts";
+import {
+  resolveOverseerApiDeployment,
+  waitForOverseerApiDeployment,
+} from "../api/overseer-api-deployment.ts";
+import { type ITestAssert, TestAssert } from "../evidence/test-assert.ts";
+import { type ITestEvidence, TestEvidence } from "../evidence/test-evidence.ts";
+import { TestEvidenceRecorder } from "../evidence/test-evidence-recorder.ts";
+import { testExecutionEvidenceLayer } from "../evidence/test-execution-evidence.ts";
+import { TestExecutionId, TestId } from "../evidence/test-evidence-identity.ts";
+import { TestExecutionTraceEvidence } from "../evidence/test-execution-trace-evidence.ts";
+import {
+  deriveTestRunStatus,
+  type FinishedTestExecutionStatus,
+  finalizePendingTestExecutions,
+  testExecutionStatusFromCause,
+} from "../evidence/test-run-lifecycle.ts";
+import { TestRun, type TestRecord, type TestRun as TestRunSnapshot } from "../evidence/test-run.ts";
+import { type ITestRunStorage, TestRunStorage } from "../evidence/test-run-storage.ts";
+import {
+  localTestRunStorageDirectoryConfig,
+  testRunStorageLocalLayerAt,
+} from "../evidence/test-run-storage-local.ts";
+import { AxiomTraceQuery, axiomTraceQueryLayer } from "../tracing/axiom-trace-query.ts";
+import {
+  type OverseerE2eAxiomDeployment,
+  OverseerE2eAxiomReferenceStack,
+  resolveOverseerE2eAxiomDeployment,
+} from "../tracing/overseer-e2e-axiom-deployment.ts";
+import {
+  TestExecutionTracing,
+  testExecutionTracingLayer,
+} from "../tracing/test-execution-tracing.ts";
+import {
+  createOverseerFixtureRegistry,
+  type OverseerFixtureRegistry,
+} from "./overseer-fixture-registry.ts";
+import { overseerTestRunConfig } from "./overseer-test-run.ts";
+
+/** Timeout options passed to one registered end-to-end test. */
+export interface OverseerTestOptions {
+  /** Maximum product-test execution time in milliseconds, excluding evidence finalization. */
+  readonly timeout: number;
+}
+
+type OverseerStack = Test.TestEffect<CompiledStack<OverseerApiStackOutput>, never>;
+type RegisteredTestMode = "run" | "skip";
+
+interface RegisteredAfterRunCheck {
+  readonly makeEffect: (
+    context: OverseerAfterRunContext,
+  ) => Effect.Effect<void, unknown, AxiomTraceQuery>;
+}
+
+const testEvidenceFinalizationTimeoutMs = 25_000;
+
+/** Extensible values supplied when a harness constructs one end-to-end test Effect. */
+export interface OverseerTestContext {
+  /** Comprehensive fail-fast assertions recorded as test evidence. */
+  readonly assert: ITestAssert;
+  /** Authenticated schema-derived client for the selected Overseer API deployment. */
+  readonly client: IOverseerApiClient;
+  /** Explicit artifact attachments recorded for the current test execution. */
+  readonly evidence: ITestEvidence;
+  /** Deterministic schema-derived values, models, and scenarios for test-data construction. */
+  readonly fixtures: OverseerFixtureRegistry;
+}
+
+/** E2E values supplied after product executions and before final run persistence. */
+export interface OverseerAfterRunContext {
+  /** Current test-run snapshot after every registered product execution has completed. */
+  readonly run: TestRunSnapshot;
+}
+
+/** Registration-time harness that shares one local or deployed Stack across feature test suites. */
+export class OverseerTestHarness {
+  private constructor(
+    private readonly registerTest: (
+      mode: RegisteredTestMode,
+      name: string,
+      makeEffect: (context: OverseerTestContext) => Effect.Effect<void, unknown>,
+      options?: OverseerTestOptions,
+    ) => void,
+    private readonly registerAfterRunCheck: (check: RegisteredAfterRunCheck) => void,
+  ) {}
+
+  /** Registers one deterministic product guarantee against the selected target. */
+  readonly test = <E>(
+    name: string,
+    makeEffect: (context: OverseerTestContext) => Effect.Effect<void, E>,
+    options?: OverseerTestOptions,
+  ): void => {
+    this.registerTest("run", name, makeEffect, options);
+  };
+
+  /** Registers one intentionally skipped product guarantee in test-run evidence. */
+  readonly skip = <E>(
+    name: string,
+    makeEffect: (context: OverseerTestContext) => Effect.Effect<void, E>,
+    options?: OverseerTestOptions,
+  ): void => {
+    this.registerTest("skip", name, makeEffect, options);
+  };
+
+  /** Registers an explicit acceptance check that can query Axiom after product tests finish. */
+  readonly afterRun = <E>(
+    makeEffect: (context: OverseerAfterRunContext) => Effect.Effect<void, E, AxiomTraceQuery>,
+  ): void => {
+    this.registerAfterRunCheck({ makeEffect });
+  };
+
+  /** Configures Alchemy deployment, readiness, evidence persistence, and teardown for one Stack. */
+  static fromStack(stack: OverseerStack): OverseerTestHarness {
+    const testRun = Effect.runSync(overseerTestRunConfig);
+    const runId = deriveTestRunIdFromStage(testRun.stage);
+    const evidenceDirectory = Effect.runSync(localTestRunStorageDirectoryConfig);
+    const registeredTests: Array<TestRecord> = [];
+    const afterRunChecks: Array<RegisteredAfterRunCheck> = [];
+    let infrastructureFailed = false;
+    let runSnapshot = Option.none<TestRunSnapshot>();
+    let resolvedAxiomDeployment = Option.none<OverseerE2eAxiomDeployment>();
+    const storageRuntime = ManagedRuntime.make(testRunStorageLocalLayerAt(evidenceDirectory));
+    const storageReady = Promise.withResolvers<ITestRunStorage>();
+    const sharedStorageLayer = Layer.effect(
+      TestRunStorage,
+      Effect.promise(() => storageReady.promise),
+    );
+    const alchemyTest = Test.make({
+      providers: Cloudflare.providers(),
+      state: Cloudflare.state(),
+      stage: testRun.stage,
+      dev: testRun.target === "local",
+    });
+    const currentRun = (): TestRunSnapshot => Option.getOrThrow(runSnapshot);
+    const replaceTest = (registrationIndex: number, test: TestRecord): void => {
+      const snapshot = currentRun();
+      runSnapshot = Option.some(
+        TestRun.make({
+          id: snapshot.id,
+          target: snapshot.target,
+          stage: snapshot.stage,
+          status: snapshot.status,
+          startedAt: snapshot.startedAt,
+          timing: snapshot.timing,
+          tests: snapshot.tests.map((existing) =>
+            existing.registrationIndex === registrationIndex ? test : existing,
+          ),
+        }),
+      );
+    };
+
+    // Registered before Alchemy deployment so deployment and readiness failures still have a run.
+    beforeAll(async () => {
+      const storage = await storageRuntime.runPromise(TestRunStorage);
+      storageReady.resolve(storage);
+      const startedAt = DateTime.nowUnsafe();
+      runSnapshot = Option.some(
+        TestRun.make({
+          id: runId,
+          target: testRun.target,
+          stage: testRun.stage,
+          status: "running",
+          startedAt,
+          timing: { _tag: "Running" },
+          tests: registeredTests,
+        }),
+      );
+      await storageRuntime.runPromise(storage.createTestRun(currentRun()));
+    });
+
+    const axiomReferenceTest = Test.make({
+      providers: Cloudflare.providers(),
+      state: Cloudflare.state(),
+      stage: testRun.stage,
+      dev: false,
+    });
+    const axiomDeployment = axiomReferenceTest.beforeAll(
+      Effect.gen(function* () {
+        const output = yield* axiomReferenceTest.deploy(OverseerE2eAxiomReferenceStack);
+        const deployment = yield* resolveOverseerE2eAxiomDeployment(output);
+        resolvedAxiomDeployment = Option.some(deployment);
+        return deployment;
+      }).pipe(
+        Effect.onExit((exit) =>
+          Effect.sync(() => {
+            if (exit._tag === "Failure") infrastructureFailed = true;
+          }),
+        ),
+      ),
+      { timeout: 600_000 },
+    );
+    axiomReferenceTest.afterAll(axiomReferenceTest.destroy(OverseerE2eAxiomReferenceStack), {
+      timeout: 300_000,
+    });
+
+    const deployment = alchemyTest.beforeAll(
+      Effect.gen(function* () {
+        const output = yield* alchemyTest.deploy(stack);
+        const resolved = yield* resolveOverseerApiDeployment(testRun.target, output);
+        yield* waitForOverseerApiDeployment(resolved);
+        return resolved;
+      }).pipe(
+        Effect.onExit((exit) =>
+          Effect.sync(() => {
+            if (exit._tag === "Failure") infrastructureFailed = true;
+          }),
+        ),
+      ),
+      { timeout: 600_000 },
+    );
+    // The outer runner destroys local state after Vitest closes Alchemy's dev sidecar.
+    alchemyTest.afterAll.skipIf(testRun.target === "local")(alchemyTest.destroy(stack), {
+      timeout: 300_000,
+    });
+
+    // Vitest runs afterAll hooks in reverse registration order, so evidence finalizes before teardown.
+    afterAll(async () => {
+      try {
+        if (Option.isNone(runSnapshot)) return;
+        const snapshot = runSnapshot.value;
+        const finishedAt = DateTime.nowUnsafe();
+        const tests = finalizePendingTestExecutions(snapshot.tests, finishedAt);
+        runSnapshot = Option.some(
+          TestRun.make({
+            id: snapshot.id,
+            target: snapshot.target,
+            stage: snapshot.stage,
+            status: deriveTestRunStatus(tests, {
+              infrastructure: infrastructureFailed ? "failed" : "ready",
+            }),
+            startedAt: snapshot.startedAt,
+            timing: {
+              _tag: "Finished",
+              finishedAt,
+              durationMs: Math.max(
+                0,
+                DateTime.toEpochMillis(finishedAt) - DateTime.toEpochMillis(snapshot.startedAt),
+              ),
+            },
+            tests,
+          }),
+        );
+        const storage = await storageReady.promise;
+        await storageRuntime.runPromise(storage.updateTestRun(currentRun()));
+      } finally {
+        await storageRuntime.dispose();
+      }
+    });
+
+    afterAll(async () => {
+      if (
+        afterRunChecks.length === 0 ||
+        Option.isNone(resolvedAxiomDeployment) ||
+        Option.isNone(runSnapshot)
+      ) {
+        return;
+      }
+      const completedRun = runSnapshot.value;
+      await Effect.runPromise(
+        Effect.forEach(afterRunChecks, (check) => check.makeEffect({ run: completedRun }), {
+          discard: true,
+        }).pipe(
+          Effect.provide(axiomTraceQueryLayer(resolvedAxiomDeployment.value)),
+          Effect.onExit((exit) =>
+            Effect.sync(() => {
+              if (Exit.isFailure(exit)) infrastructureFailed = true;
+            }),
+          ),
+        ),
+      );
+    }, 35_000);
+
+    const apiClientLayer = Layer.unwrap(deployment.pipe(Effect.map(overseerApiClientLayer)));
+    const tracingLayer = Layer.unwrap(axiomDeployment.pipe(Effect.map(testExecutionTracingLayer)));
+
+    return new OverseerTestHarness(
+      (mode, name, makeEffect, options) => {
+        const registrationIndex = registeredTests.length;
+        const testId = TestId.make(`test_${registrationIndex}`);
+        const testExecutionId = TestExecutionId.make(`test-execution_${registrationIndex}_0`);
+        registeredTests.push({
+          id: testId,
+          name,
+          registrationIndex,
+          executions: [
+            {
+              _tag: "Pending",
+              id: testExecutionId,
+              attempt: 0,
+              status: "pending",
+            },
+          ],
+        });
+
+        const timeoutMs = options?.timeout ?? 120_000;
+        const effect = Effect.uninterruptibleMask((restore) =>
+          Effect.gen(function* () {
+            const storage = yield* TestRunStorage;
+            const startedAt = DateTime.nowUnsafe();
+            const registered = currentRun().tests[registrationIndex];
+            if (registered === undefined) {
+              return yield* Effect.die(
+                new Error(`Overseer test registration ${registrationIndex} was not found`),
+              );
+            }
+            const runningTest: TestRecord = {
+              id: registered.id,
+              name: registered.name,
+              registrationIndex: registered.registrationIndex,
+              executions: [
+                {
+                  _tag: "Running",
+                  id: testExecutionId,
+                  attempt: 0,
+                  status: "running",
+                  startedAt,
+                  assertions: [],
+                  artifacts: [],
+                  trace: { _tag: "Pending" },
+                },
+              ],
+            };
+            replaceTest(registrationIndex, runningTest);
+            yield* storage.updateTestRun(currentRun());
+
+            const client = yield* OverseerApiClient;
+            const assert: ITestAssert = yield* TestAssert;
+            const evidence: ITestEvidence = yield* TestEvidence;
+            const recorder = yield* TestEvidenceRecorder;
+            // Fixture factories own mutable generation cursors but no resources; isolate them per execution without adding a service or finalizer.
+            const fixtures = createOverseerFixtureRegistry();
+
+            const testExecutionTracing = yield* TestExecutionTracing;
+            const tracedExecution = yield* testExecutionTracing.traceTestExecution(
+              { runId, stage: testRun.stage, spanName: name },
+              restore(
+                makeEffect({ assert, client, evidence, fixtures }).pipe(Effect.timeout(timeoutMs)),
+              ),
+            );
+            const finishedAt = DateTime.nowUnsafe();
+            const recorded = recorder.snapshot();
+            const status: FinishedTestExecutionStatus =
+              tracedExecution.testExit._tag === "Failure"
+                ? testExecutionStatusFromCause(tracedExecution.testExit.cause)
+                : "passed";
+            replaceTest(registrationIndex, {
+              id: runningTest.id,
+              name: runningTest.name,
+              registrationIndex: runningTest.registrationIndex,
+              executions: [
+                {
+                  _tag: "Finished",
+                  id: testExecutionId,
+                  attempt: 0,
+                  status,
+                  startedAt,
+                  finishedAt,
+                  durationMs: Math.max(
+                    0,
+                    DateTime.toEpochMillis(finishedAt) - DateTime.toEpochMillis(startedAt),
+                  ),
+                  assertions: recorded.assertions,
+                  artifacts: recorded.artifacts,
+                  trace: TestExecutionTraceEvidence.cases.Completed.make({
+                    traceId: tracedExecution.traceId,
+                    provider: "axiom",
+                    dataset: OVERSEER_E2E_TRACE_DATASET_NAME,
+                  }),
+                },
+              ],
+            });
+            yield* storage.updateTestRun(currentRun());
+
+            if (Exit.isFailure(tracedExecution.testExit)) {
+              return yield* Effect.failCause(tracedExecution.testExit.cause);
+            }
+            return tracedExecution.testExit.value;
+          }),
+        );
+
+        const evidenceCapabilitiesLayer = testExecutionEvidenceLayer({
+          runId,
+          testExecutionId,
+        });
+        const runnable = effect.pipe(
+          Effect.provide(tracingLayer),
+          Effect.provide(evidenceCapabilitiesLayer),
+          Effect.provide(apiClientLayer),
+          Effect.provide(sharedStorageLayer),
+        );
+        const runnerOptions = { timeout: timeoutMs + testEvidenceFinalizationTimeoutMs };
+        if (mode === "skip") {
+          alchemyTest.test.skip(name, runnable, runnerOptions);
+        } else {
+          alchemyTest.test(name, runnable, runnerOptions);
+        }
+      },
+      (check) => {
+        afterRunChecks.push(check);
+      },
+    );
+  }
+}

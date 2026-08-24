@@ -34,7 +34,8 @@ describe("Test run evidence", () => {
               trace: {
                 _tag: "Completed",
                 traceId: "0123456789abcdef0123456789abcdef",
-                url: "https://ttc.mulroy.cloud/v1/test-runs/test-run_01KZGWRATYFXD8QCG7QTKG5C3S/traces/0123456789abcdef0123456789abcdef",
+                provider: "axiom",
+                dataset: "overseer-e2e-traces",
               },
               assertions: [
                 {
