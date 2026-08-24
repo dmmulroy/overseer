@@ -55,8 +55,25 @@ const AgentActor = Schema.Struct({
   agentId: AgentId,
 });
 
-/** Immutable human or Agent identity attributed to an Overseer operation. */
-export const Actor = Schema.Union([HumanActor, AgentActor]).pipe(Schema.toTaggedUnion("kind"));
+/** System identity allowed to cause operations without a human or Agent request. */
+export const SystemActorId = Schema.Literals([
+  "overseer-scheduler",
+  "workspace-alarm",
+  "project-alarm",
+]);
+
+/** Known system identity that can cause an Overseer operation. */
+export type SystemActorId = typeof SystemActorId.Type;
+
+const SystemActor = Schema.Struct({
+  kind: Schema.tag("system"),
+  systemId: SystemActorId,
+});
+
+/** Immutable human, Agent, or system identity attributed to an Overseer operation. */
+export const Actor = Schema.Union([HumanActor, AgentActor, SystemActor]).pipe(
+  Schema.toTaggedUnion("kind"),
+);
 
 /** Immutable domain identity attributed to an Overseer operation. */
 export type Actor = typeof Actor.Type;
