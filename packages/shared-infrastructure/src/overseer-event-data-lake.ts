@@ -120,8 +120,16 @@ export const OverseerEventDataLakeResources = Effect.gen(function* () {
 
   const rawEventsPipeline = yield* Cloudflare.Pipelines.Pipeline("OverseerRawEventsPipeline", {
     sql: Output.interpolate`INSERT INTO ${rawEventsSink.name}
-SELECT envelope_version, event_id, source, event_type, event_timestamp, actor, metadata, payload
-FROM ${stream.name};`,
+SELECT
+  "envelopeVersion" AS envelope_version,
+  "eventId" AS event_id,
+  source,
+  type AS event_type,
+  timestamp AS event_timestamp,
+  actor,
+  metadata,
+  payload
+FROM ${stream.name}`,
   });
 
   const workspaceSnapshotsPipeline = yield* Cloudflare.Pipelines.Pipeline(
@@ -129,9 +137,9 @@ FROM ${stream.name};`,
     {
       sql: Output.interpolate`INSERT INTO ${workspaceSnapshotsSink.name}
 SELECT
-  event_id,
-  event_type,
-  event_timestamp,
+  "eventId" AS event_id,
+  type AS event_type,
+  timestamp AS event_timestamp,
   source,
   json_get_str(payload, 'workspace', 'workspaceId') AS workspace_id,
   json_get_str(payload, 'workspace', 'name') AS name,
@@ -139,16 +147,16 @@ SELECT
   to_timestamp_millis(json_get_str(payload, 'workspace', 'createdAt')) AS created_at,
   to_timestamp_millis(json_get_str(payload, 'workspace', 'updatedAt')) AS updated_at,
   json_get(payload, 'workspace', 'entityVersion')::BIGINT AS entity_version,
-  event_type = 'workspace.delete.v1' AS is_deleted
+  type = 'workspace.delete.v1' AS is_deleted
 FROM ${stream.name}
-WHERE envelope_version = 1
-  AND event_type IN (
+WHERE "envelopeVersion" = 1
+  AND type IN (
     'workspace.create.v1',
     'workspace.rename.v1',
     'workspace.archive.v1',
     'workspace.unarchive.v1',
     'workspace.delete.v1'
-  );`,
+  )`,
     },
   );
 
@@ -157,9 +165,9 @@ WHERE envelope_version = 1
     {
       sql: Output.interpolate`INSERT INTO ${projectSnapshotsSink.name}
 SELECT
-  event_id,
-  event_type,
-  event_timestamp,
+  "eventId" AS event_id,
+  type AS event_type,
+  timestamp AS event_timestamp,
   source,
   json_get_str(payload, 'project', 'projectId') AS project_id,
   json_get_str(payload, 'project', 'workspaceId') AS workspace_id,
@@ -168,16 +176,16 @@ SELECT
   to_timestamp_millis(json_get_str(payload, 'project', 'createdAt')) AS created_at,
   to_timestamp_millis(json_get_str(payload, 'project', 'updatedAt')) AS updated_at,
   json_get(payload, 'project', 'entityVersion')::BIGINT AS entity_version,
-  event_type = 'project.delete.v1' AS is_deleted
+  type = 'project.delete.v1' AS is_deleted
 FROM ${stream.name}
-WHERE envelope_version = 1
-  AND event_type IN (
+WHERE "envelopeVersion" = 1
+  AND type IN (
     'project.create.v1',
     'project.rename.v1',
     'project.archive.v1',
     'project.unarchive.v1',
     'project.delete.v1'
-  );`,
+  )`,
     },
   );
 
