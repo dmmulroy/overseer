@@ -80,6 +80,7 @@ export const OverseerEventDataLakeResources = Effect.gen(function* () {
   });
 
   const rawEventsSink = yield* Cloudflare.Pipelines.Sink("OverseerRawEventsSink", {
+    name: "overseer_raw_events_sink",
     type: "r2_data_catalog",
     config: {
       bucket: catalog.bucketName,
@@ -94,6 +95,7 @@ export const OverseerEventDataLakeResources = Effect.gen(function* () {
   const workspaceSnapshotsSink = yield* Cloudflare.Pipelines.Sink(
     "OverseerWorkspaceSnapshotsSink",
     {
+      name: "overseer_workspace_snapshots_sink",
       type: "r2_data_catalog",
       config: {
         bucket: catalog.bucketName,
@@ -107,6 +109,7 @@ export const OverseerEventDataLakeResources = Effect.gen(function* () {
   );
 
   const projectSnapshotsSink = yield* Cloudflare.Pipelines.Sink("OverseerProjectSnapshotsSink", {
+    name: "overseer_project_snapshots_sink",
     type: "r2_data_catalog",
     config: {
       bucket: catalog.bucketName,
@@ -119,6 +122,7 @@ export const OverseerEventDataLakeResources = Effect.gen(function* () {
   });
 
   const rawEventsPipeline = yield* Cloudflare.Pipelines.Pipeline("OverseerRawEventsPipeline", {
+    name: "overseer_raw_events_pipeline",
     sql: Output.interpolate`INSERT INTO ${rawEventsSink.name}
 SELECT
   "envelopeVersion" AS envelope_version,
@@ -135,6 +139,7 @@ FROM ${stream.name}`,
   const workspaceSnapshotsPipeline = yield* Cloudflare.Pipelines.Pipeline(
     "OverseerWorkspaceSnapshotsPipeline",
     {
+      name: "overseer_workspace_snapshots_pipeline",
       sql: Output.interpolate`INSERT INTO ${workspaceSnapshotsSink.name}
 SELECT
   "eventId" AS event_id,
@@ -163,6 +168,7 @@ WHERE "envelopeVersion" = 1
   const projectSnapshotsPipeline = yield* Cloudflare.Pipelines.Pipeline(
     "OverseerProjectSnapshotsPipeline",
     {
+      name: "overseer_project_snapshots_pipeline",
       sql: Output.interpolate`INSERT INTO ${projectSnapshotsSink.name}
 SELECT
   "eventId" AS event_id,
