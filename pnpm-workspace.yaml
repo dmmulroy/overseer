@@ -68,6 +68,9 @@ overrides:
   valibot: "1.4.2"
   vite: "npm:@voidzero-dev/vite-plus-core@0.3.0"
 
+patchedDependencies:
+  alchemy: patches/alchemy-beta74-delete-when-upgrading-to-beta75.patch
+
 peerDependencyRules:
   allowedVersions:
     typescript: "7.0.2"

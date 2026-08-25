@@ -10,11 +10,12 @@ import { Effect } from "effect";
 export const OverseerEventDataLakeResources = Effect.gen(function* () {
   const { accountId } = yield* yield* Cloudflare.CloudflareEnvironment;
 
-  const bucket = yield* Cloudflare.R2.Bucket("OverseerEventDataLakeBucket").pipe(
-    RemovalPolicy.retain(),
-  );
+  const bucket = yield* Cloudflare.R2.Bucket("OverseerEventDataLakeBucket", {
+    name: "overseer-event-data-lake",
+  }).pipe(RemovalPolicy.retain());
 
   const catalogToken = yield* Cloudflare.ApiToken.AccountApiToken("OverseerR2DataCatalogToken", {
+    name: "Overseer R2 Data Catalog Maintenance",
     accountId,
     policies: [
       {
