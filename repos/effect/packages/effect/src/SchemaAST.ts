@@ -658,6 +658,16 @@ export abstract class Base {
 }
 
 /**
+ * Parser factory carried by a {@link Declaration}.
+ *
+ * @category models
+ * @since 4.0.0
+ */
+export type DeclarationRun = (
+  typeParameters: ReadonlyArray<AST>
+) => (input: unknown, self: Declaration, options: ParseOptions) => Effect.Effect<any, SchemaIssue.Issue, any>
+
+/**
  * AST node for user-defined opaque types with custom parsing logic.
  *
  * **When to use**
@@ -679,26 +689,29 @@ export abstract class Base {
 export class Declaration extends Base {
   readonly _tag = "Declaration"
   readonly typeParameters: ReadonlyArray<AST>
-  readonly run: (
-    typeParameters: ReadonlyArray<AST>
-  ) => (input: unknown, self: Declaration, options: ParseOptions) => Effect.Effect<any, SchemaIssue.Issue, any>
+  readonly run: DeclarationRun
   readonly encodingChecks: Checks | undefined
+  /**
+   * Parser factory {@link flip} swaps in, so a declaration can behave
+   * differently when encoding. `undefined` reuses {@link run}.
+   */
+  readonly encodingRun: DeclarationRun | undefined
 
   constructor(
     typeParameters: ReadonlyArray<AST>,
-    run: (
-      typeParameters: ReadonlyArray<AST>
-    ) => (input: unknown, self: Declaration, options: ParseOptions) => Effect.Effect<any, SchemaIssue.Issue, any>,
+    run: DeclarationRun,
     annotations?: Schema.Annotations.Annotations,
     checks?: Checks,
     encoding?: Encoding,
     context?: Context,
-    encodingChecks?: Checks
+    encodingChecks?: Checks,
+    encodingRun?: DeclarationRun
   ) {
     super(annotations, checks, encoding, context)
     this.typeParameters = typeParameters
     this.run = run
     this.encodingChecks = encodingChecks
+    this.encodingRun = encodingRun
   }
   /** @internal */
   getParser(): SchemaParser.Parser {
@@ -708,19 +721,26 @@ export class Declaration extends Base {
       return (run ??= this.run(this.typeParameters))(input, this, options)
     }
   }
-  private _rebuild(recur: (ast: AST) => AST, checks: Checks | undefined, encodingChecks: Checks | undefined) {
+  private _rebuild(
+    recur: (ast: AST) => AST,
+    checks: Checks | undefined,
+    encodingChecks: Checks | undefined,
+    run: DeclarationRun,
+    encodingRun: DeclarationRun | undefined
+  ) {
     const tps = mapOrSame(this.typeParameters, recur)
-    return tps === this.typeParameters && checks === this.checks && encodingChecks === this.encodingChecks ?
+    return tps === this.typeParameters && checks === this.checks && encodingChecks === this.encodingChecks &&
+        run === this.run && encodingRun === this.encodingRun ?
       this :
-      new Declaration(tps, this.run, this.annotations, checks, undefined, this.context, encodingChecks)
+      new Declaration(tps, run, this.annotations, checks, undefined, this.context, encodingChecks, encodingRun)
   }
   /** @internal */
   recur(recur: (ast: AST) => AST) {
-    return this._rebuild(recur, this.checks, this.encodingChecks)
+    return this._rebuild(recur, this.checks, this.encodingChecks, this.run, this.encodingRun)
   }
   /** @internal */
   flip(recur: (ast: AST) => AST) {
-    return this._rebuild(recur, this.encodingChecks, this.checks)
+    return this._rebuild(recur, this.encodingChecks, this.checks, this.encodingRun ?? this.run, this.run)
   }
   /** @internal */
   getExpected(): string {
@@ -1432,7 +1452,7 @@ export class Number extends Base {
     ) {
       return this
     }
-    return replaceEncoding(this, [numberToJson(this.checks)])
+    return replaceEncoding(this, [numberToJson])
   }
   /** @internal */
   toCodecStringTree(): AST {
@@ -1451,20 +1471,6 @@ function hasCheck(checks: ReadonlyArray<Check<unknown>>, id: string): boolean {
   return checks.some((check) =>
     check.annotations?.representation?.id === id ||
     (check._tag === "FilterGroup" && hasCheck(check.checks, id))
-  )
-}
-
-function numberToJson(checks: Checks | undefined): Link {
-  const encodedFinite = !checks
-    ? finite
-    : appendChecks(finite, checks)
-
-  return new Link(
-    new Union([encodedFinite, nonFiniteLiterals], "anyOf"),
-    new SchemaTransformation.Transformation(
-      SchemaGetter.Number(),
-      SchemaGetter.transform((n) => globalThis.Number.isFinite(n) ? n : globalThis.String(n))
-    )
   )
 }
 
@@ -2206,15 +2212,7 @@ export class Objects extends Base {
       }) :
       undefined
 
-    return Effect.fnUntracedEager(function*(input, options) {
-      if (input === InternalParser.missing) {
-        return InternalParser.missing
-      }
-
-      // If the input is not a record, return early with an error
-      if (!(typeof input === "object" && input !== null && !Array.isArray(input))) {
-        return yield* Effect.fail(new SchemaIssue.InvalidType(ast, input, options))
-      }
+    const compileMembers = (): Array<ParsedProperty> => {
       if (!properties) {
         properties = ast.propertySignatures.map((ps) => ({
           parser: compileConstructorDefault(ps.type),
@@ -2229,6 +2227,19 @@ export class Objects extends Base {
           }))
           : undefined
       }
+      return properties
+    }
+
+    const fallback: SchemaParser.Parser = Effect.fnUntracedEager(function*(input, options) {
+      if (input === InternalParser.missing) {
+        return InternalParser.missing
+      }
+
+      // If the input is not a record, return early with an error
+      if (!(typeof input === "object" && input !== null && !Array.isArray(input))) {
+        return yield* Effect.fail(new SchemaIssue.InvalidType(ast, input, options))
+      }
+      compileMembers()
 
       const record = input as Record<PropertyKey, unknown>
       const out: Record<PropertyKey, unknown> = {}
@@ -2334,6 +2345,68 @@ export class Objects extends Base {
       }
       return out
     })
+
+    if (indexCount) return fallback
+
+    // Resumes at the property whose parser suspended, without replaying the
+    // properties already parsed.
+    const resume = (
+      state: ObjectParserState,
+      index: number,
+      pending: Effect.Effect<unknown, SchemaIssue.Issue, any>
+    ): Effect.Effect<unknown, SchemaIssue.Issue, any> => {
+      const property = properties![index]
+      return Effect.flatMap(Effect.exit(pending), (exit) => {
+        const terminal = stepProperty(state, property, exit)
+        if (terminal) return terminal
+        const done = () => InternalParser.succeed(state.out)
+        const eff = parseProperties(state, properties!.slice(index + 1))
+        return eff ? Effect.flatMapEager(eff, done) : done()
+      })
+    }
+
+    // Fast path: a struct without index signatures, under the default parse
+    // options, needs none of the generator the fallback runs per value.
+    return (input, options) => {
+      if (input === InternalParser.missing) return InternalParser.missingExit
+      if (
+        options.errors === "all" ||
+        options.onExcessProperty !== undefined ||
+        options.propertyOrder === "original" ||
+        options.concurrency !== undefined
+      ) {
+        return fallback(input, options)
+      }
+      if (!(typeof input === "object" && input !== null && !Array.isArray(input))) {
+        return Effect.fail(new SchemaIssue.InvalidType(ast, input, options))
+      }
+      const props = compileMembers()
+      const record = input as Record<PropertyKey, unknown>
+      const out: Record<PropertyKey, unknown> = {}
+      const state: ObjectParserState = { ast, input: record, out, issues: undefined, options }
+      try {
+        for (let index = 0; index < props.length; index++) {
+          const property = props[index]
+          const name = property.name
+          const hasKey = Object.hasOwn(record, name)
+          const value = hasKey ? record[name] : InternalParser.missing
+          const exit = property.parser(value, options)
+          if (!effectIsExit(exit)) {
+            return resume(state, index, exit)
+          }
+          if (exit === InternalParser.sameExit) {
+            if (hasKey) InternalRecord.assignProperty(out, name, value)
+            continue
+          }
+          const terminal = stepProperty(state, property, exit)
+          if (terminal) return terminal
+        }
+      } catch (error) {
+        // `Effect.fnUntracedEager` turns a synchronous throw into a defect
+        return Effect.die(error)
+      }
+      return InternalParser.succeed(out)
+    }
   }
   private _rebuild(
     recur: (ast: AST) => AST,
@@ -2396,6 +2469,35 @@ type ParsedProperty = {
   readonly type: AST
 }
 
+function stepProperty(
+  s: ObjectParserState,
+  p: ParsedProperty,
+  exit: Exit.Exit<unknown, SchemaIssue.Issue>
+): Exit.Exit<void, SchemaIssue.Issue> | void {
+  if (exit._tag === "Failure") {
+    return wrapPropertyKeyIssue(s, s.ast, p.name, exit)
+  }
+  if (exit === InternalParser.sameExit) return
+  const value = (exit as InternalParser.Success<unknown, SchemaIssue.Issue>)[InternalParser.args]
+  if (value !== InternalParser.missing) {
+    InternalRecord.assignProperty(s.out, p.name, value)
+    return
+  }
+  delete s.out[p.name]
+  if (!isOptional(p.type)) {
+    const issue = new SchemaIssue.Pointer([p.name], new SchemaIssue.MissingKey(p.type.context?.annotations))
+    if (s.options.errors === "all") {
+      if (s.issues) s.issues.push(issue)
+      else s.issues = [issue]
+      return
+    } else {
+      return Exit.fail(
+        new SchemaIssue.Composite(s.ast, [issue], s.input, s.options)
+      )
+    }
+  }
+}
+
 const parseProperties = iterateEager<ObjectParserState, ParsedProperty>()({
   onItem(s, p) {
     if (!Object.hasOwn(s.input, p.name)) {
@@ -2405,30 +2507,7 @@ const parseProperties = iterateEager<ObjectParserState, ParsedProperty>()({
     InternalRecord.assignProperty(s.out, p.name, value)
     return p.parser(value, s.options)
   },
-  step(s, p, exit) {
-    if (exit._tag === "Failure") {
-      return wrapPropertyKeyIssue(s, s.ast, p.name, exit)
-    }
-    if (exit === InternalParser.sameExit) return
-    const value = (exit as InternalParser.Success<unknown, SchemaIssue.Issue>)[InternalParser.args]
-    if (value !== InternalParser.missing) {
-      InternalRecord.assignProperty(s.out, p.name, value)
-      return
-    }
-    delete s.out[p.name]
-    if (!isOptional(p.type)) {
-      const issue = new SchemaIssue.Pointer([p.name], new SchemaIssue.MissingKey(p.type.context?.annotations))
-      if (s.options.errors === "all") {
-        if (s.issues) s.issues.push(issue)
-        else s.issues = [issue]
-        return
-      } else {
-        return Exit.fail(
-          new SchemaIssue.Composite(s.ast, [issue], s.input, s.options)
-        )
-      }
-    }
-  }
+  step: stepProperty
 })
 
 function combineChecks(a: Checks | undefined, b: Checks | undefined): Checks | undefined {
@@ -2614,33 +2693,43 @@ export function collectSentinels(ast: AST): ReadonlyArray<Sentinel> {
         }
         return []
       })
+    case "Union": {
+      if (ast.types.length === 0) return []
+      const members = ast.types.map((type) => collectSentinels(toCandidate(type)))
+      return members[0].filter((s) =>
+        members.every((sentinels) => sentinels.some((o) => o.key === s.key && o.literal === s.literal))
+      )
+    }
     case "Suspend":
       return collectSentinels(ast.thunk())
   }
 }
 
-type CandidateIndex =
-  | ((input: any, isConstructor: boolean) => ReadonlyArray<AST>)
-  | {
-    bySentinel?: Map<PropertyKey, Map<LiteralValue | symbol, Array<number>>>
-    otherwise?: { [K in Type]?: Array<number> }
-  }
+type CandidateIndex = (input: any, isConstructor: boolean) => ReadonlyArray<AST>
+type SentinelEntry = readonly [
+  byValue: Map<LiteralValue | symbol, Set<number>>,
+  all: Set<number>
+]
+type SentinelIndex = Map<PropertyKey, SentinelEntry>
 
 const candidateIndexCache = new WeakMap<ReadonlyArray<AST>, CandidateIndex>()
 const emptyCandidates: ReadonlyArray<never> = Object.freeze([])
 
 function getIndex(types: ReadonlyArray<AST>): CandidateIndex {
-  let idx = candidateIndexCache.get(types)
-  if (idx) return idx
+  let index = candidateIndexCache.get(types)
+  if (index) return index
 
-  idx = {}
-  let literalCandidates: Map<LiteralValue | symbol, Array<AST>> | null | undefined
+  let bySentinel: SentinelIndex | undefined
+  let sentinelCandidateCount = 0
+  let otherwise: { [K in Type]?: Array<number> } | undefined
+  let literalCandidates: Map<LiteralValue | symbol, Array<AST>> | undefined
+  let onlyLiterals = true
   for (let i = 0; i < types.length; i++) {
     const a = types[i]
     const encoded = toCandidate(a)
     if (isNever(encoded)) continue
 
-    if (literalCandidates !== null) {
+    if (onlyLiterals) {
       if (isLiteral(encoded) || isUniqueSymbol(encoded)) {
         literalCandidates ??= new Map()
         const literal = isLiteral(encoded) ? encoded.literal : encoded.symbol
@@ -2648,50 +2737,122 @@ function getIndex(types: ReadonlyArray<AST>): CandidateIndex {
         if (!arr) literalCandidates.set(literal, arr = [])
         arr.push(a)
       } else {
-        literalCandidates = null
+        onlyLiterals = false
       }
     }
 
     const sentinels = collectSentinels(encoded)
 
     if (sentinels.length) { // discriminated variants
-      idx.bySentinel ??= new Map()
+      bySentinel ??= new Map()
+      sentinelCandidateCount++
       for (const { key, literal } of sentinels) {
-        let m = idx.bySentinel.get(key)
-        if (!m) idx.bySentinel.set(key, m = new Map())
-        let arr = m.get(literal)
-        if (!arr) m.set(literal, arr = [])
-        if (arr[arr.length - 1] !== i) arr.push(i)
+        let entry = bySentinel.get(key)
+        if (!entry) bySentinel.set(key, entry = [new Map(), new Set()])
+        entry[1].add(i)
+        let indexes = entry[0].get(literal)
+        if (!indexes) entry[0].set(literal, indexes = new Set())
+        indexes.add(i)
       }
     } else { // non-discriminated
-      idx.otherwise ??= {}
+      otherwise ??= {}
       const candidateTypes = getCandidateTypes(encoded)
-      for (const t of candidateTypes) (idx.otherwise[t] ??= []).push(i)
+      for (const t of candidateTypes) (otherwise[t] ??= []).push(i)
     }
   }
 
-  if (literalCandidates) {
+  if (onlyLiterals && literalCandidates) {
     literalCandidates.forEach(Object.freeze)
-    idx = (input) => literalCandidates.get(input) ?? emptyCandidates
-  } else if (idx.bySentinel?.size === 1 && !idx.otherwise) {
-    for (const [key, byValue] of idx.bySentinel) {
-      const candidates = byValue as unknown as Map<LiteralValue | symbol, ReadonlyArray<AST>>
-      for (const [literal, indexes] of byValue) {
-        candidates.set(literal, Object.freeze(indexes.map((index) => types[index])))
+    index = (input) => literalCandidates.get(input) ?? emptyCandidates
+  } else if (bySentinel?.size === 1 && !otherwise) {
+    const [key, [byValue]] = bySentinel.entries().next().value!
+    const candidates = byValue as unknown as Map<LiteralValue | symbol, ReadonlyArray<AST>>
+    for (const [literal, indexes] of byValue) {
+      candidates.set(literal, Object.freeze(Array.from(indexes, (index) => types[index])))
+    }
+    index = (input, isConstructor) => {
+      if (Predicate.isObjectKeyword(input)) {
+        const value = Object.hasOwn(input, key) ? (input as any)[key] : undefined
+        if (value !== undefined) return candidates.get(value) ?? emptyCandidates
+        if (isConstructor) return types
       }
-      idx = (input, isConstructor) => {
-        if (Predicate.isObjectKeyword(input)) {
-          const value = Object.hasOwn(input, key) ? (input as any)[key] : undefined
-          if (value !== undefined) return candidates.get(value) ?? emptyCandidates
-          if (isConstructor) return types
+      return emptyCandidates
+    }
+  } else if (bySentinel) {
+    // A key owned by every discriminated candidate is safe to use as the initial selector: no candidate can
+    // be excluded merely because it uses a different sentinel key. Prefer the key with the most distinct values
+    // to minimize the matching bucket.
+    let commonSentinel: [PropertyKey, SentinelEntry] | undefined
+    for (const entry of bySentinel) {
+      if (
+        (!commonSentinel || entry[1][0].size > commonSentinel[1][0].size) &&
+        entry[1][1].size === sentinelCandidateCount
+      ) {
+        commonSentinel = entry
+      }
+    }
+
+    index = (input, isConstructor) => {
+      const runtimeType: Type = input === null ? "null" : Array.isArray(input) ? "array" : typeof input
+      const base = otherwise?.[runtimeType] ?? emptyCandidates
+      if (!Predicate.isObjectKeyword(input)) return base.map((i) => types[i])
+
+      // Non-discriminated candidates are runtime-type fallbacks and are never removed by sentinel checks.
+      const selected = new Set(base)
+      let directKey: PropertyKey | undefined
+      // An observed common key can seed the selection directly; an unknown value rules out every
+      // discriminated candidate.
+      if (commonSentinel) {
+        const [key, [byValue]] = commonSentinel
+        const hasKey = Object.hasOwn(input, key)
+        const value = hasKey ? (input as any)[key] : undefined
+        if (hasKey && (!isConstructor || value !== undefined)) {
+          const match = byValue.get(value)
+          if (!match) return base.map((i) => types[i])
+          for (const i of match) selected.add(i)
+          directKey = key
         }
-        return emptyCandidates
       }
+
+      // Without an observed common key, collect positive matches from every sentinel. Constructor mode treats
+      // absent and undefined keys as unconstrained and therefore selects every candidate that owns the key.
+      if (directKey === undefined) {
+        for (const [key, [byValue, all]] of bySentinel) {
+          const hasKey = Object.hasOwn(input, key)
+          const value = hasKey ? (input as any)[key] : undefined
+          if (hasKey && (!isConstructor || value !== undefined)) {
+            const match = byValue.get(value)
+            if (match) {
+              for (const i of match) selected.add(i)
+            }
+          } else if (isConstructor) {
+            for (const i of all) selected.add(i)
+          }
+        }
+      }
+      // Missing keys are neutral. An observed key rejects only selected candidates that own it and do not match.
+      for (const [key, [byValue, all]] of bySentinel) {
+        if (key === directKey) continue
+        const hasKey = Object.hasOwn(input, key)
+        const value = hasKey ? (input as any)[key] : undefined
+        if (hasKey && (!isConstructor || value !== undefined)) {
+          const match = byValue.get(value)
+          for (const i of selected) {
+            if (all.has(i) && !match?.has(i)) selected.delete(i)
+          }
+        }
+      }
+      return Array.from(selected).sort((a, b) => a - b).map((i) => types[i])
+    }
+  } else {
+    index = (input) => {
+      const runtimeType: Type = input === null ? "null" : Array.isArray(input) ? "array" : typeof input
+      return (otherwise?.[runtimeType] ?? emptyCandidates).map((i) => types[i]).filter(filterLiterals(input))
     }
   }
 
-  candidateIndexCache.set(types, idx)
-  return idx
+  candidateIndexCache.set(types, index)
+  return index
 }
 
 function filterLiterals(input: any) {
@@ -2716,36 +2877,7 @@ export function getCandidates(
   types: ReadonlyArray<AST>,
   isConstructor = false
 ): ReadonlyArray<AST> {
-  const idx = getIndex(types)
-  if (typeof idx === "function") return idx(input, isConstructor)
-
-  const runtimeType: Type = input === null ? "null" : Array.isArray(input) ? "array" : typeof input
-
-  // 1. Try sentinel-based dispatch (most selective)
-  if (idx.bySentinel) {
-    const base = idx.otherwise?.[runtimeType] ?? emptyCandidates
-    if (Predicate.isObjectKeyword(input)) {
-      const selected = new Set(base)
-      for (const [k, m] of idx.bySentinel) {
-        const value = Object.hasOwn(input, k) ? (input as any)[k] : undefined
-        if (value !== undefined) {
-          const match = m.get(value)
-          if (match) {
-            for (const candidate of match) selected.add(candidate)
-          }
-        } else if (isConstructor) {
-          for (const indexes of m.values()) {
-            for (const candidate of indexes) selected.add(candidate)
-          }
-        }
-      }
-      return Array.from(selected).sort((a, b) => a - b).map((i) => types[i])
-    }
-    return base.map((i) => types[i])
-  }
-
-  // 2. Fallback: runtime-type dispatch only
-  return (idx.otherwise?.[runtimeType] ?? emptyCandidates).map((i) => types[i]).filter(filterLiterals(input))
+  return getIndex(types)(input, isConstructor)
 }
 
 /**
@@ -3207,6 +3339,14 @@ export function isFinite(annotations?: Schema.Annotations.Filter) {
 
 /** @internal */
 export const finite = appendChecks(number, [isFinite()])
+
+const numberToJson = new Link(
+  new Union([finite, nonFiniteLiterals], "anyOf"),
+  new SchemaTransformation.Transformation(
+    SchemaGetter.Number(),
+    SchemaGetter.transform((n) => globalThis.Number.isFinite(n) ? n : globalThis.String(n))
+  )
+)
 
 /**
  * Creates a {@link Filter} that validates strings by running `RegExp.test`.

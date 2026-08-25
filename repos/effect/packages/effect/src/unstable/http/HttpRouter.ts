@@ -23,6 +23,7 @@ import * as Tracer from "../../Tracer.ts"
 import type * as Types from "../../Types.ts"
 import * as FindMyWay from "./FindMyWay.ts"
 import * as HttpEffect from "./HttpEffect.ts"
+import * as HttpIncomingMessage from "./HttpIncomingMessage.ts"
 import type * as HttpMethod from "./HttpMethod.ts"
 import * as HttpMiddleware from "./HttpMiddleware.ts"
 import * as HttpServer from "./HttpServer.ts"
@@ -320,13 +321,14 @@ export const schemaJson = <
   RD
 >(
   schema: Schema.ConstraintCodec<A, I, RD, unknown>,
-  options?: ParseOptions | undefined
+  options?: (ParseOptions & HttpIncomingMessage.JsonOptions) | undefined
 ): Effect.Effect<
   A,
   HttpServerError.HttpServerError | Schema.SchemaError,
   HttpServerRequest.HttpServerRequest | HttpServerRequest.ParsedSearchParams | RouteContext | RD
 > => {
   const parse = Schema.decodeUnknownEffect(schema)
+  const parseBody = HttpIncomingMessage.schemaBodyJson(Schema.Unknown, options)
   return Effect.contextWith(
     (
       context: Context.Context<
@@ -336,7 +338,7 @@ export const schemaJson = <
       const request = Context.get(context, HttpServerRequest.HttpServerRequest)
       const searchParams = Context.get(context, HttpServerRequest.ParsedSearchParams)
       const routeContext = Context.get(context, RouteContext)
-      return Effect.flatMap(request.json, (body) =>
+      return Effect.flatMap(parseBody(request), (body) =>
         parse({
           method: request.method,
           url: request.url,
@@ -582,7 +584,7 @@ export const toHttpEffect = <A, E, R>(
 ): Effect.Effect<
   Effect.Effect<
     HttpServerResponse.HttpServerResponse,
-    Request.Only<"Error", R> | Request.Only<"GlobalRequires", R> | HttpServerError.HttpServerError,
+    Request.Only<"Error", R> | Request.Only<"GlobalError", R> | HttpServerError.HttpServerError,
     Scope.Scope | HttpServerRequest.HttpServerRequest | Request.Only<"Requires", R> | Request.Only<"GlobalRequires", R>
   >,
   Request.Without<E>,
@@ -845,7 +847,8 @@ export interface Middleware<
   readonly [MiddlewareTypeId]: Config
 
   readonly layer: [Config["requires"]] extends [never] ? Layer.Layer<
-      Request.From<"Requires", Config["provides"]>,
+      | Request.From<"Requires", Config["provides"]>
+      | Request.From<"Error", Config["handles"]>,
       Config["layerError"],
       | Config["layerRequires"]
       | Request.From<"Requires", Config["requires"]>
@@ -977,7 +980,7 @@ class MiddlewareImpl<
     const contextKey = `effect/http/HttpRouter/Middleware-${++middlewareId}` as const
     this.layer = Layer.effectContext(Effect.gen({ self: this }, function*() {
       const context = yield* Effect.context<Scope.Scope>()
-      const stack = [context.mapUnsafe.get(fnContextKey)]
+      const stack = [Context.getOrUndefinedUnsafe(context, fnContextKey)]
       if (this.dependencies) {
         const memoMap = yield* Layer.CurrentMemoMap
         const scope = Context.get(context, Scope.Scope)

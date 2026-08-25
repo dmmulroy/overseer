@@ -1,5 +1,5 @@
 import { assert, describe, it } from "@effect/vitest"
-import { Schema } from "effect"
+import { Schema, type SchemaRepresentation } from "effect"
 import { HttpApi, HttpApiEndpoint, HttpApiGroup, HttpApiSchema, OpenApi } from "effect/unstable/httpapi"
 
 describe("OpenApi representation v2 consumer", () => {
@@ -11,6 +11,24 @@ describe("OpenApi representation v2 consumer", () => {
       AdditionalDate: { $ref: "#/components/schemas/AdditionalDateEncoded" },
       AdditionalDateEncoded: { type: "string" }
     })
+  })
+
+  it("applies the reference policy without removing additional schema components", () => {
+    const AdditionalDate = Schema.Date.annotate({ identifier: "AdditionalDate" })
+    const Api = HttpApi.make("Api").annotate(HttpApi.AdditionalSchemas, [AdditionalDate]).add(
+      HttpApiGroup.make("test").add(
+        HttpApiEndpoint.get("date", "/date", { success: AdditionalDate })
+      )
+    )
+    const spec = OpenApi.fromApi(Api, { referencePolicy: () => undefined })
+
+    assert.deepStrictEqual(spec.components.schemas, {
+      AdditionalDate: { type: "string" }
+    })
+    assert.deepStrictEqual(
+      spec.paths["/date"]?.get?.responses[200]?.content?.["application/json"]?.schema,
+      { type: "string" }
+    )
   })
 
   it("uses canonical JSON codecs for response declaration schemas", () => {
@@ -105,12 +123,12 @@ describe("OpenApi representation v2 consumer", () => {
       OpenApi.fromApi(Api).paths["/create"]?.post?.requestBody?.content["application/json"]?.schema,
       {
         type: "string",
-        allOf: [{ minLength: 2 }]
+        minLength: 2
       }
     )
   })
 
-  it("shares definitions and caches by API identity", () => {
+  it("shares definitions and returns cached copies by API identity", () => {
     const Shared = Schema.Struct({ value: Schema.FiniteFromString }).annotate({ identifier: "Shared" })
     const Api = HttpApi.make("Api").add(
       HttpApiGroup.make("test").add(
@@ -122,13 +140,41 @@ describe("OpenApi representation v2 consumer", () => {
     )
 
     const first = OpenApi.fromApi(Api)
+    const second = OpenApi.fromApi(Api)
 
-    assert.strictEqual(OpenApi.fromApi(Api), first)
+    assert.notStrictEqual(second, first)
+    assert.deepStrictEqual(second, first)
     assert.deepStrictEqual(first.components.schemas.Shared, {
       type: "object",
       properties: { value: { type: "string" } },
       required: ["value"],
       additionalProperties: false
     })
+  })
+
+  it("caches generated specs by API and options identity", () => {
+    const Api = HttpApi.make("Api").add(
+      HttpApiGroup.make("test").add(
+        HttpApiEndpoint.get("value", "/value", {
+          success: Schema.Struct({ value: Schema.String })
+        })
+      )
+    )
+    let calls = 0
+    const referencePolicy: SchemaRepresentation.ReferencePolicy = (input) => {
+      calls++
+      return input.identifier
+    }
+    const options = { referencePolicy }
+
+    OpenApi.fromApi(Api, options)
+    const callsAfterFirstGeneration = calls
+    assert.isAbove(callsAfterFirstGeneration, 0)
+
+    OpenApi.fromApi(Api, options)
+    assert.strictEqual(calls, callsAfterFirstGeneration)
+
+    OpenApi.fromApi(Api, { referencePolicy })
+    assert.isAbove(calls, callsAfterFirstGeneration)
   })
 })

@@ -11,13 +11,15 @@
  *
  * @since 4.0.0
  */
-import * as Uuid from "uuid"
+import * as Arr from "../../Array.ts"
 import type { Brand } from "../../Brand.ts"
 import * as Context from "../../Context.ts"
 import * as Data from "../../Data.ts"
 import * as DateTime from "../../DateTime.ts"
 import * as Effect from "../../Effect.ts"
+import * as Uuid from "../../internal/uuid.ts"
 import * as Layer from "../../Layer.ts"
+import type { Option } from "../../Option.ts"
 import * as Order from "../../Order.ts"
 import * as PubSub from "../../PubSub.ts"
 import * as Schema from "../../Schema.ts"
@@ -78,12 +80,16 @@ export class EventJournal extends Context.Service<EventJournal, {
   }, EventJournalError>
 
   /**
-   * Return the uncommitted entries for a remote source.
+   * Run an effect with the uncommitted entries for a remote source.
+   *
+   * The effect is not run when there are no uncommitted entries, in which case
+   * `Option.none()` is returned. Otherwise, its result is wrapped in
+   * `Option.some()`.
    */
   readonly withRemoteUncommited: <A, E, R>(
     remoteId: RemoteId,
-    f: (entries: ReadonlyArray<Entry>) => Effect.Effect<A, E, R>
-  ) => Effect.Effect<A, EventJournalError | E, R>
+    f: (entries: Arr.NonEmptyReadonlyArray<Entry>) => Effect.Effect<A, E, R>
+  ) => Effect.Effect<Option<A>, EventJournalError | E, R>
 
   /**
    * Retrieve the first unused sequence number for a remote source.
@@ -178,7 +184,7 @@ export const RemoteId = Schema.Uint8Array.pipe(Schema.brand(RemoteIdTypeId))
  * @category unsafe
  * @since 4.0.0
  */
-export const makeRemoteIdUnsafe = (): RemoteId => Uuid.v4({}, new globalThis.Uint8Array(16)) as RemoteId
+export const makeRemoteIdUnsafe = (): RemoteId => Uuid.v4Bytes() as RemoteId
 
 /**
  * Runtime brand identifier used for `EntryId` values.
@@ -247,7 +253,7 @@ export const EntryIdOrder = Order.make<EntryId>((a, b) => {
  * @since 4.0.0
  */
 export const makeEntryIdUnsafe = (options: { msecs?: number } = {}): EntryId =>
-  Uuid.v7(options, new globalThis.Uint8Array(16)) as EntryId
+  Uuid.v7Bytes(options.msecs ?? DateTime.nowUnsafe().epochMilliseconds) as EntryId
 
 /**
  * Extracts the millisecond timestamp encoded in a UUID v7 `EntryId`.
@@ -471,7 +477,7 @@ export const makeMemory: Effect.Effect<EventJournal["Service"]> = Effect.gen(fun
     withRemoteUncommited: (remoteId, f) =>
       Effect.acquireUseRelease(
         Effect.sync(() => ensureRemote(remoteId).missing.slice()),
-        f,
+        (entries) => Arr.isReadonlyArrayNonEmpty(entries) ? Effect.asSome(f(entries)) : Effect.succeedNone,
         (entries, exit) =>
           Effect.sync(() => {
             if (exit._tag === "Failure") return
@@ -705,7 +711,7 @@ export const makeIndexedDb = (options?: {
           return Effect.sync(() => tx.abort())
         }).pipe(
           Effect.flatMap((entries) => {
-            if (entries.length === 0) return f(entries)
+            if (!Arr.isReadonlyArrayNonEmpty(entries)) return Effect.succeedNone
             const entryId = entries[entries.length - 1].id
             return Effect.uninterruptibleMask((restore) =>
               restore(f(entries)).pipe(
@@ -715,7 +721,8 @@ export const makeIndexedDb = (options?: {
                       remoteId,
                       entryId
                     }))
-                )
+                ),
+                Effect.asSome
               )
             )
           })

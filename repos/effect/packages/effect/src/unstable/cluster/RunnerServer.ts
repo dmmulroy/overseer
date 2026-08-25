@@ -34,13 +34,17 @@ const constVoid = constant(Effect.void)
 
 const serializeDefectReply = <R extends Rpc.Any>(
   reply: Reply.ReplyWithContext<R>,
-  defect: unknown
+  defect: unknown,
+  codecFor: RpcServer.Protocol["Service"]["codecFor"]
 ): Effect.Effect<Reply.Encoded> =>
-  Effect.orDie(Reply.serialize(Reply.ReplyWithContext.fromDefect({
-    id: reply.reply.id,
-    requestId: reply.reply.requestId,
-    defect
-  })))
+  Effect.orDie(Reply.serialize(
+    Reply.ReplyWithContext.fromDefect({
+      id: reply.reply.id,
+      requestId: reply.reply.requestId,
+      defect
+    }),
+    codecFor
+  ))
 
 /**
  * Layer that handles runner protocol RPCs by forwarding requests to `Sharding`
@@ -52,19 +56,21 @@ const serializeDefectReply = <R extends Rpc.Any>(
 export const layerHandlers = Runners.Rpcs.toLayer(Effect.gen(function*() {
   const sharding = yield* Sharding.Sharding
   const storage = yield* MessageStorage.MessageStorage
+  const { codecFor } = yield* RpcServer.Protocol
 
   return {
     Ping: () => Effect.void,
-    Notify: ({ envelope }) =>
-      sharding.notify(
-        envelope._tag === "Request"
-          ? new Message.IncomingRequest({
-            envelope,
-            respond: constVoid,
-            lastSentReply: Option.none()
-          })
-          : new Message.IncomingEnvelope({ envelope })
-      ),
+    Notify: ({ envelope, persisted }) => {
+      const message = envelope._tag === "Request"
+        ? new Message.IncomingRequest({
+          envelope,
+          respond: constVoid,
+          lastSentReply: Option.none(),
+          codecFor
+        })
+        : new Message.IncomingEnvelope({ envelope })
+      return persisted ? sharding.notify(message) : sharding.send(message)
+    },
     Effect: ({ persisted, request }) => {
       let replyEncoded: Option.Option<Effect.Effect<Reply.Encoded, ClusterError.EntityNotAssignedToRunner>> = Option
         .none()
@@ -74,8 +80,9 @@ export const layerHandlers = Runners.Rpcs.toLayer(Effect.gen(function*() {
       const message = new Message.IncomingRequest({
         envelope: request,
         lastSentReply: Option.none(),
+        codecFor,
         respond(reply) {
-          resume(Reply.serializeOrDefect(reply))
+          resume(Reply.serializeOrDefect(reply, codecFor))
           return Effect.void
         }
       })
@@ -125,8 +132,9 @@ export const layerHandlers = Runners.Rpcs.toLayer(Effect.gen(function*() {
           const message = new Message.IncomingRequest({
             envelope: request,
             lastSentReply: Option.none(),
+            codecFor,
             respond(reply) {
-              return Reply.serialize(reply).pipe(
+              return Reply.serialize(reply, codecFor).pipe(
                 Effect.flatMap((reply) => {
                   Queue.offerUnsafe(queue, reply)
                   if (reply._tag === "WithExit") {
@@ -135,7 +143,7 @@ export const layerHandlers = Runners.Rpcs.toLayer(Effect.gen(function*() {
                   return Effect.void
                 }),
                 Effect.catchTag("MalformedMessage", (error) =>
-                  Effect.flatMap(serializeDefectReply(reply, error), (reply) => {
+                  Effect.flatMap(serializeDefectReply(reply, error, codecFor), (reply) => {
                     // the fallback defect reply is terminal, so end the stream
                     Queue.offerUnsafe(queue, reply)
                     Queue.endUnsafe(queue)
@@ -191,7 +199,9 @@ const constWaitUntilRead = { waitUntilRead: true } as const
 export const layer: Layer.Layer<
   never,
   never,
-  RpcServer.Protocol | Sharding.Sharding | MessageStorage.MessageStorage
+  | RpcServer.Protocol
+  | Sharding.Sharding
+  | MessageStorage.MessageStorage
 > = RpcServer.layer(Runners.Rpcs, {
   spanPrefix: "RunnerServer",
   disableTracing: true,

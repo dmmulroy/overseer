@@ -376,6 +376,21 @@ describe("Serializers", () => {
         })
 
         describe("checks", () => {
+          it("runs source checks once per direction", () => {
+            let executions = 0
+            const codec = Schema.toCodecJson(Schema.Number.check(Schema.makeFilter<number>(() => {
+              executions++
+              return undefined
+            })))
+
+            Schema.decodeUnknownSync(codec)(1)
+            strictEqual(executions, 1)
+
+            executions = 0
+            Schema.encodeUnknownSync(codec)(1)
+            strictEqual(executions, 1)
+          })
+
           it("Finite", async () => {
             const schema = Schema.Finite
             const asserts = new TestSchema.Asserts(Schema.toCodecJson(schema))
@@ -2747,6 +2762,18 @@ Expected "Infinity" | "-Infinity" | "NaN"`
   })
 
   describe("toCodecArrayFromSingle", () => {
+    it("preserves union fallback when a singleton fails array element checks", async () => {
+      const schema = Schema.toCodecArrayFromSingle(Schema.toCodecStringTree(Schema.Union([
+        Schema.Array(Schema.String.check(Schema.isMinLength(2))),
+        Schema.String
+      ])))
+      const asserts = new TestSchema.Asserts(schema)
+
+      const decoding = asserts.decoding()
+      await decoding.succeed("a", "a")
+      await decoding.succeed("ab", ["ab"])
+    })
+
     it("accepts string and array inputs for a top-level array", async () => {
       const serializer = Schema.toCodecArrayFromSingle(Schema.toCodecStringTree(Schema.Array(Schema.Finite)))
       strictEqual(serializer.ast._tag, "Arrays")
