@@ -7,11 +7,11 @@
     ".": "./src/index.ts"
   },
   "dependencies": {
-    "alchemy": "2.0.0-beta.72",
-    "effect": "4.0.0-beta.107"
+    "alchemy": "2.0.0-beta.74",
+    "effect": "4.0.0-rc.112"
   },
   "devDependencies": {
     "typescript": "7.0.2",
-    "vite-plus": "0.2.9"
+    "vite-plus": "0.3.0"
   }
 }

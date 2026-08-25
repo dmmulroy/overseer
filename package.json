@@ -22,14 +22,14 @@
     "test:unit": "vp test run tools/oxlint && vp run @overseer/api#test:unit"
   },
   "devDependencies": {
-    "@effect/platform-node": "4.0.0-beta.107",
-    "@oxlint/plugins": "1.78.0",
-    "@types/node": "26.2.0",
-    "alchemy": "2.0.0-beta.72",
-    "effect": "4.0.0-beta.107",
-    "oxlint": "1.78.0",
-    "vite": "npm:@voidzero-dev/vite-plus-core@0.2.9",
-    "vite-plus": "0.2.9"
+    "@effect/platform-node": "4.0.0-rc.112",
+    "@oxlint/plugins": "1.80.0",
+    "@types/node": "26.3.0",
+    "alchemy": "2.0.0-beta.74",
+    "effect": "4.0.0-rc.112",
+    "oxlint": "1.80.0",
+    "vite": "npm:@voidzero-dev/vite-plus-core@0.3.0",
+    "vite-plus": "0.3.0"
   },
   "devEngines": {
     "packageManager": {
