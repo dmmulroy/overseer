@@ -176,8 +176,12 @@ const _await = <A, E>(self: Deferred<A, E>): Effect<A, E> =>
     self.resumes ??= []
     self.resumes.push(resume)
     return internalEffect.sync(() => {
-      const index = self.resumes!.indexOf(resume)
-      self.resumes!.splice(index, 1)
+      // Completion resumes all waiters and clears `resumes`, so a cleanup
+      // running after completion has nothing to unregister.
+      const resumes = self.resumes
+      if (resumes === undefined) return
+      const index = resumes.indexOf(resume)
+      if (index >= 0) resumes.splice(index, 1)
     })
   })
 
@@ -853,10 +857,14 @@ export const doneUnsafe = <A, E>(self: Deferred<A, E>, effect: Effect<A, E>): bo
   if (self.effect) return false
   self.effect = effect
   if (self.resumes) {
-    for (let i = 0; i < self.resumes.length; i++) {
-      self.resumes[i](effect)
-    }
+    // Clear `resumes` before resuming: a waiter resumed with an interrupt
+    // cause dies synchronously inside `resume`, and its await cleanup would
+    // otherwise splice this array mid-iteration and skip the next waiter.
+    const resumes = self.resumes
     self.resumes = undefined
+    for (let i = 0; i < resumes.length; i++) {
+      resumes[i](effect)
+    }
   }
   return true
 }

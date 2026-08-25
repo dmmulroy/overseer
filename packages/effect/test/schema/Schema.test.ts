@@ -34,7 +34,14 @@ import {
 import { TestSchema } from "effect/testing"
 import { produce } from "immer"
 import { deepStrictEqual, fail, strictEqual } from "node:assert"
-import { assertFalse, assertInclude, assertSchemaIssueError, assertTrue, throws } from "../utils/assert.ts"
+import {
+  assertExitSuccess,
+  assertFalse,
+  assertInclude,
+  assertSchemaIssueError,
+  assertTrue,
+  throws
+} from "../utils/assert.ts"
 
 const verifyGeneration = true
 
@@ -48,6 +55,30 @@ const SnakeToCamel = Schema.String.pipe(
 )
 
 describe("Schema", () => {
+  it("keeps synchronous decode and encode effects eager", () => {
+    // A synchronous parser already produces an `Exit`, so the adapter must hand
+    // it back as-is instead of wrapping it in something a fiber has to run.
+    const eagerExit = <A>(effect: Effect.Effect<A, Schema.SchemaError>): Exit.Exit<A, Schema.SchemaError> => {
+      assertTrue(Exit.isExit(effect), "expected the adapter to return an Exit")
+      return effect as Exit.Exit<A, Schema.SchemaError>
+    }
+    const schemaError = <A>(exit: Exit.Exit<A, Schema.SchemaError>) =>
+      Exit.isFailure(exit) ? Cause.findErrorOption(exit.cause) : Option.none()
+
+    assertExitSuccess(eagerExit(Schema.decodeUnknownEffect(Schema.String)("a")), "a")
+    assertExitSuccess(eagerExit(Schema.encodeUnknownEffect(Schema.String)("a")), "a")
+
+    for (
+      const effect of [
+        Schema.decodeUnknownEffect(Schema.String)(null),
+        Schema.encodeUnknownEffect(Schema.String)(null)
+      ]
+    ) {
+      const error = schemaError(eagerExit(effect))
+      assertTrue(Option.isSome(error) && Schema.isSchemaError(error.value))
+    }
+  })
+
   it("isSchema", () => {
     class A extends Schema.Class<A>("A")(Schema.Struct({
       a: Schema.String
@@ -80,6 +111,18 @@ describe("Schema", () => {
       strictEqual(error.issue, result.failure)
       strictEqual(error.message, "Expected string")
       strictEqual(String(error), "SchemaError(Expected string)")
+    })
+
+    it("does not capture stack frames", () => {
+      const result = SchemaParser.decodeUnknownResult(Schema.String)(null)
+      assertTrue(Result.isFailure(result))
+      const ErrorWithLimit = Error as typeof Error & { stackTraceLimit?: number | undefined }
+      const stackTraceLimit = ErrorWithLimit.stackTraceLimit
+
+      const error = new Schema.SchemaError(result.failure)
+
+      strictEqual(error.stack, "SchemaError: Expected string")
+      strictEqual(ErrorWithLimit.stackTraceLimit, stackTraceLimit)
     })
   })
 
@@ -175,14 +218,17 @@ Missing key
   describe("Literal", () => {
     it("should throw an error if the literal is not a finite number", () => {
       throws(
+        // @effect-diagnostics-next-line schemaLiteralNonFinite:off
         () => Schema.Literal(Infinity),
         new Error("A numeric literal must be finite, got Infinity")
       )
       throws(
+        // @effect-diagnostics-next-line schemaLiteralNonFinite:off
         () => Schema.Literal(-Infinity),
         new Error("A numeric literal must be finite, got -Infinity")
       )
       throws(
+        // @effect-diagnostics-next-line schemaLiteralNonFinite:off
         () => Schema.Literal(NaN),
         new Error("A numeric literal must be finite, got NaN")
       )
@@ -4129,6 +4175,32 @@ Expected a value between -2147483648 and 2147483647`
       await decoding.fail(
         { kind: "a", status: "ready", value: "value" },
         "Expected exactly one member to match"
+      )
+    })
+
+    it(`mode: "oneOf" with nested and contradicted sentinels`, async () => {
+      const nested = Schema.Union([
+        Schema.Struct({ kind: Schema.Literal("a"), variant: Schema.Literal("x") }),
+        Schema.Struct({ kind: Schema.Literal("a"), variant: Schema.Literal("y") })
+      ])
+      const schema = Schema.Struct({
+        block: Schema.Union([
+          nested,
+          Schema.Struct({ kind: Schema.Literal("b") })
+        ], { mode: "oneOf" })
+      })
+      const decoding = new TestSchema.Asserts(schema).decoding()
+
+      await decoding.succeed({ block: { kind: "a", variant: "x" } })
+      await decoding.fail(
+        { block: { kind: "a", variant: "z" } },
+        `Expected { readonly "kind": "a", readonly "variant": "x", ... } | { readonly "kind": "a", readonly "variant": "y", ... }
+  at ["block"]`
+      )
+      await decoding.fail(
+        { block: { kind: "a", variant: undefined } },
+        `Expected { readonly "kind": "a", readonly "variant": "x", ... } | { readonly "kind": "a", readonly "variant": "y", ... }
+  at ["block"]`
       )
     })
 
@@ -9082,6 +9154,25 @@ pointed message
           ),
           "D"
         )
+
+        // matchOrElse
+        deepStrictEqual(
+          schema.matchOrElse({ _tag: "A", a: "a" }, { A: () => "A" }, () => "fallback"),
+          "A"
+        )
+        deepStrictEqual(
+          schema.matchOrElse({ _tag: b, b: 1 }, { A: () => "A" }, (value) => value._tag),
+          b
+        )
+        deepStrictEqual(
+          pipe({ _tag: b, b: 1 }, schema.matchOrElse({ A: () => "A" }, (value) => value._tag)),
+          b
+        )
+        const undefinedCases = { A: undefined } as unknown as { A?: () => string }
+        deepStrictEqual(
+          schema.matchOrElse({ _tag: "A", a: "a" }, undefinedCases, () => "fallback"),
+          "fallback"
+        )
       })
 
       it("should support multiple tags", () => {
@@ -9207,6 +9298,20 @@ pointed message
         deepStrictEqual(
           pipe({ _tag: "C", c: true }, schema.match({ A: () => "A", B: () => "B", C: () => "C" })),
           "C"
+        )
+
+        // matchOrElse
+        deepStrictEqual(
+          schema.matchOrElse({ _tag: "A", a: "a" }, { A: (value) => value.a }, () => "fallback"),
+          "a"
+        )
+        deepStrictEqual(
+          schema.matchOrElse({ _tag: "B", b: 1 }, { A: () => "A" }, (value) => value._tag),
+          "B"
+        )
+        deepStrictEqual(
+          pipe({ _tag: "B", b: 1 }, schema.matchOrElse({ A: () => "A" }, (value) => value._tag)),
+          "B"
         )
       })
     })

@@ -70,6 +70,61 @@ const makeSecurityApi = (
   )
 
 describe("OpenApi", () => {
+  it("returns fresh spec instances when using the cache", () => {
+    const Api = HttpApi.make("Api").add(
+      HttpApiGroup.make("test").add(
+        HttpApiEndpoint.get("get", "/resource")
+      )
+    )
+
+    const first = OpenApi.fromApi(Api)
+    first.info.title = "mutated"
+    first.paths["/resource"]!.get!.summary = "mutated"
+
+    const second = OpenApi.fromApi(Api)
+
+    assert.notStrictEqual(first, second)
+    assert.notStrictEqual(first.info, second.info)
+    assert.notStrictEqual(first.paths["/resource"]!.get, second.paths["/resource"]!.get)
+    assert.strictEqual(second.info.title, "Api")
+    assert.isUndefined(second.paths["/resource"]!.get!.summary)
+
+    second.info.title = "mutated again"
+    second.paths["/resource"]!.get!.summary = "mutated again"
+    const third = OpenApi.fromApi(Api)
+
+    assert.strictEqual(third.info.title, "Api")
+    assert.isUndefined(third.paths["/resource"]!.get!.summary)
+  })
+
+  it("preserves JSON.rawJSON values when cloning cached specs", () => {
+    const rawJson = (JSON as unknown as { rawJSON: (value: string) => unknown }).rawJSON("9223372036854775807")
+    const Api = HttpApi.make("Api").annotate(OpenApi.Transform, (spec) => ({
+      ...spec,
+      info: {
+        ...spec.info,
+        "x-raw": rawJson
+      }
+    }))
+
+    const expected = `{"title":"Api","version":"0.0.1","x-raw":9223372036854775807}`
+
+    assert.strictEqual(JSON.stringify(OpenApi.fromApi(Api).info), expected)
+    assert.strictEqual(JSON.stringify(OpenApi.fromApi(Api).info), expected)
+  })
+
+  it("isolates the cached spec from external override mutations", () => {
+    const info = { title: "Api", version: "1.0.0" }
+    const Api = HttpApi.make("Api").annotate(OpenApi.Override, { info })
+
+    OpenApi.fromApi(Api)
+    info.title = "mutated"
+
+    const cached = OpenApi.fromApi(Api)
+
+    assert.strictEqual(cached.info.title, "Api")
+  })
+
   it("preserves every declared payload content type for normalized equivalents", () => {
     const profileA = "Application/Vnd.Effect+JSON; Profile=A"
     const profileB = "application/vnd.effect+json; profile=b"
@@ -227,7 +282,7 @@ describe("OpenApi", () => {
       spec.paths["/encoded"]?.get?.responses[404]?.headers?.["x-error-id"]?.schema,
       {
         type: "string",
-        allOf: [{ pattern: "^[+-]?\\d*\\.?\\d+(?:[Ee][+-]?\\d+)?$" }]
+        pattern: "^[+-]?\\d*\\.?\\d+(?:[Ee][+-]?\\d+)?$"
       }
     )
     assert.deepStrictEqual(
@@ -254,7 +309,7 @@ describe("OpenApi", () => {
       "x-retry-after": {
         schema: {
           type: "string",
-          allOf: [{ pattern: "^[+-]?\\d*\\.?\\d+(?:[Ee][+-]?\\d+)?$" }]
+          pattern: "^[+-]?\\d*\\.?\\d+(?:[Ee][+-]?\\d+)?$"
         },
         required: true
       }
@@ -278,7 +333,7 @@ describe("OpenApi", () => {
       "x-stream-id": {
         schema: {
           type: "string",
-          allOf: [{ pattern: "^[+-]?\\d*\\.?\\d+(?:[Ee][+-]?\\d+)?$" }]
+          pattern: "^[+-]?\\d*\\.?\\d+(?:[Ee][+-]?\\d+)?$"
         },
         required: true
       }
