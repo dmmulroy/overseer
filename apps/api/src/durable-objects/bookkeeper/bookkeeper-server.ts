@@ -9,6 +9,7 @@ import {
   bookkeeperDatabaseLayerWithoutDependencies,
 } from "./bookkeeper-database.ts";
 import { withOverseerHttpObservability } from "../../overseer-http-observability.ts";
+import { overseerHttpSpanNameLayer } from "../../overseer-http-span-names.ts";
 import { durableObjectBaseHttpServerLayer } from "../durable-object-base-http-server-layer.ts";
 import {
   BookkeeperHttpApi,
@@ -105,6 +106,6 @@ const bookkeeperServerLayer: Layer.Layer<BookkeeperServer, never, Cloudflare.Wor
         };
       }).pipe(Effect.orDie);
     }),
-  );
+  ).pipe(Layer.provideMerge(overseerHttpSpanNameLayer));
 
 export default bookkeeperServerLayer;

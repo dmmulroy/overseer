@@ -34,6 +34,16 @@ const isAxiomClientSpan = (span: AxiomTraceSpan): boolean =>
 const isAxiomServerSpan = (span: AxiomTraceSpan): boolean =>
   span.spanKind.toLowerCase() === "server" || span.spanKind.toLowerCase().endsWith("_server");
 
+const hasNormalizedOverseerHttpSpanName = (span: AxiomTraceSpan): boolean => {
+  if (span.spanName.startsWith("http.client ")) {
+    return /^http\.client [A-Z]+ \//.test(span.spanName);
+  }
+  if (span.spanName.startsWith("http.server ")) {
+    return /^http\.server [A-Z]+ \//.test(span.spanName);
+  }
+  return true;
+};
+
 const hasCompleteAxiomTraceParentage = (spans: ReadonlyArray<AxiomTraceSpan>): boolean => {
   const spansById = new Map(spans.map((span) => [span.spanId, span]));
   const serverParentSpanIds = new Set(
@@ -43,6 +53,7 @@ const hasCompleteAxiomTraceParentage = (spans: ReadonlyArray<AxiomTraceSpan>): b
   );
 
   return spans.every((span) => {
+    if (!hasNormalizedOverseerHttpSpanName(span)) return false;
     if (
       isAxiomClientSpan(span) &&
       span.spanName.startsWith("http.client ") &&
@@ -68,6 +79,7 @@ const hasExpectedOverseerTraceCoverage = (spans: ReadonlyArray<AxiomTraceSpan>):
     [...expectedOverseerTraceRuntimeComponents].every((component) =>
       observedRuntimeComponents.has(component),
     ) &&
+    spans.some((span) => span.spanName.includes("/v1/workspaces/:workspaceId")) &&
     hasCompleteAxiomTraceParentage(spans)
   );
 };

@@ -1,5 +1,6 @@
 import { OVERSEER_E2E_TRACE_DATASET_NAME } from "@overseer/shared-infrastructure";
 import { deriveTestRunIdFromStage } from "../../../src/overseer-e2e-trace-identity.ts";
+import { overseerHttpSpanNameLayer } from "../../../src/overseer-http-span-names.ts";
 import * as Cloudflare from "alchemy/Cloudflare";
 import type { CompiledStack } from "alchemy/Stack";
 import type { OverseerApiStackOutput } from "../../../alchemy.run.ts";
@@ -396,6 +397,7 @@ export class OverseerTestHarness {
         });
         const runnable = effect.pipe(
           Effect.provide(tracingLayer),
+          Effect.provide(overseerHttpSpanNameLayer),
           Effect.provide(evidenceCapabilitiesLayer),
           Effect.provide(apiClientLayer),
           Effect.provide(sharedStorageLayer),

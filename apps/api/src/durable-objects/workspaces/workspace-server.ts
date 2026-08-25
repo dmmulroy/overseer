@@ -9,6 +9,7 @@ import { durableObjectBaseHttpServerLayer } from "../durable-object-base-http-se
 import { workspaceDatabaseLayerWithoutDependencies } from "./workspace-database.ts";
 import { workspaceHttpHandlersLayer } from "./workspace-http-handlers.ts";
 import { withOverseerHttpObservability } from "../../overseer-http-observability.ts";
+import { overseerHttpSpanNameLayer } from "../../overseer-http-span-names.ts";
 import { WorkspaceHttpApi } from "./workspace-http-api.ts";
 
 interface WorkspaceServerContract {
@@ -56,6 +57,7 @@ export const workspaceServerLayerWithoutDependencies: Layer.Layer<
 /** Hosts the Workspace Durable Object with its production Bookkeeper client. */
 const workspaceServerLayer = workspaceServerLayerWithoutDependencies.pipe(
   Layer.provide(bookkeeperClientLayer),
+  Layer.provideMerge(overseerHttpSpanNameLayer),
 );
 
 export default workspaceServerLayer;

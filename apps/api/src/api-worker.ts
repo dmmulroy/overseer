@@ -13,6 +13,7 @@ import { OverseerApiAccessDeployment } from "./overseer-api-access.ts";
 import { OverseerApiHostname } from "./overseer-api-hostname.ts";
 import { OverseerHttpApi } from "./overseer-http-api.ts";
 import { overseerSdkLayer } from "./overseer-sdk/overseer-sdk.ts";
+import { overseerHttpSpanNameLayer } from "./overseer-http-span-names.ts";
 import {
   RequestIdMiddleware,
   cloudflareRequestIdMiddlewareLayer,
@@ -100,6 +101,6 @@ const apiWorkerLayer = ApiWorker.make(
     Effect.provide(accessAuthenticationMiddlewareLayer),
     Effect.provide(cloudflareRequestIdMiddlewareLayer),
   ),
-);
+).pipe(Layer.provideMerge(overseerHttpSpanNameLayer));
 
 export default apiWorkerLayer;
