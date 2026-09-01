@@ -184,7 +184,7 @@ type IssueId = typeof IssueId.Type;
 
 # Overseer SDK
 
-**Decision:** The root API Worker depends only on the application-owned `OverseerSdk` for Overseer operations. HTTP handlers must not call `WorkspaceClient`, `BookkeeperClient`, Durable Object namespaces, or persistence services directly.
+**Decision:** The root API Worker depends only on the application-owned `OverseerSdk` for Overseer operations. HTTP handlers must not call `WorkspaceClient`, Durable Object namespaces, or persistence services directly.
 
 The SDK groups the existing application client capabilities instead of inventing parallel operation interfaces or duplicating their method and error types:
 
@@ -256,11 +256,11 @@ Boundary representations remain outside the domain modules. In particular, `Clou
 **Decision:** Do not export generic service constructor names such as `make`. Include the capability in each constructor name so plain-text search finds the correct definition directly:
 
 ```ts
-const makeBookkeeperDatabase = Effect.gen(function* () {
+const makeWorkspaceDatabase = Effect.gen(function* () {
   // ...
 });
 
-const makeWorkspaceDatabase = Effect.gen(function* () {
+const makeWorkspaceClient = Effect.gen(function* () {
   // ...
 });
 ```
@@ -393,7 +393,7 @@ The client resolves the `WorkspaceServer` namespace during Alchemy Init without 
 
 This lifecycle machinery is entirely private to `makeWorkspaceClient`. Callers yield `WorkspaceClient` or use `OverseerSdk.workspace` and invoke domain operations with canonical Workspace IDs. They never select, retain, or manage Durable Object stubs, generated HTTP clients, caches, or instance facades. `IWorkspaceClient` remains the complete public surface, including collection-level `createWorkspace` and ID-addressed instance operations; there is no public or static `for` method.
 
-Listing Workspaces remains a Bookkeeper operation because no individual Workspace Durable Object owns the collection.
+Listing Workspaces is deferred until an asynchronous data-lake projection owns the global collection.
 
 ### Workspace Database
 
@@ -425,14 +425,12 @@ Layer descriptions may be created beside the yielded state reference, but state-
 ```ts
 Effect.gen(function* () {
   const state = yield* Cloudflare.DurableObjectState;
-  const bookkeeperClient = yield* BookkeeperClient;
 
   const workspaceDatabaseLayer = WorkspaceDatabase.layerWithoutDependencies.pipe(
     Layer.provide(SqliteClient.layer({ storage: state.raw.storage })),
   );
   const workspaceHandlersLayer = workspaceHttpHandlersLayer.pipe(
     Layer.provide(workspaceDatabaseLayer),
-    Layer.provide(Layer.succeed(BookkeeperClient, bookkeeperClient)),
   );
 
   return Effect.gen(function* () {
@@ -443,7 +441,7 @@ Effect.gen(function* () {
 
     return { fetch: yield* HttpRouter.toHttpEffect(httpLayer) };
   });
-}).pipe(Effect.provide(bookkeeperClientLayerWithoutDependencies));
+});
 ```
 
 Passing the complete `state.raw.storage` enables Effect SQL transaction support. One database service and SQL client are acquired for the Durable Object instance and shared by its handlers; they are not reconstructed for every request.
@@ -471,7 +469,7 @@ Keep the complete root HTTP contract in `apps/api/src/overseer-http-api.ts` and 
 
 Workspace handlers yield `OverseerSdk` and invoke only `overseer.workspace.*`. They do not directly yield lower-level Durable Object clients. Listing Workspaces is deferred until the root collection contract uses the shared pagination model and the SDK exposes it through an intentional client capability.
 
-`apps/api/src/api-worker.ts` separates the `ApiWorker` Alchemy tag from its default-exported `.make()` Layer. The Worker declares `BookkeeperServer | WorkspaceServer` as its hosted Durable Object contract, while each Durable Object module likewise exports its lightweight server tag by name and its production implementation Layer by default. Modules with substitutable dependencies expose both `layerWithoutDependencies` and a production `layer` assembled with the dependency's production Layer; tests and alternate compositions can select the former, while ordinary callers consume the latter. This dependency-first `Layer.provide` chain registers Bookkeeper before Workspace in both Alchemy initialization phases without an imperative ordering yield. The Worker's effectful props still select the optional Access deployment and preserve generated Outputs directly in environment bindings. The Alchemy Stack provides the default Worker Layer, yields `ApiWorker` for outputs, and yields the same stable Access deployment Effect for output projection.
+`apps/api/src/api-worker.ts` separates the `ApiWorker` Alchemy tag from its default-exported `.make()` Layer. The Worker declares `WorkspaceServer` as its hosted Durable Object contract, while the Durable Object module exports its lightweight server tag by name and production implementation Layer by default. The Worker's effectful props still select the optional Access deployment and preserve generated Outputs directly in environment bindings. The Alchemy Stack provides the default Worker Layer, yields `ApiWorker` for outputs, and yields the same stable Access deployment Effect for output projection.
 
 The checked-in OpenAPI 3.1 artifact lives at `apps/api/openapi.json` and is generated directly from `OverseerHttpApi` with Effect's `OpenApi.fromApi`. Run `vp run generate:openapi` after changing the root HTTP contract, schemas, middleware errors, or OpenAPI annotations. The Vite Plus task formats the generated artifact and caches its declared output; handwritten edits to `openapi.json` are overwritten.
 
@@ -628,200 +626,15 @@ Remote non-production stages derive an isolated, single-label API hostname from 
 - Use the stable branded ID as the deterministic namespace key, never a display name or arbitrary caller-provided label.
 - Client methods accept domain IDs; namespace lookup remains hidden inside the client implementation.
 
-### Bookkeeper Server
+### Retired Bookkeeper Server Decision
 
-**Decision:** Add a singleton `BookkeeperServer` Durable Object that owns an index of every Workspace, Project, and Issue server.
+**Retired:** The singleton Bookkeeper Durable Object and its synchronous directory protocol were removed. Workspace Durable Objects now persist mutations directly to their own SQLite databases. The removed directory provided global Workspace, Project, and Issue listing/counting, parent-registration validation, and cross-entity delete ordering; none of those capabilities were exposed by the public API.
 
-The singleton still follows the ID-keying rule through one reserved, stable ID:
-
-```ts
-type BookkeeperId = "bookkeeper";
-
-const BOOKKEEPER_ID: BookkeeperId = "bookkeeper";
-```
-
-The Bookkeeper is the authoritative directory for entity registration, admission, deletion, and operation reservations, but it is not the source of truth for the full state held by each entity server. It must not pretend that a write to the Bookkeeper and a write to another Durable Object are one transaction.
-
-#### Bookkeeper Modules
-
-```text
-apps/api/src/durable-objects/bookkeeper/
-├── bookkeeper-http-api.ts
-├── bookkeeper-database.ts
-├── bookkeeper-server.ts
-├── bookkeeper-client.ts
-└── bookkeeper-migrations.ts
-```
-
-The shared HTTP contract is imported by both server and client. `BookkeeperDatabase` hides SQL, table structure, records, cursor encoding, stored-data parsing, transactions, and migrations. HTTP handlers yield `BookkeeperDatabase`; no handler yields `SqlClient` directly.
-
-#### Bookkeeper Index Schemas
-
-Bookkeeper output schemas are derived from the existing domain entity schemas so IDs and timestamps retain one definition site. They add only Bookkeeper-owned projection fields and do not independently redefine Workspace, Project, or Issue fields:
-
-```ts
-const BookkeeperWorkspace = Schema.Struct({
-  id: Workspace.fields.id,
-  createdAt: Workspace.fields.createdAt,
-  updatedAt: Workspace.fields.updatedAt,
-  deletedAt: Schema.OptionFromNullOr(Schema.DateTimeUtcFromString),
-});
-
-const BookkeeperProject = Schema.Struct({
-  id: Project.fields.id,
-  workspaceId: Project.fields.workspaceId,
-  createdAt: Project.fields.createdAt,
-  updatedAt: Project.fields.updatedAt,
-  deletedAt: Schema.OptionFromNullOr(Schema.DateTimeUtcFromString),
-});
-
-const BookkeeperIssue = Schema.Struct({
-  id: Issue.fields.id,
-  projectId: Issue.fields.projectId,
-  createdAt: Issue.fields.createdAt,
-  updatedAt: Issue.fields.updatedAt,
-  deletedAt: Schema.OptionFromNullOr(Schema.DateTimeUtcFromString),
-});
-```
-
-These are Bookkeeper projections, not alternate domain entities. The generic `PaginationPage` schema wraps them for collection responses.
-
-#### Bookkeeper Client
-
-```ts
-interface IBookkeeperClient {
-  readonly listWorkspaces: (
-    request: PaginationRequest,
-  ) => Effect.Effect<PaginationPage<BookkeeperWorkspace>, ListWorkspacesError>;
-  readonly getWorkspace: (
-    id: WorkspaceId,
-  ) => Effect.Effect<Option.Option<BookkeeperWorkspace>, GetWorkspaceError>;
-  readonly registerWorkspace: (
-    workspace: BookkeeperWorkspace,
-  ) => Effect.Effect<BookkeeperWorkspace, RegisterWorkspaceError>;
-  readonly deleteWorkspace: (
-    id: WorkspaceId,
-  ) => Effect.Effect<BookkeeperWorkspace, DeleteWorkspaceError>;
-
-  readonly listProjects: (
-    workspaceId: WorkspaceId,
-    request: PaginationRequest,
-  ) => Effect.Effect<PaginationPage<BookkeeperProject>, ListProjectsError>;
-  readonly getProject: (
-    id: ProjectId,
-  ) => Effect.Effect<Option.Option<BookkeeperProject>, GetProjectError>;
-  readonly registerProject: (
-    project: BookkeeperProject,
-  ) => Effect.Effect<BookkeeperProject, RegisterProjectError>;
-  readonly deleteProject: (id: ProjectId) => Effect.Effect<BookkeeperProject, DeleteProjectError>;
-
-  readonly listIssues: (
-    projectId: ProjectId,
-    request: PaginationRequest,
-  ) => Effect.Effect<PaginationPage<BookkeeperIssue>, ListIssuesError>;
-  readonly getIssue: (id: IssueId) => Effect.Effect<Option.Option<BookkeeperIssue>, GetIssueError>;
-  readonly registerIssue: (
-    issue: BookkeeperIssue,
-  ) => Effect.Effect<BookkeeperIssue, RegisterIssueError>;
-  readonly deleteIssue: (id: IssueId) => Effect.Effect<BookkeeperIssue, DeleteIssueError>;
-
-  readonly getCounts: Effect.Effect<BookkeeperCounts, GetBookkeeperCountsError>;
-}
-
-class BookkeeperClient extends Context.Service<BookkeeperClient, IBookkeeperClient>()(
-  "@overseer/BookkeeperClient",
-) {}
-```
-
-The application-facing operations use `register` and `delete`; the HTTP adapter maps them to `PUT` and `DELETE`. `BookkeeperServer` is an Alchemy Durable Object with an inferred `{ fetch }` shape and no separate server interface.
-
-`BookkeeperClient` resolves the singleton namespace during Alchemy Init but suspends `getByName(BOOKKEEPER_ID)` inside `makeExecutionMemo`. The first Bookkeeper operation in a Workspace Durable Object invocation constructs the stub-backed `HttpApiClient`; later Bookkeeper operations in that same invocation reuse it. A later invocation receives a fresh client for its new Cloudflare I/O context. Because Bookkeeper has one fixed target, this client does not need the keyed Effect `Cache` used by `WorkspaceClient`.
-
-#### Initial Bookkeeper DDL
-
-```sql
-CREATE TABLE schema_migrations (
-  version INTEGER PRIMARY KEY,
-  applied_at TEXT NOT NULL
-);
-
-CREATE TABLE workspaces (
-  id TEXT PRIMARY KEY,
-  created_at TEXT NOT NULL,
-  updated_at TEXT NOT NULL,
-  deleted_at TEXT
-);
-
-CREATE TABLE projects (
-  id TEXT PRIMARY KEY,
-  workspace_id TEXT NOT NULL REFERENCES workspaces(id),
-  created_at TEXT NOT NULL,
-  updated_at TEXT NOT NULL,
-  deleted_at TEXT
-);
-
-CREATE TABLE issues (
-  id TEXT PRIMARY KEY,
-  project_id TEXT NOT NULL REFERENCES projects(id),
-  created_at TEXT NOT NULL,
-  updated_at TEXT NOT NULL,
-  deleted_at TEXT
-);
-
-CREATE INDEX projects_by_workspace
-  ON projects (workspace_id, deleted_at, id);
-
-CREATE INDEX issues_by_project
-  ON issues (project_id, deleted_at, id);
-```
-
-The Bookkeeper stores only identity, ownership, and timestamps. `deleted_at` is a tombstone; a null value means the indexed entity has not been deleted. `schema_migrations.version` versions the SQLite structure itself. The Bookkeeper should not store names, state, issue bodies, actor records, or per-row schema and projection metadata initially.
-
-#### Initial Bookkeeper HTTP Interface
-
-All routes are internal and versioned under `/v1`:
-
-```text
-GET    /v1/workspaces
-GET    /v1/workspaces/:workspaceId
-PUT    /v1/workspaces/:workspaceId
-DELETE /v1/workspaces/:workspaceId
-GET    /v1/projects?workspaceId=:workspaceId
-GET    /v1/projects/:projectId
-PUT    /v1/projects/:projectId
-DELETE /v1/projects/:projectId
-GET    /v1/issues?projectId=:projectId
-GET    /v1/issues/:issueId
-PUT    /v1/issues/:issueId
-DELETE /v1/issues/:issueId
-GET    /v1/counts
-```
-
-`PUT` registers or refreshes an index projection and is idempotent. Registration preserves the original creation timestamp, rejects an ownership change for a Project or Issue, and does not allow `updatedAt` to move backward. A Project requires a live parent Workspace; an Issue requires a live parent Project.
-
-`DELETE` idempotently sets `deleted_at` and returns the resulting projection. Deleting a parent with live children is rejected. Tombstones are not initially restorable. Collection reads and counts exclude tombstones, while direct item reads return tombstoned records so reconciliation can distinguish deletion from an identity that never existed.
-
-Collection reads use the shared cursor pagination module. `GET /v1/counts` provides live collection counts without requiring callers to enumerate every row. Actor indexing is deferred: `Actor` is currently an attribution value, not an independently addressable entity. HTTP endpoints are explicitly versioned through their `/v1` route prefix; schemas do not require version suffixes. The SQLite structure is versioned through Effect SQL migrations rather than a per-row version column.
-
-#### Bookkeeper-First Mutation Protocol
-
-Entity servers depend on their application-owned `BookkeeperClient`. Before a mutating CRUD operation changes local Durable Object state, it must write its intended registration, update, or deletion to the Bookkeeper and receive confirmation. The entity server may proceed with its local mutation only after that confirmation.
-
-Bookkeeper and entity databases own their timestamps independently. Each service generates its timestamp immediately before its own write; timestamps are not passed between services or expected to match.
-
-Entity reads go directly to the entity server and do not confirm the entity through Bookkeeper. Collection reads remain Bookkeeper operations because no individual entity server owns a collection. The mutation protocol remains intentionally non-atomic across Durable Objects: a confirmed Bookkeeper operation followed by a failed local mutation requires retry, reconciliation, and recovery behavior.
-
-When the detailed protocol is designed, explore Effect `Scope`, `Effect.acquireRelease`, and `Effect.scoped` for reservation or lease lifetimes. The design should determine the operation record, idempotency key, expiration, retry, release, crash recovery, and whether Bookkeeper needs a separate operation-intent table.
-
-#### Bookkeeper Database and Migrations
-
-`BookkeeperDatabase` follows the same composition pattern as `WorkspaceDatabase`: its Layer depends on the generic Effect `SqlClient`, and `BookkeeperServer` provides `SqliteClient.layer({ storage: state.raw.storage })` inside the Durable Object runtime composition.
-
-`makeBookkeeperDatabase` owns and runs its bundled `SqliteMigrator` loader before it returns the database service implementation. Migration definitions remain private to the database module. The database Layer cannot complete until all pending migrations finish, so the HTTP handler cannot become available against an old schema. Migration failures reject Durable Object construction and are never ignored or moved into operation error types. Migration execution never occurs during Alchemy's planning pass, is not launched through `state.waitUntil`, and is not deferred until an arbitrary request.
+Workspace SQLite remains the immediate source of truth. Global directory, listing, and reporting capabilities will instead be rebuilt asynchronously from domain events through the EventQueue and event data lake. Existing Bookkeeper SQLite data is intentionally discarded when the retired Durable Object class is removed; no export or backfill is required.
 
 # Testing
 
-Overseer favors deployed-stack integration tests over every other test form. The primary acceptance suite deploys the actual `OverseerApi` Stack with `alchemy/Test/Vitest`, sends real HTTP requests through the Access-protected custom domain, crosses the Worker, application services, Durable Object HTTP boundaries, Bookkeeper, and SQLite storage, and then destroys the Stack. Every public feature and endpoint must have deployed-stack coverage for its success behavior and every caller-reachable error path. A feature is not complete merely because a unit, service integration, or local-runtime integration test covers it. The canonical test strategy and suite outline live in [`docs/testing.md`](docs/testing.md); detailed harness research and pinned API examples live in [`docs/research/alchemy-effect-vitest-testing.md`](docs/research/alchemy-effect-vitest-testing.md).
+Overseer favors deployed-stack integration tests over every other test form. The primary acceptance suite deploys the actual `OverseerApi` Stack with `alchemy/Test/Vitest`, sends real HTTP requests through the Access-protected custom domain, crosses the Worker, application services, Workspace Durable Object HTTP boundary, and SQLite storage, and then destroys the Stack. Every public feature and endpoint must have deployed-stack coverage for its success behavior and every caller-reachable error path. A feature is not complete merely because a unit, service integration, or local-runtime integration test covers it. The canonical test strategy and suite outline live in [`docs/testing.md`](docs/testing.md); detailed harness research and pinned API examples live in [`docs/research/alchemy-effect-vitest-testing.md`](docs/research/alchemy-effect-vitest-testing.md).
 
 The suite deploys one Stack once per suite file with `beforeAll(deploy(Stack))`, shares its output through Alchemy's lazy Effect accessor, waits for readiness with `Test.executeWhenReady`, and tears down with `afterAll(destroy(Stack))`. Keep one deployed-stack integration suite file initially so Vitest workers cannot race deployment and teardown. Organize that file by registering feature-specific test groups from non-test modules:
 
@@ -870,7 +683,7 @@ The public create payload contains `name`; the SDK generates the `WorkspaceId`. 
 - A separate GET returns the same persisted Workspace, proving the request crossed the deployed Durable Object and storage boundaries.
 - Distinct create requests produce distinct IDs and independent Durable Object state.
 - Missing, malformed, empty, whitespace-only, overlong, multiline/control-character, and otherwise contract-invalid names produce the declared request error without creating a Workspace.
-- The successful response proves the Bookkeeper-first registration path completed against the deployed Bookkeeper Durable Object; do not expose Bookkeeper's internal API solely for the test.
+- A successful response followed by a GET proves persistence completed in the deployed Workspace Durable Object.
 
 ### Get Workspace
 
@@ -896,7 +709,7 @@ The public create payload contains `name`; the SDK generates the `WorkspaceId`. 
 
 ### Concurrency and Boundary Cases
 
-- Concurrent mutations against one Workspace are exercised against the deployed Stack to verify the Durable Object and mutation semaphore prevent corruption. Assertions describe legal observable outcomes rather than assuming network arrival order.
+- Concurrent mutations against one Workspace are exercised against the deployed Stack to verify Durable Object serialization and SQLite transactions prevent corruption. Assertions describe legal observable outcomes rather than assuming network arrival order.
 - Requests with wrong methods, malformed JSON, unsupported content types, and unexpected payload fields cover the public protocol contract where Effect HTTP API behavior is intentionally part of Overseer's API.
 - Response parsing uses the public Schemas. Raw status and body assertions remain available for malformed requests and Access edge responses that cannot be decoded as application success/error values.
 
@@ -904,7 +717,7 @@ The public create payload contains `name`; the SDK generates the `WorkspaceId`. 
 
 Maintain an endpoint matrix beside the integration suite that lists every declared success and error variant and points to its test. Caller-inducible paths—authentication failure, malformed input, unknown IDs, illegal transitions, ownership failures, conflicts, and invalid cursors as those endpoints arrive—must run against the actual deployed Stack on every PR.
 
-Some expected internal failures cannot be safely induced through the production public API: `database_unavailable`, `stored_workspace_invalid`, `workspace_registration_failed`, and `workspace_id_mismatch` are examples in the current Workspace modules. Never add production test-only endpoints, corrupt-storage switches, or fault flags merely to reach them. Prefer, in order:
+Some expected internal failures cannot be safely induced through the production public API: `database_unavailable`, `stored_workspace_invalid`, and `workspace_id_mismatch` are examples in the current Workspace modules. Never add production test-only endpoints, corrupt-storage switches, or fault flags merely to reach them. Prefer, in order:
 
 1. an additional Alchemy-deployed scenario Stack using the same public handlers with a controlled failing or corrupt dependency Layer;
 2. a deployed-stack integration test through an existing operational boundary that naturally creates the condition;
@@ -926,4 +739,4 @@ The default local and automated `test` command runs unit tests followed by the c
 
 # To-dos
 
-- Explore a daily janitor Cron job or Durable Workflow that audits Bookkeeper records against all Workspace, Project, and Issue servers and reconciles inconsistencies.
+- Build asynchronous global Workspace, Project, and Issue projections from EventQueue events in the event data lake.

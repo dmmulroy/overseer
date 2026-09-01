@@ -20,14 +20,14 @@ export type ProjectEventSnapshotV1 = typeof ProjectEventSnapshotV1.Type;
 /** Records the initial creation of a Project. */
 export const ProjectCreateEventV1 = Schema.Struct({
   ...OverseerEventEnvelopeFields.fields,
-  type: Schema.tag("project.create.v1"),
+  type: Schema.Literal("project.create.v1"),
   payload: Schema.Struct({ project: ProjectEventSnapshotV1 }),
 });
 
 /** Records an actual change to a Project display name. */
 export const ProjectRenameEventV1 = Schema.Struct({
   ...OverseerEventEnvelopeFields.fields,
-  type: Schema.tag("project.rename.v1"),
+  type: Schema.Literal("project.rename.v1"),
   payload: Schema.Struct({
     project: ProjectEventSnapshotV1,
     previousName: Project.fields.name,
@@ -37,20 +37,20 @@ export const ProjectRenameEventV1 = Schema.Struct({
 /** Records an active-to-archived Project transition. */
 export const ProjectArchiveEventV1 = Schema.Struct({
   ...OverseerEventEnvelopeFields.fields,
-  type: Schema.tag("project.archive.v1"),
+  type: Schema.Literal("project.archive.v1"),
   payload: Schema.Struct({ project: ProjectEventSnapshotV1 }),
 });
 
 /** Records an archived-to-active Project transition. */
 export const ProjectUnarchiveEventV1 = Schema.Struct({
   ...OverseerEventEnvelopeFields.fields,
-  type: Schema.tag("project.unarchive.v1"),
+  type: Schema.Literal("project.unarchive.v1"),
   payload: Schema.Struct({ project: ProjectEventSnapshotV1 }),
 });
 
 /** Records deletion while preserving the final Project snapshot. */
 export const ProjectDeleteEventV1 = Schema.Struct({
   ...OverseerEventEnvelopeFields.fields,
-  type: Schema.tag("project.delete.v1"),
+  type: Schema.Literal("project.delete.v1"),
   payload: Schema.Struct({ project: ProjectEventSnapshotV1 }),
 });

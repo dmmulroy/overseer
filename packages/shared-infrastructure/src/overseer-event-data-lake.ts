@@ -5,7 +5,7 @@ import { Effect } from "effect";
 
 /**
  * Creates the raw Overseer event lake and independently replaceable Workspace and Project
- * snapshot projections.
+ * projections.
  */
 export const OverseerEventDataLakeResources = Effect.gen(function* () {
   const { accountId } = yield* yield* Cloudflare.CloudflareEnvironment;
@@ -93,29 +93,26 @@ export const OverseerEventDataLakeResources = Effect.gen(function* () {
     format: { type: "parquet", compression: "zstd" },
   });
 
-  const workspaceSnapshotsSink = yield* Cloudflare.Pipelines.Sink(
-    "OverseerWorkspaceSnapshotsSink",
-    {
-      name: "overseer_workspace_snapshots_sink",
-      type: "r2_data_catalog",
-      config: {
-        bucket: catalog.bucketName,
-        namespace: "overseer",
-        tableName: "workspace_snapshots",
-        token: catalogToken.value,
-        rollingPolicy: { intervalSeconds: 60 },
-      },
-      format: { type: "parquet", compression: "zstd" },
-    },
-  );
-
-  const projectSnapshotsSink = yield* Cloudflare.Pipelines.Sink("OverseerProjectSnapshotsSink", {
-    name: "overseer_project_snapshots_sink",
+  const workspaceSink = yield* Cloudflare.Pipelines.Sink("OverseerWorkspaceSink", {
+    name: "overseer_workspace_sink",
     type: "r2_data_catalog",
     config: {
       bucket: catalog.bucketName,
       namespace: "overseer",
-      tableName: "project_snapshots",
+      tableName: "workspace",
+      token: catalogToken.value,
+      rollingPolicy: { intervalSeconds: 60 },
+    },
+    format: { type: "parquet", compression: "zstd" },
+  });
+
+  const projectSink = yield* Cloudflare.Pipelines.Sink("OverseerProjectSink", {
+    name: "overseer_project_sink",
+    type: "r2_data_catalog",
+    config: {
+      bucket: catalog.bucketName,
+      namespace: "overseer",
+      tableName: "project",
       token: catalogToken.value,
       rollingPolicy: { intervalSeconds: 60 },
     },
@@ -137,11 +134,9 @@ SELECT
 FROM ${stream.name}`,
   });
 
-  const workspaceSnapshotsPipeline = yield* Cloudflare.Pipelines.Pipeline(
-    "OverseerWorkspaceSnapshotsPipeline",
-    {
-      name: "overseer_workspace_snapshots_pipeline",
-      sql: Output.interpolate`INSERT INTO ${workspaceSnapshotsSink.name}
+  const workspacePipeline = yield* Cloudflare.Pipelines.Pipeline("OverseerWorkspacePipeline", {
+    name: "overseer_workspace_pipeline",
+    sql: Output.interpolate`INSERT INTO ${workspaceSink.name}
 SELECT
   "eventId" AS event_id,
   type AS event_type,
@@ -163,14 +158,11 @@ WHERE "envelopeVersion" = 1
     'workspace.unarchive.v1',
     'workspace.delete.v1'
   )`,
-    },
-  );
+  });
 
-  const projectSnapshotsPipeline = yield* Cloudflare.Pipelines.Pipeline(
-    "OverseerProjectSnapshotsPipeline",
-    {
-      name: "overseer_project_snapshots_pipeline",
-      sql: Output.interpolate`INSERT INTO ${projectSnapshotsSink.name}
+  const projectPipeline = yield* Cloudflare.Pipelines.Pipeline("OverseerProjectPipeline", {
+    name: "overseer_project_pipeline",
+    sql: Output.interpolate`INSERT INTO ${projectSink.name}
 SELECT
   "eventId" AS event_id,
   type AS event_type,
@@ -193,8 +185,7 @@ WHERE "envelopeVersion" = 1
     'project.unarchive.v1',
     'project.delete.v1'
   )`,
-    },
-  );
+  });
 
   return {
     bucket,
@@ -202,9 +193,9 @@ WHERE "envelopeVersion" = 1
     stream,
     rawEventsSink,
     rawEventsPipeline,
-    workspaceSnapshotsSink,
-    workspaceSnapshotsPipeline,
-    projectSnapshotsSink,
-    projectSnapshotsPipeline,
+    workspaceSink,
+    workspacePipeline,
+    projectSink,
+    projectPipeline,
   };
 });

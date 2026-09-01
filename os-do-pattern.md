@@ -1,4 +1,4 @@
-Our Durable Object pattern is a **typed internal HTTP client/server architecture**, with Effect defining the contracts and Alchemy wiring the Cloudflare resources.
+Our Durable Object pattern is a **typed internal HTTP client/server architecture**, with Effect defining contracts and Alchemy wiring Cloudflare resources.
 
 ## Request flow
 
@@ -10,17 +10,13 @@ Public request
   → WorkspaceServer DO selected by WorkspaceId
   → Workspace HTTP handlers
   → Workspace SQLite
-
-                         └→ BookkeeperClient
-                           → singleton BookkeeperServer DO
-                           → Bookkeeper SQLite
 ```
 
-There is no real network hop between the Worker and DOs. The calls use Cloudflare DO stubs.
+There is no real network hop between the Worker and Durable Objects. Calls use Cloudflare Durable Object stubs.
 
 ## 1. Shared Effect HTTP contract
 
-Each DO has an `HttpApi` describing paths, payloads, responses, and typed errors:
+Each Durable Object has an `HttpApi` describing paths, payloads, responses, and typed errors:
 
 ```ts
 export class WorkspaceHttpApi extends HttpApi.make("WorkspaceHttpApi")
@@ -30,157 +26,58 @@ export class WorkspaceHttpApi extends HttpApi.make("WorkspaceHttpApi")
 
 `apps/api/src/durable-objects/workspaces/workspace-http-api.ts`
 
-That same contract drives both:
-
-- server routing and validation
-- generated client methods and response decoding
-
-This prevents the client and server protocols from drifting.
+The same contract drives server routing and validation plus generated client methods and response decoding. This prevents the client and server protocols from drifting.
 
 ## 2. Server side
 
-`WorkspaceServer` is an Alchemy Effect-native DO:
+`WorkspaceServer` is an Alchemy Effect-native Durable Object. Its composition root:
 
-```ts
-export class WorkspaceServer extends Cloudflare.DurableObject<WorkspaceServer>()(
-  "WorkspaceServer",
-  Effect.gen(function* () {
-    const state = yield* Cloudflare.DurableObjectState;
-    // construct instance dependencies
+1. obtains `Cloudflare.DurableObjectState`;
+2. adapts `state.raw.storage` with `SqliteClient`;
+3. provides `WorkspaceDatabase` to the Workspace HTTP handlers;
+4. converts the resulting API layer with `HttpRouter.toHttpEffect`;
+5. returns the `{ fetch }` implementation.
 
-    return Effect.gen(function* () {
-      const fetch = yield* HttpRouter.toHttpEffect(/* HttpApi layers */);
-      return { fetch };
-    });
-  }),
-) {}
-```
+Alchemy evaluates the outer constructor during dependency discovery. State-backed database acquisition and migrations therefore remain in the returned runtime Effect. Alchemy's Durable Object bridge turns the Effect handler into Cloudflare's native `fetch(Request): Response`; no separate HTTP server runs inside the Durable Object.
 
 `apps/api/src/durable-objects/workspaces/workspace-server.ts`
 
-The important split is:
-
-1. **Outer DO initialization**
-   - obtains `DurableObjectState`
-   - connects `state.raw.storage` to `SqliteClient`
-   - resolves instance-level services such as `BookkeeperClient`
-   - is also evaluated by Alchemy during dependency discovery
-
-2. **Inner runtime implementation**
-   - builds the `HttpApiBuilder` handler layer
-   - converts it with `HttpRouter.toHttpEffect`
-   - returns `{ fetch }`
-
-Alchemy’s `DurableObjectBridge` turns that Effect `fetch` handler into Cloudflare’s native DO `fetch(Request): Response`.
-
-We do not run an HTTP server inside the DO. The DO stub is the server adapter.
-
 ## 3. Client side
 
-The application does not expose namespaces or stubs. It exposes an Effect service:
+Application code receives the `WorkspaceClient` Effect service rather than a namespace or stub. The client:
 
-```ts
-export class WorkspaceClient extends Context.Service<WorkspaceClient, IWorkspaceClient>()(
-  "@overseer/WorkspaceClient",
-) {}
-```
+1. yields `WorkspaceServer` to obtain Alchemy's namespace handle;
+2. selects an instance with `namespace.getByName(workspaceId)`;
+3. adapts the stub into an Effect HTTP client with `Cloudflare.toHttpClient`;
+4. translates generated HTTP client failures into domain errors.
 
-`WorkspaceClient`:
+The internal `http://workspace.internal` hostname only constructs request URLs; `Cloudflare.toHttpClient` sends requests directly through `stub.fetch`.
 
-1. yields `WorkspaceServer`, obtaining Alchemy’s namespace handle
-2. selects an instance with `namespace.getByName(workspaceId)`
-3. adapts the stub into an Effect HTTP client:
-
-```ts
-HttpApiClient.makeWith(WorkspaceHttpApi, {
-  baseUrl: "http://workspace.internal",
-  httpClient: Cloudflare.toHttpClient(namespace.getByName(id)),
-});
-```
-
-`Cloudflare.toHttpClient` short-circuits requests to `stub.fetch`; the internal hostname is only used to construct request URLs.
-
-The generated HTTP client is then wrapped in application operations such as:
-
-```ts
-workspaceClient.getWorkspace(id);
-workspaceClient.renameWorkspace({ id, name });
-```
-
-Those wrappers hide transport details and translate HTTP/schema failures into domain errors.
+`apps/api/src/durable-objects/workspaces/workspace-client.ts`
 
 ## 4. Why `makeExecutionMemo` matters
 
-Alchemy evaluates Worker and DO initialization Effects during planning to discover bindings. At that point, yielding a namespace is valid, but calling:
+Alchemy can yield a namespace while planning, but the concrete runtime binding required by `namespace.getByName(...)` does not exist yet. `WorkspaceClient` therefore defers stub-backed client construction until an actual Worker invocation.
 
-```ts
-namespace.getByName(...)
-```
+`makeExecutionMemo` provides an execution-local cache keyed by `WorkspaceId`, so concurrent calls in one invocation share initialization while Cloudflare I/O objects are never reused across execution contexts.
 
-is not—the concrete runtime binding does not exist yet.
+## 5. Infrastructure discovery
 
-Therefore our clients defer stub construction until an actual Worker request or DO call:
-
-```ts
-const clients = yield * makeExecutionMemo(/* lazy client construction */);
-```
-
-`makeExecutionMemo` provides:
-
-- no stub creation during Alchemy planning
-- one memo/cache per Worker event or DO call
-- concurrent callers joining the same initialization
-- cleanup when the execution scope closes
-- no reuse of Cloudflare I/O objects across execution contexts
-
-For Workspaces, that execution-local cache is keyed by `WorkspaceId`. For Bookkeeper, it memoizes one client to the fixed `BOOKKEEPER_ID`.
-
-## 5. How Alchemy discovers everything
-
-The stack only explicitly creates the API Worker:
-
-```ts
-const api = yield * ApiWorker;
-```
-
-But the Effect dependency graph reaches the DOs:
+The stack explicitly creates the API Worker, and Alchemy discovers the Workspace Durable Object through the Effect dependency graph:
 
 ```text
 ApiWorker
   → overseerSdkLayer
   → WorkspaceClient
-  → yield* WorkspaceServer
-  → BookkeeperClient
-  → yield* BookkeeperServer
+  → WorkspaceServer
 ```
 
-Alchemy observes those yielded resources and automatically:
-
-- exports both DO classes from the Worker
-- creates the namespace bindings
-- generates SQLite DO migrations
-- wires the bindings in deployed Cloudflare
-- creates equivalent local workerd namespaces during `alchemy dev`
-
-So dependency injection and infrastructure declaration are effectively the same graph.
-
-## 6. Bookkeeper relationship
-
-`WorkspaceServer` injects a `BookkeeperClient` into its handlers. Workspace mutations can therefore perform a direct DO-to-DO call:
-
-```text
-WorkspaceServer(id)
-  → BookkeeperClient
-  → BookkeeperServer("bookkeeper")
-```
-
-Because this is a non-atomic cross-DO protocol, Workspace mutation handlers use a per-instance semaphore to preserve mutation ordering while the Bookkeeper request is suspended.
+Alchemy uses that graph to export the Durable Object class, create namespace bindings and SQLite migrations, and configure equivalent local workerd state.
 
 ## In short
 
-- **Effect `HttpApi`** is the shared protocol.
-- **DO server classes** turn handlers into an Effect `fetch`.
-- **Application clients** hide namespace/stub/generated-client details.
-- **`Cloudflare.toHttpClient`** sends internal HTTP directly through `stub.fetch`.
+- **Effect `HttpApi`** is the shared internal protocol.
+- **`WorkspaceServer`** owns Workspace SQLite persistence.
+- **`WorkspaceClient`** hides namespace, stub, and generated-client details.
 - **`makeExecutionMemo`** keeps runtime-only clients lazy and execution-scoped.
-- **Alchemy** discovers the DO dependency graph and provisions bindings, exports, migrations, and local workerd state.
+- **Alchemy** discovers and provisions the Worker-to-Durable-Object dependency graph.

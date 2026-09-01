@@ -19,14 +19,14 @@ export type WorkspaceEventSnapshotV1 = typeof WorkspaceEventSnapshotV1.Type;
 /** Records the initial creation of a Workspace. */
 export const WorkspaceCreateEventV1 = Schema.Struct({
   ...OverseerEventEnvelopeFields.fields,
-  type: Schema.tag("workspace.create.v1"),
+  type: Schema.Literal("workspace.create.v1"),
   payload: Schema.Struct({ workspace: WorkspaceEventSnapshotV1 }),
 });
 
 /** Records an actual change to a Workspace display name. */
 export const WorkspaceRenameEventV1 = Schema.Struct({
   ...OverseerEventEnvelopeFields.fields,
-  type: Schema.tag("workspace.rename.v1"),
+  type: Schema.Literal("workspace.rename.v1"),
   payload: Schema.Struct({
     workspace: WorkspaceEventSnapshotV1,
     previousName: Workspace.fields.name,
@@ -36,20 +36,20 @@ export const WorkspaceRenameEventV1 = Schema.Struct({
 /** Records an active-to-archived Workspace transition. */
 export const WorkspaceArchiveEventV1 = Schema.Struct({
   ...OverseerEventEnvelopeFields.fields,
-  type: Schema.tag("workspace.archive.v1"),
+  type: Schema.Literal("workspace.archive.v1"),
   payload: Schema.Struct({ workspace: WorkspaceEventSnapshotV1 }),
 });
 
 /** Records an archived-to-active Workspace transition. */
 export const WorkspaceUnarchiveEventV1 = Schema.Struct({
   ...OverseerEventEnvelopeFields.fields,
-  type: Schema.tag("workspace.unarchive.v1"),
+  type: Schema.Literal("workspace.unarchive.v1"),
   payload: Schema.Struct({ workspace: WorkspaceEventSnapshotV1 }),
 });
 
 /** Records deletion while preserving the final Workspace snapshot. */
 export const WorkspaceDeleteEventV1 = Schema.Struct({
   ...OverseerEventEnvelopeFields.fields,
-  type: Schema.tag("workspace.delete.v1"),
+  type: Schema.Literal("workspace.delete.v1"),
   payload: Schema.Struct({ workspace: WorkspaceEventSnapshotV1 }),
 });

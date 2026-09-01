@@ -109,7 +109,6 @@ export const overseerHttpHandlersLayer = HttpApiBuilder.group(
               (error): Effect.Effect<never, CreateWorkspaceApiError, CurrentRequestId> => {
                 switch (error.reason) {
                   case "workspace_id_mismatch":
-                  case "workspace_registration_failed":
                   case "stored_workspace_invalid":
                     return failWorkspaceOperation("create", Option.none());
                   case "database_unavailable":
@@ -154,7 +153,6 @@ export const overseerHttpHandlersLayer = HttpApiBuilder.group(
                 switch (error.reason) {
                   case "workspace_not_found":
                     return failWorkspaceNotFound(params.workspaceId, "rename");
-                  case "workspace_registration_failed":
                   case "stored_workspace_invalid":
                     return failWorkspaceOperation("rename", Option.some(params.workspaceId));
                   case "database_unavailable":
@@ -176,7 +174,6 @@ export const overseerHttpHandlersLayer = HttpApiBuilder.group(
                 switch (error.reason) {
                   case "workspace_not_found":
                     return failWorkspaceNotFound(params.workspaceId, "archive");
-                  case "workspace_registration_failed":
                   case "stored_workspace_invalid":
                     return failWorkspaceOperation("archive", Option.some(params.workspaceId));
                   case "database_unavailable":
@@ -198,7 +195,6 @@ export const overseerHttpHandlersLayer = HttpApiBuilder.group(
                 switch (error.reason) {
                   case "workspace_not_found":
                     return failWorkspaceNotFound(params.workspaceId, "unarchive");
-                  case "workspace_registration_failed":
                   case "stored_workspace_invalid":
                     return failWorkspaceOperation("unarchive", Option.some(params.workspaceId));
                   case "database_unavailable":

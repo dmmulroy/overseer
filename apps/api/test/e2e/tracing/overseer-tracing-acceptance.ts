@@ -5,11 +5,7 @@ import type { OverseerTestHarness } from "../harness/overseer-test-harness.ts";
 import { type AxiomTraceSpan, AxiomTraceQuery } from "./axiom-trace-query.ts";
 
 const expectedOverseerTraceServiceNames = new Set(["overseer-e2e-harness", "overseer-api-worker"]);
-const expectedOverseerTraceRuntimeComponents = new Set([
-  "api-worker",
-  "workspace-durable-object",
-  "bookkeeper-durable-object",
-]);
+const expectedOverseerTraceRuntimeComponents = new Set(["api-worker", "workspace-durable-object"]);
 
 /** Expected failure when Axiom never exposes complete distributed E2E trace coverage. */
 export class OverseerTraceCoverageIncompleteError extends Schema.TaggedError<OverseerTraceCoverageIncompleteError>()(
@@ -102,7 +98,7 @@ const waitForOverseerTraceCoverage = Effect.fn(
       new OverseerTraceCoverageIncompleteError({
         operation: "waitForOverseerTraceCoverage",
         message:
-          "Axiom did not expose complete parent-linked Overseer E2E traces before the acceptance deadline. Verify trace export for the harness, API Worker, Workspace Durable Object, and Bookkeeper Durable Object, then retry the E2E run.",
+          "Axiom did not expose complete parent-linked Overseer E2E traces before the acceptance deadline. Verify trace export for the harness, API Worker, and Workspace Durable Object, then retry the E2E run.",
         testRunId,
         candidateCount: traces.length,
       }),

@@ -1,5 +1,7 @@
 # Alchemy Effect Durable Object HTTP library design
 
+> Historical note: Overseer's Bookkeeper Durable Object was removed. Bookkeeper examples below document prior design research, not the current architecture.
+
 **Status:** Design note for possible extraction into a generic library.
 
 **Target versions:** Alchemy v2 and Effect v4.

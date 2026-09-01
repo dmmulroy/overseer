@@ -9,9 +9,9 @@ allowBuilds:
   workerd: true
 
 minimumReleaseAgeExclude:
-  - "@alchemy.run/cloudflare-runtime@2.0.0-beta.74"
-  - "@alchemy.run/floci@2.0.0-beta.74"
-  - "@alchemy.run/node-utils@2.0.0-beta.74"
+  - "@alchemy.run/cloudflare-runtime@2.0.0-beta.76"
+  - "@alchemy.run/floci@2.0.0-beta.76"
+  - "@alchemy.run/node-utils@2.0.0-beta.76"
   - "@distilled.cloud/aws@1.0.0-rc.6"
   - "@distilled.cloud/axiom@1.0.0-rc.6"
   - "@distilled.cloud/cloudflare@1.0.0-rc.6"
@@ -20,7 +20,7 @@ minimumReleaseAgeExclude:
   - "@distilled.cloud/hetzner@1.0.0-rc.6"
   - "@distilled.cloud/neon@1.0.0-rc.6"
   - "@distilled.cloud/planetscale@1.0.0-rc.6"
-  - alchemy@2.0.0-beta.74
+  - alchemy@2.0.0-beta.76
   - "@cloudflare/workers-types@5.20260825.1"
   - "@voidzero-dev/vite-plus-core@0.3.0"
   - "@voidzero-dev/vite-plus-darwin-arm64@0.3.0"
@@ -67,9 +67,6 @@ overrides:
   lodash: "4.18.1"
   valibot: "1.4.2"
   vite: "npm:@voidzero-dev/vite-plus-core@0.3.0"
-
-patchedDependencies:
-  alchemy: patches/alchemy-beta74-delete-when-upgrading-to-beta75.patch
 
 peerDependencyRules:
   allowedVersions:

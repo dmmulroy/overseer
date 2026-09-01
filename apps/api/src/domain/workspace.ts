@@ -56,7 +56,6 @@ export type Workspace = typeof Workspace.Type;
 
 const CreateWorkspaceFailureReason = Schema.Literals([
   "workspace_id_mismatch",
-  "workspace_registration_failed",
   "database_unavailable",
   "stored_workspace_invalid",
 ]);
@@ -71,8 +70,6 @@ export class CreateWorkspaceError extends Schema.TaggedError<CreateWorkspaceErro
     switch (this.reason) {
       case "workspace_id_mismatch":
         return "Workspace creation rejected because this Durable Object already owns another identity";
-      case "workspace_registration_failed":
-        return "Workspace creation failed because the Workspace could not be registered with Bookkeeper";
       case "database_unavailable":
         return "Workspace creation failed because the Workspace database is unavailable";
       case "stored_workspace_invalid":
@@ -107,7 +104,6 @@ export class GetWorkspaceError extends Schema.TaggedError<GetWorkspaceError>()(
 
 const RenameWorkspaceFailureReason = Schema.Literals([
   "workspace_not_found",
-  "workspace_registration_failed",
   "database_unavailable",
   "stored_workspace_invalid",
 ]);
@@ -122,8 +118,6 @@ export class RenameWorkspaceError extends Schema.TaggedError<RenameWorkspaceErro
     switch (this.reason) {
       case "workspace_not_found":
         return "Workspace rename failed because the Workspace has not been initialized";
-      case "workspace_registration_failed":
-        return "Workspace rename failed because the Workspace update could not be registered with Bookkeeper";
       case "database_unavailable":
         return "Workspace rename failed because the Workspace database is unavailable";
       case "stored_workspace_invalid":
@@ -134,7 +128,6 @@ export class RenameWorkspaceError extends Schema.TaggedError<RenameWorkspaceErro
 
 const ArchiveWorkspaceFailureReason = Schema.Literals([
   "workspace_not_found",
-  "workspace_registration_failed",
   "database_unavailable",
   "stored_workspace_invalid",
 ]);
@@ -149,8 +142,6 @@ export class ArchiveWorkspaceError extends Schema.TaggedError<ArchiveWorkspaceEr
     switch (this.reason) {
       case "workspace_not_found":
         return "Workspace archive failed because the Workspace has not been initialized";
-      case "workspace_registration_failed":
-        return "Workspace archive failed because the Workspace update could not be registered with Bookkeeper";
       case "database_unavailable":
         return "Workspace archive failed because the Workspace database is unavailable";
       case "stored_workspace_invalid":
@@ -161,7 +152,6 @@ export class ArchiveWorkspaceError extends Schema.TaggedError<ArchiveWorkspaceEr
 
 const UnarchiveWorkspaceFailureReason = Schema.Literals([
   "workspace_not_found",
-  "workspace_registration_failed",
   "database_unavailable",
   "stored_workspace_invalid",
 ]);
@@ -176,8 +166,6 @@ export class UnarchiveWorkspaceError extends Schema.TaggedError<UnarchiveWorkspa
     switch (this.reason) {
       case "workspace_not_found":
         return "Workspace unarchive failed because the Workspace has not been initialized";
-      case "workspace_registration_failed":
-        return "Workspace unarchive failed because the Workspace update could not be registered with Bookkeeper";
       case "database_unavailable":
         return "Workspace unarchive failed because the Workspace database is unavailable";
       case "stored_workspace_invalid":

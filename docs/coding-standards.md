@@ -423,14 +423,14 @@ operation.pipe(
       Effect.fail(
         new RegisterWorkspaceError({
           reason: "StoredDataInvalid",
-          message: "Bookkeeper failed to register Workspace",
+          message: "Workspace registry failed to register Workspace",
         }),
       ),
     SqlError: () =>
       Effect.fail(
         new RegisterWorkspaceError({
           reason: "PersistenceFailed",
-          message: "Bookkeeper failed to register Workspace",
+          message: "Workspace registry failed to register Workspace",
         }),
       ),
   }),
@@ -448,9 +448,9 @@ When an `Effect.fn` whole-function transform is already a pipeable combinator, p
 Do not wrap it in `(effect) => effect.pipe(...)`:
 
 ```ts
-const registerWorkspace = Effect.fn("BookkeeperClient.registerWorkspace")(
-  function* (workspace: BookkeeperWorkspace) {
-    return yield* client.registerWorkspace(workspace);
+const registerWorkspace = Effect.fn("WorkspaceRegistry.registerWorkspace")(
+  function* (workspace: Workspace) {
+    return yield* registry.registerWorkspace(workspace);
   },
   Effect.catchTags({
     RegisterWorkspaceError: (error) => Effect.fail(error),
@@ -473,22 +473,20 @@ Export a Layer value with the dependency requirement instead of a factory that a
 as a plain function argument:
 
 ```ts
-/** Bookkeeper HTTP handlers backed by the contextual Bookkeeper database. */
-export const bookkeeperHttpHandlersLayer = HttpApiBuilder.group(
-  BookkeeperHttpApi,
-  "bookkeeper",
+/** Workspace HTTP handlers backed by the contextual Workspace database. */
+export const workspaceHttpHandlersLayer = HttpApiBuilder.group(
+  WorkspaceHttpApi,
+  "workspace",
   (handlers) =>
     Effect.gen(function* () {
-      const database = yield* BookkeeperDatabase;
+      const database = yield* WorkspaceDatabase;
 
-      return handlers.handle("getWorkspace", ({ params }) =>
-        database.getWorkspace(params.workspaceId),
-      );
+      return handlers.handle("getWorkspace", () => database.getWorkspace());
     }),
 );
 
-const configuredBookkeeperHttpHandlersLayer = bookkeeperHttpHandlersLayer.pipe(
-  Layer.provide(bookkeeperDatabaseLayer),
+const configuredWorkspaceHttpHandlersLayer = workspaceHttpHandlersLayer.pipe(
+  Layer.provide(workspaceDatabaseLayer),
 );
 ```
 

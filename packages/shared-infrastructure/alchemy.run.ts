@@ -15,6 +15,7 @@ import {
   OverseerProductionTracesDatasetResource,
 } from "./src/axiom/overseer-production-trace-resources.ts";
 import { OverseerEventDataLakeResources } from "./src/overseer-event-data-lake.ts";
+import { OverseerEventQueueResource } from "./src/overseer-event-queue.ts";
 import { OverseerSharedInfrastructureStack } from "./src/overseer-shared-infrastructure-stack.ts";
 
 /** Deploys account-wide Cloudflare resources shared across independently managed Overseer apps. */
@@ -32,6 +33,7 @@ export default OverseerSharedInfrastructureStack.make(
     const axiomProductionTraceQueryToken = yield* OverseerProductionTraceQueryTokenResource;
     const emailAllowlistAccessPolicy = yield* OverseerEmailAllowlistAccessPolicyResource;
     const eventDataLake = yield* OverseerEventDataLakeResources;
+    const eventQueue = yield* OverseerEventQueueResource;
 
     return {
       axiomE2eTraceApiBaseUrl: axiomE2eTracesDataset.apiBaseUrl,
@@ -50,6 +52,8 @@ export default OverseerSharedInfrastructureStack.make(
       eventDataBucketName: eventDataLake.bucket.bucketName,
       eventDataCatalogUri: eventDataLake.catalog.catalogUri,
       eventDataWarehouseName: eventDataLake.catalog.name,
+      eventQueueId: eventQueue.queueId,
+      eventQueueName: eventQueue.queueName,
       eventStreamId: eventDataLake.stream.streamId,
     };
   }),

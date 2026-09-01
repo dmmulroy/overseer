@@ -37,5 +37,8 @@ export type EncodedOverseerEvent = typeof OverseerEvent.Encoded;
 /** Encode a parsed event for a durable ingestion boundary. */
 export const encodeOverseerEvent = Schema.encodeEffect(OverseerEvent);
 
+/** Serialize one parsed event into its canonical durable JSON representation. */
+export const serializeOverseerEvent = Schema.encodeEffect(Schema.fromJsonString(OverseerEvent));
+
 /** Parse an event received from serialized storage or transport. */
 export const parseOverseerEvent = Schema.decodeUnknownEffect(OverseerEvent);

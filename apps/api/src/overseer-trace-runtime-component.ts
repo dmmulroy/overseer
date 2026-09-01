@@ -4,7 +4,6 @@ import { Effect, Schema } from "effect";
 export const OverseerTraceRuntimeComponent = Schema.Literals([
   "api-worker",
   "workspace-durable-object",
-  "bookkeeper-durable-object",
 ]);
 
 /** Parsed runtime component attached to every span created while handling one event. */

@@ -1,10 +1,12 @@
-import { Schema } from "effect";
+import { Effect, Schema } from "effect";
 import { Actor } from "../domain/actor.ts";
 import { OverseerEventId } from "./event-identity.ts";
 import { OverseerEventMetadata } from "./event-origin.ts";
 
 /** Version of the common encoded Overseer event envelope. */
-export const OverseerEventEnvelopeVersion = Schema.Literal(1);
+export const OverseerEventEnvelopeVersion = Schema.Literal(1).pipe(
+  Schema.withConstructorDefault(Effect.succeed(1)),
+);
 
 /** Overseer component that originally emitted an event. */
 export const OverseerEventSource = Schema.Literals([

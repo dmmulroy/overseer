@@ -29,24 +29,6 @@ it.effect("keeps Effect HTTP prefixes and appends normalized Overseer routes", (
       "http.server POST /v1/workspaces/:workspaceId/rename",
     );
     assert.strictEqual(
-      clientSpanName(
-        HttpClientRequest.put(
-          "http://bookkeeper.internal/v1/projects/project_01KZGWRATYFXD8QCG7QTKG5C3S",
-        ),
-      ),
-      "http.client PUT /v1/projects/:projectId",
-    );
-    assert.strictEqual(
-      serverSpanName(
-        HttpServerRequest.fromWeb(
-          new Request("http://bookkeeper.internal/v1/issues/not-a-valid-id", {
-            method: "DELETE",
-          }),
-        ),
-      ),
-      "http.server DELETE /v1/issues/:issueId",
-    );
-    assert.strictEqual(
       serverSpanName(HttpServerRequest.fromWeb(new Request("https://overseer.test/"))),
       "http.server GET /",
     );

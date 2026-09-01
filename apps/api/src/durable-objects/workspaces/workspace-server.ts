@@ -4,7 +4,6 @@ import type { HttpEffect } from "alchemy/Http";
 import { Effect, Layer } from "effect";
 import { HttpRouter } from "effect/unstable/http";
 import { HttpApiBuilder } from "effect/unstable/httpapi";
-import { BookkeeperClient, bookkeeperClientLayer } from "../bookkeeper/bookkeeper-client.ts";
 import { durableObjectBaseHttpServerLayer } from "../durable-object-base-http-server-layer.ts";
 import { workspaceDatabaseLayerWithoutDependencies } from "./workspace-database.ts";
 import { workspaceHttpHandlersLayer } from "./workspace-http-handlers.ts";
@@ -20,24 +19,25 @@ interface WorkspaceServerContract {
 export class WorkspaceServer extends Cloudflare.DurableObject<
   WorkspaceServer,
   WorkspaceServerContract
->()("WorkspaceServer") {}
+>()("WorkspaceServer", {
+  // Preserve Workspace SQLite when the hosting API Worker moves to a new physical script name.
+  transferredFrom: "OverseerApi",
+}) {}
 
-/** Hosts the Workspace Durable Object while preserving its Bookkeeper client requirement. */
+/** Hosts the Workspace Durable Object with its instance-local SQLite database. */
 export const workspaceServerLayerWithoutDependencies: Layer.Layer<
   WorkspaceServer,
   never,
-  Cloudflare.Worker | BookkeeperClient
-> = WorkspaceServer.make<BookkeeperClient>(
+  Cloudflare.Worker
+> = WorkspaceServer.make<never>(
   Effect.gen(function* () {
     const state = yield* Cloudflare.DurableObjectState;
-    const bookkeeperClient = yield* BookkeeperClient;
 
     const workspaceDatabaseLayer = workspaceDatabaseLayerWithoutDependencies.pipe(
       Layer.provide(SqliteClient.layer({ storage: state.raw.storage })),
     );
     const workspaceHandlersLayer = workspaceHttpHandlersLayer.pipe(
       Layer.provide(workspaceDatabaseLayer),
-      Layer.provide(Layer.succeed(BookkeeperClient, bookkeeperClient)),
     );
 
     return Effect.gen(function* () {
@@ -54,9 +54,8 @@ export const workspaceServerLayerWithoutDependencies: Layer.Layer<
   }),
 );
 
-/** Hosts the Workspace Durable Object with its production Bookkeeper client. */
+/** Hosts the production Workspace Durable Object implementation. */
 const workspaceServerLayer = workspaceServerLayerWithoutDependencies.pipe(
-  Layer.provide(bookkeeperClientLayer),
   Layer.provideMerge(overseerHttpSpanNameLayer),
 );
 

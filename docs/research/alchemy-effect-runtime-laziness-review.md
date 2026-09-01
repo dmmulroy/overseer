@@ -1,5 +1,7 @@
 # Alchemy + Effect runtime laziness review
 
+> Historical note: Overseer's Bookkeeper Durable Object was removed. The analysis below records the former implementation and is not current architecture guidance.
+
 **Scope.** This review covers the current working tree, not only `HEAD`: `BookkeeperClient` construction, its use from `WorkspaceServer`, and `ApiWorker` hostname/deployment configuration. Primary sources inspected were the vendored Alchemy beta.67 repository and website, its tests/examples, the installed `alchemy@2.0.0-beta.67`, the vendored Effect beta.102 repository and `ai-docs`, the installed `effect@4.0.0-beta.102`, and the current `apps/api` implementation. The installed Alchemy source files relevant here are byte-for-byte identical to `repos/alchemy`; installed Effect's `HttpApiClient.ts` is identical, while installed `Layer.ts` and `Effect.ts` differ from the vendored files only in generated API-documentation expansion around the relevant definitions, not in the constructor implementations discussed below.
 
 ## Verdict

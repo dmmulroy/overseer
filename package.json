@@ -9,6 +9,8 @@
   "type": "module",
   "scripts": {
     "check": "vp check && pnpm test:unit",
+    "plan:production": "vp run @overseer/api#plan:production",
+    "deploy:production": "vp run @overseer/api#deploy:production",
     "deploy:api": "vp run @overseer/api#deploy:production",
     "deploy:shared-infrastructure": "vp run @overseer/shared-infrastructure#deploy:production",
     "destroy:production:api": "vp run @overseer/api#destroy:production",
@@ -25,7 +27,7 @@
     "@effect/platform-node": "4.0.0-rc.112",
     "@oxlint/plugins": "1.80.0",
     "@types/node": "26.3.0",
-    "alchemy": "2.0.0-beta.74",
+    "alchemy": "2.0.0-beta.76",
     "effect": "4.0.0-rc.112",
     "oxlint": "1.80.0",
     "vite": "npm:@voidzero-dev/vite-plus-core@0.3.0",

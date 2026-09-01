@@ -4,7 +4,7 @@
 
 Overseer favors deployed-stack integration tests over every other test form. These tests exercise Overseer end to end through its deployed public API.
 
-The acceptance suite deploys a fresh `OverseerApi` Stack with `alchemy/Test/Vitest`, sends real HTTP requests through its Cloudflare Access-protected custom domain, exercises the Worker, application services, Durable Object HTTP boundaries, Bookkeeper, and SQLite storage, and destroys the Stack afterward. A target-equivalent local suite runs the same feature tests through Alchemy's workerd infrastructure for fast iteration, but it does not replace deployed acceptance.
+The acceptance suite deploys a fresh `OverseerApi` Stack with `alchemy/Test/Vitest`, sends real HTTP requests through its Cloudflare Access-protected custom domain, exercises the Worker, application services, Workspace Durable Object HTTP boundary, and SQLite storage, and destroys the Stack afterward. A target-equivalent local suite runs the same feature tests through Alchemy's workerd infrastructure for fast iteration, but it does not replace deployed acceptance.
 
 Every public feature and endpoint must have deployed end-to-end coverage for:
 
@@ -56,7 +56,7 @@ registerWorkspaceTestSuite(harness);
 
 `OverseerTestHarness.fromStack` owns `alchemy/Test/Vitest` deployment, readiness, service Layers, and teardown. Readiness verifies the API identity, then retries a safe known-absent Workspace read until the Workspace Durable Object returns its stable not-found contract. `TestExecutionTracing` wraps each running test in an execution root span, exports standard OTLP JSON directly to Axiom, and explicitly flushes after the root span closes. The finished `TestExecution.trace` stores `Completed` evidence containing the provider, permanent dataset name, and trace ID.
 
-Tracing acceptance is an explicit after-run check rather than an implicit product-test verdict. `AxiomTraceQuery` uses the query-only token to poll retained spans until every execution trace has a closed parent graph, every HTTP server span resolves to its HTTP client parent, every HTTP client span has its server child, and one execution trace contains the independently running `overseer-e2e-harness` and `overseer-api-worker` services plus the `api-worker`, `workspace-durable-object`, and `bookkeeper-durable-object` values of the `overseer.runtime.component` span attribute. Polling accommodates Axiom ingestion and telemetry emitted by late scope finalizers. The Durable Object classes share the API Worker's deployment and therefore remain runtime components of that OpenTelemetry service rather than claiming separate `service.name` resources. Product execution status remains determined only by the test Effect exit.
+Tracing acceptance is an explicit after-run check rather than an implicit product-test verdict. `AxiomTraceQuery` uses the query-only token to poll retained spans until every execution trace has a closed parent graph, every HTTP server span resolves to its HTTP client parent, every HTTP client span has its server child, and one execution trace contains the independently running `overseer-e2e-harness` and `overseer-api-worker` services plus the `api-worker` and `workspace-durable-object` values of the `overseer.runtime.component` span attribute. Polling accommodates Axiom ingestion and telemetry emitted by late scope finalizers. The Durable Object classes share the API Worker's deployment and therefore remain runtime components of that OpenTelemetry service rather than claiming separate `service.name` resources. Product execution status remains determined only by the test Effect exit.
 
 Deploy once per integration suite file. Keep deployed tests sequential so Vitest workers cannot race deployment and destruction.
 
@@ -109,7 +109,7 @@ POST /v1/workspaces/:workspaceId/unarchive
 - A separate GET returns the persisted Workspace.
 - Distinct creates return distinct IDs backed by independent Durable Object state.
 - Missing, malformed, empty, whitespace-only, overlong, multiline, control-character, and otherwise invalid names return the declared request error without creating a Workspace.
-- Success demonstrates that deployed Bookkeeper registration completed. Do not expose Bookkeeper's internal API solely for testing.
+- Success followed by a separate GET demonstrates that Workspace Durable Object persistence completed.
 
 ### Get Workspace
 
@@ -138,7 +138,7 @@ POST /v1/workspaces/:workspaceId/unarchive
 ### Protocol and concurrency
 
 - Wrong methods, malformed JSON, unsupported content types, and unexpected payload fields cover Overseer's declared HTTP behavior.
-- Concurrent mutations against one Workspace verify that deployed Durable Object serialization and the mutation semaphore prevent corruption.
+- Concurrent mutations against one Workspace verify that deployed Durable Object serialization and SQLite transactions prevent corruption.
 - Concurrency assertions describe legal final outcomes without assuming request arrival order.
 - Typed clients verify normal application responses. Raw status and body assertions cover Access edge and malformed protocol responses.
 
@@ -155,7 +155,7 @@ Caller-inducible errors must run against the production Stack. Examples include:
 - ownership failures and conflicts;
 - invalid pagination cursors.
 
-Some internal failures cannot be safely induced through the production public API, including the current Workspace reasons `database_unavailable`, `stored_workspace_invalid`, `workspace_registration_failed`, and `workspace_id_mismatch`.
+Some internal failures cannot be safely induced through the production public API, including the current Workspace reasons `database_unavailable`, `stored_workspace_invalid`, and `workspace_id_mismatch`.
 
 Never add production test-only endpoints, corruption switches, or fault flags. Prefer, in order:
 

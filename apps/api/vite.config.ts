@@ -4,6 +4,11 @@ import { defineConfig } from "vite-plus";
 const overseerApiViteConfig = defineConfig({
   run: {
     tasks: {
+      "plan:production": {
+        cache: false,
+        command: "alchemy plan --stage production",
+        dependsOn: ["@overseer/shared-infrastructure#plan:production"],
+      },
       "deploy:production": {
         cache: false,
         command: "alchemy deploy --stage production --yes",

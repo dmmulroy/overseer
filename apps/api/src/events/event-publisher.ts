@@ -17,6 +17,7 @@ export class PublishOverseerEventError extends Schema.TaggedError<PublishOversee
   {
     eventId: OverseerEventId,
     reason: PublishOverseerEventFailureReason,
+    serializedEvent: Schema.String,
   },
 ) {
   /** Searchable safe explanation and recovery guidance for the publication failure. */
