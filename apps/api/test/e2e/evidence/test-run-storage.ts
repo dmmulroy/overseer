@@ -104,7 +104,7 @@ export class TestRunStorage extends Context.Service<TestRunStorage, ITestRunStor
 ) {}
 
 const cloneTestRun = (run: TestRunValue): TestRunValue =>
-  Schema.decodeUnknownSync(TestRun)(Schema.encodeSync(TestRun)(run));
+  Schema.decodeSync(TestRun)(Schema.encodeSync(TestRun)(run));
 
 const cloneTestArtifact = (artifact: TestArtifactWrite): TestArtifact => ({
   ref: artifact.ref,

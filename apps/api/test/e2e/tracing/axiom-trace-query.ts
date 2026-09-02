@@ -51,7 +51,17 @@ const AxiomTraceQueryResponse = Schema.Struct({
   ]),
 });
 
-const parseAxiomTraceSpan = Schema.decodeUnknownEffect(AxiomTraceSpan);
+const AxiomTraceSpanCandidate = Schema.Struct({
+  traceId: Schema.UndefinedOr(TestTraceId),
+  spanId: Schema.UndefinedOr(TestSpanId),
+  parentSpanId: Schema.UndefinedOr(Schema.NullOr(TestSpanId)),
+  spanName: Schema.UndefinedOr(Schema.String),
+  spanKind: Schema.UndefinedOr(Schema.String),
+  serviceName: Schema.UndefinedOr(Schema.String),
+  runtimeComponent: Schema.UndefinedOr(Schema.NullOr(OverseerTraceRuntimeComponent)),
+}).pipe(Schema.decodeTo(AxiomTraceSpan));
+
+const refineAxiomTraceSpanCandidate = Schema.decodeEffect(AxiomTraceSpanCandidate);
 const parseAxiomTraceQueryResponse = HttpClientResponse.schemaBodyJson(AxiomTraceQueryResponse);
 
 /** Failure to query or parse retained Axiom trace spans. */
@@ -165,7 +175,7 @@ export const makeAxiomTraceQuery = (
           serviceName: serviceNames[index],
           runtimeComponent: runtimeComponents[index],
         };
-        return parseAxiomTraceSpan(row);
+        return refineAxiomTraceSpanCandidate(row);
       }).pipe(
         Effect.mapError(
           (cause) =>

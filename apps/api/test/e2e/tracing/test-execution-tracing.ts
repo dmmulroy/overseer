@@ -37,7 +37,8 @@ export class TestExecutionTracing extends Context.Service<
   ITestExecutionTracing
 >()("@overseer/test/TestExecutionTracing") {}
 
-const parseExportedTraceId = Schema.decodeUnknownEffect(TestTraceId);
+const ExportedTestTraceId = Schema.String.pipe(Schema.decodeTo(TestTraceId));
+const refineExportedTestTraceId = Schema.decodeEffect(ExportedTestTraceId);
 
 /** Constructs test execution tracing with the configured Axiom OTLP destination. */
 export const makeTestExecutionTracing = (
@@ -71,7 +72,7 @@ export const makeTestExecutionTracing = (
         const traceIdRef = yield* Ref.make(Option.none<TestTraceId>());
         const testExit = yield* Effect.gen(function* () {
           const span = yield* Tracer.ParentSpan;
-          const traceId = yield* parseExportedTraceId(span.traceId).pipe(Effect.orDie);
+          const traceId = yield* refineExportedTestTraceId(span.traceId).pipe(Effect.orDie);
           yield* Ref.set(traceIdRef, Option.some(traceId));
           return yield* productEffect;
         }).pipe(Effect.withSpan(input.spanName, { root: true }), Effect.exit);

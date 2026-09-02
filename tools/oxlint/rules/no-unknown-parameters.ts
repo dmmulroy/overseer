@@ -46,11 +46,11 @@ export const noUnknownParametersRule = defineRule({
     type: "problem",
     docs: {
       description:
-        "Disallow explicitly unknown function parameters except `cause`; expose an Effect Schema unknown decoder at the I/O boundary instead.",
+        "Disallow explicitly unknown function parameters except `cause`; parse genuine boundary input or preserve a known source type through typed refinement.",
     },
     messages: {
       unknownParameter:
-        "Parameter `{{parameter}}` accepts `unknown` without establishing its contract. Define the expected Schema and expose `Schema.decodeUnknownEffect(ExpectedSchema)` so the value becomes a strongly typed domain type at the earliest possible point, as close as possible to the I/O boundary where the data originated.",
+        "Parameter `{{parameter}}` accepts `unknown` without establishing its contract. For genuine I/O input, expose `Schema.decodeUnknownEffect(ExpectedSchema)` at the boundary. If callers already hold a known type, compose its owning source Schema with the stronger target via `Schema.decodeTo` and expose `Schema.decodeEffect` instead.",
     },
   },
   create(context) {

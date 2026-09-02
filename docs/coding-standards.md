@@ -79,6 +79,62 @@ const transformOperation = (operation: OpenApiOperation): OpenApiOperation => {
 };
 ```
 
+### Refine Known Values Without Widening
+
+Once a boundary has parsed a value, every later operation must accept that established type rather
+than treating the value as untrusted input again. Model additional checks as a typed refinement or
+transformation from the known source type to a stronger target type.
+
+Effect Schema transformations are not limited to `unknown -> Type`. Compose the schema that owns the
+established source type with the stronger target schema using `Schema.decodeTo`, then expose
+`Schema.decodeEffect`. The composed schema's encoded side remains the source schema's `Encoded` type,
+so the inferred refinement cannot accept unrelated values:
+
+```ts
+const CompleteWorkOSRole = WorkOS.Role.pipe(
+  Schema.decodeTo(
+    Schema.Struct({
+      id: Schema.String,
+      slug: Schema.String,
+      name: Schema.String,
+      description: Schema.NullOr(Schema.String),
+      type: Schema.Literals(["EnvironmentRole", "OrganizationRole"]),
+      resource_type_slug: Schema.String,
+      permissions: Schema.Array(Schema.String),
+      created_at: Schema.String,
+      updated_at: Schema.String,
+    }),
+  ),
+);
+
+type CompleteWorkOSRole = typeof CompleteWorkOSRole.Type;
+
+const refineCompleteWorkOSRole = Schema.decodeEffect(CompleteWorkOSRole);
+// (role: WorkOS.Role) => Effect.Effect<CompleteWorkOSRole, Schema.SchemaError>
+```
+
+When source and target representations differ, provide `Schema.decodeTo` with typed transformations
+between the source schema's `Type` and the target schema's `Encoded` type. The resulting decoder must
+still use `Schema.decodeEffect` so its input remains the composed schema's precise `Encoded` type.
+Use `Schema.encodeEffect` on the same composed schema when the reverse transformation is required.
+
+Do not expose `Schema.decodeUnknown*`, an `unknown` parameter, or another broad decoder for an
+operation whose callers already hold `WorkOS.Role`, a domain value, a parsed command, or any other
+precise type. That broad contract discards provenance, permits invalid call sites, and turns mistakes
+that the compiler could reject into runtime parse failures. Do not wrap a private unknown decoder
+when Effect Schema can represent the typed source directly; make the source schema part of the
+composed schema instead.
+
+Prefer, in order, a composed Effect Schema whose source schema owns the established input type, a
+typed smart constructor, or a typed refinement function when no source schema exists. Name the
+operation for what it does—`refineCompleteWorkOSRole` or `toAlchemyRoleState`, for example—rather
+than calling an already parsed value an unknown-input parse.
+
+Apply the same rule to encoding and intermediate representations. A known value must not pass through
+`unknown`, `object`, a generic record, JSON, or a broader primitive merely to make a transformation
+convenient. Preserve the source type until the code crosses a real I/O boundary or establishes a
+stronger type directly.
+
 Never erase a type and assert it back later. Chained assertions such as `value as unknown as T`,
 `value as any as T`, and equivalent multi-statement widening-and-casting sequences are prohibited.
 A type assertion does not parse, validate, or establish an invariant. If code deliberately loses
